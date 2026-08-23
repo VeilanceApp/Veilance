@@ -67,7 +67,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
     runtime: {
       onMessage,
       onInstalled: eventSlot(),
-      getManifest: () => ({ version: "0.4.0" }),
+      getManifest: () => ({ version: "0.4.1" }),
       getURL: (path) => `chrome-extension://veilance-test/${path}`
     }
   };

@@ -186,6 +186,57 @@
     }
   }
 
+  const IS_WINDOWS = (() => {
+    const clientHintPlatform = safeValue(() => globalThis.navigator?.userAgentData?.platform);
+    if (typeof clientHintPlatform === "string" && /^windows$/i.test(clientHintPlatform)) {
+      return true;
+    }
+
+    const legacyPlatform = safeValue(() => globalThis.navigator?.platform);
+    if (typeof legacyPlatform === "string" && /^win/i.test(legacyPlatform)) {
+      return true;
+    }
+
+    const userAgent = safeValue(() => globalThis.navigator?.userAgent);
+    return typeof userAgent === "string" && /windows/i.test(userAgent);
+  })();
+
+  function normalizeGpuAdapterOptions(options) {
+    if (
+      !IS_WINDOWS ||
+      options === null ||
+      (typeof options !== "object" && typeof options !== "function")
+    ) {
+      return options;
+    }
+
+    let powerPreference;
+    try {
+      powerPreference = Reflect.get(options, "powerPreference", options);
+    } catch {
+      return options;
+    }
+    if (powerPreference === undefined) return options;
+
+    try {
+      // Chromium currently ignores powerPreference on Windows and logs a
+      // warning for every request. Hide only that ignored hint while passing
+      // all current and future adapter options through unchanged.
+      return new Proxy(Object.create(null), {
+        get(_target, property) {
+          if (property === "powerPreference") return undefined;
+          return Reflect.get(options, property, options);
+        },
+        has(_target, property) {
+          if (property === "powerPreference") return false;
+          return Reflect.has(options, property);
+        }
+      });
+    } catch {
+      return options;
+    }
+  }
+
   function hyphenate(value) {
     return String(value)
       .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
@@ -425,7 +476,8 @@
   });
 
   const gpuPrototype = globalThis.GPU?.prototype || optionalPrototypes.gpu;
-  wrapMethod(gpuPrototype, "requestAdapter", () => {
+  wrapMethod(gpuPrototype, "requestAdapter", (args) => {
+    if (args.length > 0) args[0] = normalizeGpuAdapterOptions(args[0]);
     emit("webgpu", "fingerprinting", "WebGPU", "request-adapter");
   });
   wrapMethod(gpuPrototype, "getPreferredCanvasFormat", () => {
