@@ -5,6 +5,17 @@ const elements = {
   enabledCount: document.querySelector("#enabledCount"),
   builtInIndicators: document.querySelector("#builtInIndicators"),
   customIndicators: document.querySelector("#customIndicators"),
+  trackerDatabaseStatus: document.querySelector("#trackerDatabaseStatus"),
+  trackerDatabaseEnabled: document.querySelector("#trackerDatabaseEnabled"),
+  trackerAutoUpdateEnabled: document.querySelector("#trackerAutoUpdateEnabled"),
+  checkTrackerUpdatesButton: document.querySelector("#checkTrackerUpdatesButton"),
+  trackerCount: document.querySelector("#trackerCount"),
+  trackerSchedule: document.querySelector("#trackerSchedule"),
+  trackerLastChecked: document.querySelector("#trackerLastChecked"),
+  trackerRevision: document.querySelector("#trackerRevision"),
+  trackerUpdateError: document.querySelector("#trackerUpdateError"),
+  trackerRepositoryLink: document.querySelector("#trackerRepositoryLink"),
+  trackerUpdateLog: document.querySelector("#trackerUpdateLog"),
   resetIndicatorsButton: document.querySelector("#resetIndicatorsButton"),
   chooseFolderButton: document.querySelector("#chooseFolderButton"),
   indicatorFolderInput: document.querySelector("#indicatorFolderInput"),
@@ -309,6 +320,74 @@ function renderCustomIndicators() {
   }
 }
 
+function formatTrackerDate(value) {
+  if (!Number.isFinite(value)) return "Not checked yet";
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short"
+    }).format(new Date(value));
+  } catch {
+    return new Date(value).toLocaleString();
+  }
+}
+
+function trackerLogMeta(entry) {
+  const values = [formatTrackerDate(entry.timestamp), entry.trigger || "automatic"];
+  if (entry.added || entry.updated || entry.removed) {
+    values.push(`+${entry.added || 0} / ~${entry.updated || 0} / −${entry.removed || 0}`);
+  }
+  if (entry.skipped) values.push(`${entry.skipped} skipped`);
+  if (entry.warnings) values.push(`${entry.warnings} warnings`);
+  if (entry.revision) values.push(`rev ${String(entry.revision).slice(0, 12)}`);
+  return values;
+}
+
+function renderTrackerDatabase() {
+  const database = settingsData.trackerDatabase || {};
+  const trackerCount = Math.max(0, Number(database.trackerCount) || 0);
+  const intervalHours = Math.max(1, (Number(database.intervalMinutes) || 480) / 60);
+  const revision = String(database.sourceRevision || database.bundledRevision || "");
+  elements.trackerDatabaseEnabled.checked = database.databaseEnabled !== false;
+  elements.trackerAutoUpdateEnabled.checked = database.autoUpdateEnabled !== false;
+  elements.trackerCount.textContent = trackerCount.toLocaleString();
+  elements.trackerSchedule.textContent = database.autoUpdateEnabled === false
+    ? "Disabled"
+    : `Every ${intervalHours.toLocaleString()} hours`;
+  elements.trackerLastChecked.textContent = formatTrackerDate(database.lastCheckAt);
+  elements.trackerRevision.textContent = revision ? revision.slice(0, 12) : "Unavailable";
+  elements.trackerRevision.title = revision;
+  elements.trackerDatabaseStatus.textContent = database.databaseEnabled === false
+    ? `${trackerCount.toLocaleString()} downloaded · disabled`
+    : `${trackerCount.toLocaleString()} active`;
+  elements.trackerRepositoryLink.href = database.repository || elements.trackerRepositoryLink.href;
+  elements.trackerUpdateError.hidden = !database.lastError;
+  elements.trackerUpdateError.textContent = database.lastError || "";
+
+  const entries = Array.isArray(database.updateLog) ? database.updateLog : [];
+  if (!entries.length) {
+    elements.trackerUpdateLog.innerHTML = '<div class="empty-state">No tracker update checks recorded yet.</div>';
+    return;
+  }
+  elements.trackerUpdateLog.innerHTML = entries.map((entry) => {
+    const status = ["installed", "updated", "up-to-date", "error"].includes(entry.status)
+      ? entry.status
+      : "unknown";
+    return `
+      <div class="tracker-log-entry">
+        <span class="tracker-log-status ${escapeHtml(status)}">${escapeHtml(status)}</span>
+        <div class="tracker-log-copy">
+          <strong>${escapeHtml(entry.message || "Tracker database check completed.")}</strong>
+          <p>${escapeHtml((Number(entry.trackerCount) || 0).toLocaleString())} active tracker${Number(entry.trackerCount) === 1 ? "" : "s"}</p>
+          <div class="tracker-log-meta">
+            ${trackerLogMeta(entry).map((value) => `<span>${escapeHtml(value)}</span>`).join("")}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
 function renderWallet() {
   const publicKey = settingsData.wallet?.publicKey || "";
   elements.walletAddress.textContent = publicKey || settingsData.walletError || "Wallet unavailable";
@@ -327,6 +406,7 @@ async function loadSettings() {
   settingsData = await send({ type: "VEILANCE_GET_SETTINGS" });
   renderBuiltInIndicators();
   renderCustomIndicators();
+  renderTrackerDatabase();
   renderWallet();
   renderDatabase();
   updateEnabledCount();
@@ -445,6 +525,57 @@ elements.resetIndicatorsButton.addEventListener("click", async () => {
     showSaveStatus(error.message, true);
   } finally {
     elements.resetIndicatorsButton.disabled = false;
+  }
+});
+
+async function saveTrackerToggle(input, messageType, enabledMessage, disabledMessage) {
+  const previous = !input.checked;
+  input.disabled = true;
+  try {
+    const response = await send({ type: messageType, enabled: input.checked });
+    settingsData.trackerDatabase = response.trackerDatabase;
+    renderTrackerDatabase();
+    showSaveStatus(input.checked ? enabledMessage : disabledMessage);
+  } catch (error) {
+    input.checked = previous;
+    showSaveStatus(error.message, true);
+  } finally {
+    input.disabled = false;
+  }
+}
+
+elements.trackerDatabaseEnabled.addEventListener("change", () => {
+  void saveTrackerToggle(
+    elements.trackerDatabaseEnabled,
+    "VEILANCE_SET_TRACKER_DATABASE_ENABLED",
+    "Downloaded tracker matching enabled.",
+    "Downloaded tracker matching disabled. The database remains stored locally."
+  );
+});
+
+elements.trackerAutoUpdateEnabled.addEventListener("change", () => {
+  void saveTrackerToggle(
+    elements.trackerAutoUpdateEnabled,
+    "VEILANCE_SET_TRACKER_AUTO_UPDATE",
+    "Automatic tracker updates enabled. Veilance will check every eight hours.",
+    "Automatic tracker updates disabled. Manual checks remain available."
+  );
+});
+
+elements.checkTrackerUpdatesButton.addEventListener("click", async () => {
+  elements.checkTrackerUpdatesButton.disabled = true;
+  elements.checkTrackerUpdatesButton.textContent = "Checking…";
+  try {
+    const response = await send({ type: "VEILANCE_CHECK_TRACKER_UPDATES" });
+    settingsData.trackerDatabase = response.trackerDatabase;
+    renderTrackerDatabase();
+    showSaveStatus("Tracker database check completed.");
+  } catch (error) {
+    await loadSettings().catch(() => {});
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.checkTrackerUpdatesButton.disabled = false;
+    elements.checkTrackerUpdatesButton.textContent = "Check now";
   }
 });
 

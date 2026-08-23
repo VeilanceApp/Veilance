@@ -19,14 +19,27 @@ import {
   indicatorExists,
   isIndicatorEnabled,
   mergeIndicatorSettings,
-  parseIndicatorDocuments
+  parseIndicatorDocuments,
+  parseManagedTrackerDocuments,
+  parseManagedTrackerRecords
 } from "./lib/indicators.js";
+import {
+  TRACKER_DATABASE_ARCHIVE,
+  TRACKER_DATABASE_BUNDLE,
+  TRACKER_DATABASE_REPOSITORY,
+  TRACKER_UPDATE_INTERVAL_MINUTES
+} from "./config.js";
+import { diffTrackerSets, fetchTrackerArchive } from "./lib/tracker-updater.js";
 import { exportSolanaWallet, generateSolanaWallet, publicWalletRecord } from "./lib/wallet.js";
 
 const SESSION_STORAGE_KEY = "veilanceTabStatesV2";
 const INDICATOR_SETTINGS_KEY = "veilanceIndicatorSettingsV1";
 const CUSTOM_INDICATORS_KEY = "veilanceCustomIndicatorsV1";
+const MANAGED_TRACKERS_KEY = "veilanceManagedTrackersV1";
+const TRACKER_DATABASE_STATE_KEY = "veilanceTrackerDatabaseStateV1";
 const WALLET_STORAGE_KEY = "veilanceSolanaWalletV1";
+const TRACKER_UPDATE_ALARM = "veilanceTrackerDatabaseUpdateV1";
+const MAX_TRACKER_UPDATE_LOG = 50;
 const HISTORY_FLUSH_DELAY_MS = 200;
 
 const states = new Map();
@@ -35,7 +48,10 @@ const tabQueues = new Map();
 let sessionPersistTimer = null;
 let historyFlushTimer = null;
 let customIndicators = [];
+let managedTrackers = [];
 let indicatorSettings = mergeIndicatorSettings(null);
+let trackerDatabaseState = normalizeTrackerDatabaseState(null);
+let trackerSyncPromise = null;
 let wallet = null;
 let walletError = null;
 let historyStore = null;
@@ -75,13 +91,116 @@ function normalizeRestoredState(tabId, state) {
 function findingsFor(state) {
   const combined = [
     ...buildFindings(state),
-    ...evaluateCustomIndicators(state, customIndicators, indicatorSettings)
+    ...evaluateCustomIndicators(state, customIndicators, indicatorSettings),
+    ...(trackerDatabaseState.databaseEnabled
+      ? evaluateCustomIndicators(state, managedTrackers, null)
+      : [])
   ];
   const severityOrder = { high: 0, medium: 1, low: 2, notice: 3 };
   return combined.sort((a, b) =>
     (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9) ||
     String(a.title).localeCompare(String(b.title))
   );
+}
+
+function cleanTrackerLogEntry(value) {
+  return {
+    timestamp: Number.isFinite(value?.timestamp) ? value.timestamp : Date.now(),
+    trigger: String(value?.trigger || "automatic").slice(0, 24),
+    status: String(value?.status || "unknown").slice(0, 24),
+    message: String(value?.message || "").slice(0, 500),
+    trackerCount: Math.max(0, Number(value?.trackerCount) || 0),
+    added: Math.max(0, Number(value?.added) || 0),
+    updated: Math.max(0, Number(value?.updated) || 0),
+    removed: Math.max(0, Number(value?.removed) || 0),
+    skipped: Math.max(0, Number(value?.skipped) || 0),
+    warnings: Math.max(0, Number(value?.warnings) || 0),
+    revision: String(value?.revision || "").slice(0, 128)
+  };
+}
+
+function normalizeTrackerDatabaseState(value, trackerCount = 0) {
+  const state = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    databaseEnabled: state.databaseEnabled !== false,
+    autoUpdateEnabled: state.autoUpdateEnabled !== false,
+    trackerCount: Math.max(0, Number(state.trackerCount) || trackerCount || 0),
+    sourceCount: Math.max(0, Number(state.sourceCount) || trackerCount || 0),
+    skippedCount: Math.max(0, Number(state.skippedCount) || 0),
+    warningCount: Math.max(0, Number(state.warningCount) || 0),
+    lastCheckAt: Number.isFinite(state.lastCheckAt) ? state.lastCheckAt : null,
+    lastSuccessAt: Number.isFinite(state.lastSuccessAt) ? state.lastSuccessAt : null,
+    lastStatus: String(state.lastStatus || "bundled").slice(0, 32),
+    lastError: String(state.lastError || "").slice(0, 500),
+    sourceRevision: String(state.sourceRevision || "").slice(0, 128),
+    sourceEtag: String(state.sourceEtag || "").slice(0, 160),
+    archiveSha256: String(state.archiveSha256 || "").slice(0, 64),
+    bundledRevision: String(state.bundledRevision || "").slice(0, 128),
+    sourceGeneratedAt: String(state.sourceGeneratedAt || "").slice(0, 64),
+    updateLog: Array.isArray(state.updateLog)
+      ? state.updateLog.slice(0, MAX_TRACKER_UPDATE_LOG).map(cleanTrackerLogEntry)
+      : []
+  };
+}
+
+function addTrackerUpdateLog(entry) {
+  trackerDatabaseState.updateLog = [
+    cleanTrackerLogEntry(entry),
+    ...trackerDatabaseState.updateLog
+  ].slice(0, MAX_TRACKER_UPDATE_LOG);
+}
+
+function publicTrackerDatabaseState() {
+  return {
+    ...trackerDatabaseState,
+    repository: TRACKER_DATABASE_REPOSITORY,
+    intervalMinutes: TRACKER_UPDATE_INTERVAL_MINUTES,
+    updateInProgress: Boolean(trackerSyncPromise)
+  };
+}
+
+async function loadBundledTrackerDatabase() {
+  const response = await fetch(chrome.runtime.getURL(TRACKER_DATABASE_BUNDLE));
+  if (!response.ok) throw new Error(`Bundled tracker database returned HTTP ${response.status}`);
+  const bundle = await response.json();
+  if (bundle?.schemaVersion !== 1 || !Array.isArray(bundle.records)) {
+    throw new Error("Bundled tracker database has an unsupported format");
+  }
+  return { bundle, parsed: parseManagedTrackerRecords(bundle.records) };
+}
+
+async function installBundledTrackerDatabase() {
+  const { bundle, parsed } = await loadBundledTrackerDatabase();
+  if (!parsed.indicators.length) throw new Error("Bundled tracker database has no usable records");
+  managedTrackers = parsed.indicators;
+  const now = Date.now();
+  trackerDatabaseState = normalizeTrackerDatabaseState({
+    ...trackerDatabaseState,
+    trackerCount: managedTrackers.length,
+    sourceCount: parsed.sourceCount,
+    skippedCount: parsed.skippedCount,
+    warningCount: parsed.warningCount,
+    lastSuccessAt: now,
+    lastStatus: "bundled",
+    lastError: "",
+    sourceRevision: bundle.revision,
+    bundledRevision: bundle.revision,
+    sourceGeneratedAt: bundle.generatedAt
+  }, managedTrackers.length);
+  addTrackerUpdateLog({
+    timestamp: now,
+    trigger: "bundled",
+    status: "installed",
+    message: `Installed ${managedTrackers.length.toLocaleString()} bundled trackers.`,
+    trackerCount: managedTrackers.length,
+    skipped: parsed.skippedCount,
+    warnings: parsed.warningCount,
+    revision: bundle.revision
+  });
+  await chrome.storage.local.set({
+    [MANAGED_TRACKERS_KEY]: managedTrackers,
+    [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState
+  });
 }
 
 function summaryFor(state) {
@@ -123,6 +242,8 @@ const ready = (async () => {
     chrome.storage.local.get([
       INDICATOR_SETTINGS_KEY,
       CUSTOM_INDICATORS_KEY,
+      MANAGED_TRACKERS_KEY,
+      TRACKER_DATABASE_STATE_KEY,
       WALLET_STORAGE_KEY
     ]),
     historyStoreReady
@@ -135,6 +256,33 @@ const ready = (async () => {
     localStored?.[INDICATOR_SETTINGS_KEY],
     customIndicators
   );
+  const savedManagedTrackers = localStored?.[MANAGED_TRACKERS_KEY];
+  managedTrackers = Array.isArray(savedManagedTrackers) ? savedManagedTrackers.slice(0, 5000) : [];
+  trackerDatabaseState = normalizeTrackerDatabaseState(
+    localStored?.[TRACKER_DATABASE_STATE_KEY],
+    managedTrackers.length
+  );
+  if (!managedTrackers.length) {
+    try {
+      await installBundledTrackerDatabase();
+    } catch (error) {
+      const now = Date.now();
+      trackerDatabaseState.lastStatus = "error";
+      trackerDatabaseState.lastError = String(error?.message || error).slice(0, 500);
+      addTrackerUpdateLog({
+        timestamp: now,
+        trigger: "bundled",
+        status: "error",
+        message: trackerDatabaseState.lastError,
+        trackerCount: 0
+      });
+      await chrome.storage.local.set({ [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState });
+      console.error("Veilance could not load its bundled tracker database", error);
+    }
+  } else if (trackerDatabaseState.trackerCount !== managedTrackers.length) {
+    trackerDatabaseState.trackerCount = managedTrackers.length;
+    await chrome.storage.local.set({ [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState });
+  }
 
   const sessionValue = sessionStored?.[SESSION_STORAGE_KEY];
   if (sessionValue && typeof sessionValue === "object") {
@@ -165,7 +313,129 @@ const ready = (async () => {
   }
 
   if (pendingHistory.size) await flushHistory();
+  await configureTrackerAlarm();
 })();
+
+async function configureTrackerAlarm() {
+  if (!chrome.alarms) return;
+  if (!trackerDatabaseState.autoUpdateEnabled) {
+    await chrome.alarms.clear(TRACKER_UPDATE_ALARM);
+    return;
+  }
+  const existing = await chrome.alarms.get(TRACKER_UPDATE_ALARM);
+  if (existing?.periodInMinutes === TRACKER_UPDATE_INTERVAL_MINUTES) return;
+  chrome.alarms.create(TRACKER_UPDATE_ALARM, {
+    delayInMinutes: existing ? TRACKER_UPDATE_INTERVAL_MINUTES : 5,
+    periodInMinutes: TRACKER_UPDATE_INTERVAL_MINUTES
+  });
+}
+
+async function refreshTrackerFindings() {
+  for (const [tabId, state] of states) {
+    scheduleHistory(state);
+    await updateBadge(tabId, state);
+  }
+}
+
+function trackerUpdateMessage(parsed, changes) {
+  const changeText = `${changes.added} added, ${changes.updated} updated, ${changes.removed} removed`;
+  const validationText = parsed.skippedCount || parsed.warningCount
+    ? ` ${parsed.skippedCount} skipped; ${parsed.warningCount} filter warnings.`
+    : "";
+  return `${parsed.indicators.length.toLocaleString()} trackers active (${changeText}).${validationText}`;
+}
+
+async function performTrackerSync(trigger) {
+  const checkedAt = Date.now();
+  try {
+    const downloaded = await fetchTrackerArchive(TRACKER_DATABASE_ARCHIVE);
+    if (downloaded.archiveSha256 === trackerDatabaseState.archiveSha256) {
+      trackerDatabaseState.lastCheckAt = checkedAt;
+      trackerDatabaseState.lastSuccessAt = checkedAt;
+      trackerDatabaseState.lastStatus = "up-to-date";
+      trackerDatabaseState.lastError = "";
+      addTrackerUpdateLog({
+        timestamp: checkedAt,
+        trigger,
+        status: "up-to-date",
+        message: `${managedTrackers.length.toLocaleString()} trackers are already current.`,
+        trackerCount: managedTrackers.length,
+        skipped: trackerDatabaseState.skippedCount,
+        warnings: trackerDatabaseState.warningCount,
+        revision: trackerDatabaseState.sourceRevision
+      });
+      await chrome.storage.local.set({ [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState });
+      return publicTrackerDatabaseState();
+    }
+
+    const parsed = parseManagedTrackerDocuments(downloaded.documents);
+    if (!parsed.indicators.length) throw new Error("The tracker update contained no usable tracker records");
+    if (parsed.errorCount > Math.max(10, Math.floor(parsed.sourceCount * 0.05))) {
+      throw new Error(`Tracker update rejected because ${parsed.errorCount} records failed validation`);
+    }
+    if (managedTrackers.length >= 100 && parsed.indicators.length < managedTrackers.length / 2) {
+      throw new Error("Tracker update rejected because it would remove more than half of the active database");
+    }
+    const changes = diffTrackerSets(managedTrackers, parsed.indicators);
+    managedTrackers = parsed.indicators;
+    const changed = changes.added > 0 || changes.updated > 0 || changes.removed > 0;
+    trackerDatabaseState = normalizeTrackerDatabaseState({
+      ...trackerDatabaseState,
+      trackerCount: managedTrackers.length,
+      sourceCount: parsed.sourceCount,
+      skippedCount: parsed.skippedCount,
+      warningCount: parsed.warningCount,
+      lastCheckAt: checkedAt,
+      lastSuccessAt: checkedAt,
+      lastStatus: changed ? "updated" : "up-to-date",
+      lastError: "",
+      sourceRevision: downloaded.archiveSha256,
+      sourceEtag: downloaded.etag,
+      archiveSha256: downloaded.archiveSha256
+    }, managedTrackers.length);
+    addTrackerUpdateLog({
+      timestamp: checkedAt,
+      trigger,
+      status: changed ? "updated" : "up-to-date",
+      message: trackerUpdateMessage(parsed, changes),
+      trackerCount: managedTrackers.length,
+      ...changes,
+      skipped: parsed.skippedCount,
+      warnings: parsed.warningCount,
+      revision: downloaded.archiveSha256
+    });
+    await chrome.storage.local.set({
+      [MANAGED_TRACKERS_KEY]: managedTrackers,
+      [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState
+    });
+    await refreshTrackerFindings();
+    return publicTrackerDatabaseState();
+  } catch (error) {
+    trackerDatabaseState.lastCheckAt = checkedAt;
+    trackerDatabaseState.lastStatus = "error";
+    trackerDatabaseState.lastError = String(error?.message || error).slice(0, 500);
+    addTrackerUpdateLog({
+      timestamp: checkedAt,
+      trigger,
+      status: "error",
+      message: trackerDatabaseState.lastError,
+      trackerCount: managedTrackers.length,
+      skipped: trackerDatabaseState.skippedCount,
+      warnings: trackerDatabaseState.warningCount,
+      revision: trackerDatabaseState.sourceRevision
+    });
+    await chrome.storage.local.set({ [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState });
+    throw error;
+  }
+}
+
+function syncTrackerDatabase(trigger = "automatic") {
+  if (trackerSyncPromise) return trackerSyncPromise;
+  trackerSyncPromise = performTrackerSync(trigger).finally(() => {
+    trackerSyncPromise = null;
+  });
+  return trackerSyncPromise;
+}
 
 function scheduleSessionPersist() {
   clearTimeout(sessionPersistTimer);
@@ -310,6 +580,15 @@ function isSettingsPage(sender) {
   return typeof sender?.url === "string" && (
     sender.url === expected || sender.url.startsWith(`${expected}?`) || sender.url.startsWith(`${expected}#`)
   );
+}
+
+if (chrome.alarms?.onAlarm) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm?.name !== TRACKER_UPDATE_ALARM) return;
+    void ready
+      .then(() => trackerDatabaseState.autoUpdateEnabled && syncTrackerDatabase("scheduled"))
+      .catch((error) => console.error("Veilance tracker update failed", error));
+  });
 }
 
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
@@ -521,6 +800,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           builtInIndicators: BUILT_IN_INDICATORS,
           customIndicators,
           indicatorSettings,
+          trackerDatabase: publicTrackerDatabaseState(),
           wallet: publicWalletRecord(wallet),
           walletError,
           database: await historyStore.info()
@@ -540,6 +820,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await chrome.storage.local.set({ [INDICATOR_SETTINGS_KEY]: indicatorSettings });
         await broadcastIndicatorConfig();
         return { ok: true, indicatorSettings };
+
+      case "VEILANCE_SET_TRACKER_DATABASE_ENABLED":
+        if (!isSettingsPage(sender)) throw new Error("Tracker database controls are available only from Veilance Settings");
+        trackerDatabaseState.databaseEnabled = Boolean(message.enabled);
+        await chrome.storage.local.set({ [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState });
+        await refreshTrackerFindings();
+        return { ok: true, trackerDatabase: publicTrackerDatabaseState() };
+
+      case "VEILANCE_SET_TRACKER_AUTO_UPDATE":
+        if (!isSettingsPage(sender)) throw new Error("Tracker update controls are available only from Veilance Settings");
+        trackerDatabaseState.autoUpdateEnabled = Boolean(message.enabled);
+        await chrome.storage.local.set({ [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState });
+        await configureTrackerAlarm();
+        return { ok: true, trackerDatabase: publicTrackerDatabaseState() };
+
+      case "VEILANCE_CHECK_TRACKER_UPDATES":
+        if (!isSettingsPage(sender)) throw new Error("Tracker updates are available only from Veilance Settings");
+        await syncTrackerDatabase("manual");
+        return { ok: true, trackerDatabase: publicTrackerDatabaseState() };
 
       case "VEILANCE_IMPORT_INDICATORS": {
         const parsed = parseIndicatorDocuments(message.documents);
@@ -595,7 +894,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  void ready.then(() => {
+  void ready.then(async () => {
     console.info(`Veilance v${chrome.runtime.getManifest().version} installed. Collection and history remain local.`);
-  });
+    if (trackerDatabaseState.autoUpdateEnabled) await syncTrackerDatabase("install");
+  }).catch((error) => console.error("Veilance install-time tracker update failed", error));
 });

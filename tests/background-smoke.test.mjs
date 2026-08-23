@@ -31,12 +31,19 @@ test("background starts SQLite, creates a wallet, and restricts private export t
         headers: { "content-type": url.endsWith(".wasm") ? "application/wasm" : "application/octet-stream" }
       });
     }
+    if (url.startsWith("chrome-extension://veilance-test/")) {
+      const path = url.slice("chrome-extension://veilance-test/".length);
+      return new Response(await readFile(new URL(`../${path}`, import.meta.url)), {
+        headers: { "content-type": path.endsWith(".json") ? "application/json" : "application/octet-stream" }
+      });
+    }
     return originalFetch(value, options);
   };
 
   const localBacking = {};
   const sessionBacking = {};
   const onMessage = eventSlot();
+  const alarms = new Map();
   globalThis.chrome = {
     storage: {
       local: storageArea(localBacking),
@@ -64,10 +71,16 @@ test("background starts SQLite, creates a wallet, and restricts private export t
       sendMessage: async () => {},
       get: async () => ({ url: "https://example.com" })
     },
+    alarms: {
+      onAlarm: eventSlot(),
+      async get(name) { return alarms.get(name); },
+      create(name, details) { alarms.set(name, { name, ...details }); },
+      async clear(name) { return alarms.delete(name); }
+    },
     runtime: {
       onMessage,
       onInstalled: eventSlot(),
-      getManifest: () => ({ version: "0.4.2" }),
+      getManifest: () => ({ version: "0.5.0" }),
       getURL: (path) => `chrome-extension://veilance-test/${path}`
     }
   };
@@ -85,6 +98,11 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(settings.ok, true);
   assert.equal(settings.database.engine, "SQLite WASM");
   assert.equal(settings.database.sqliteVersion, "3.53.0");
+  assert.equal(settings.trackerDatabase.trackerCount, 3329);
+  assert.equal(settings.trackerDatabase.databaseEnabled, true);
+  assert.equal(settings.trackerDatabase.autoUpdateEnabled, true);
+  assert.equal(settings.trackerDatabase.updateLog[0].status, "installed");
+  assert.equal(alarms.get("veilanceTrackerDatabaseUpdateV1").periodInMinutes, 480);
   assert.ok(settings.wallet.publicKey.length >= 32);
   assert.equal("secretKeyBase64" in settings.wallet, false);
 
@@ -103,6 +121,14 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   );
   assert.equal(exported.ok, true);
   assert.equal(exported.wallet.keypair.length, 64);
+
+  const updatesDisabled = await dispatch(
+    { type: "VEILANCE_SET_TRACKER_AUTO_UPDATE", enabled: false },
+    { url: "chrome-extension://veilance-test/settings.html" }
+  );
+  assert.equal(updatesDisabled.ok, true);
+  assert.equal(updatesDisabled.trackerDatabase.autoUpdateEnabled, false);
+  assert.equal(alarms.has("veilanceTrackerDatabaseUpdateV1"), false);
 
   globalThis.fetch = originalFetch;
   delete globalThis.chrome;

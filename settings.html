@@ -27,6 +27,61 @@
     <section class="settings-card">
       <header class="card-header">
         <div>
+          <span class="eyebrow">VEILANCE TRACKER DATABASE</span>
+          <h2>Managed tracker definitions</h2>
+          <p>Veilance ships with the current tracker database enabled, then checks the public database every eight hours. Updates contain declarative JSON rules only and cannot execute code.</p>
+        </div>
+        <div class="header-actions tracker-header-actions">
+          <span id="trackerDatabaseStatus" class="count-badge">Loading…</span>
+          <button id="checkTrackerUpdatesButton" class="primary-button" type="button">Check now</button>
+        </div>
+      </header>
+      <div class="tracker-control-grid">
+        <div class="tracker-control-row">
+          <div>
+            <strong>Use downloaded trackers</strong>
+            <p>Match contacted hosts against every usable rule from <code>veilance-json-trackers/*</code>.</p>
+          </div>
+          <label class="switch" title="Enable or disable downloaded tracker matching">
+            <input id="trackerDatabaseEnabled" type="checkbox">
+            <span aria-hidden="true"></span>
+          </label>
+        </div>
+        <div class="tracker-control-row">
+          <div>
+            <strong>Automatic updates</strong>
+            <p>Check GitHub every eight hours. Missed browser alarms run when the extension next wakes.</p>
+          </div>
+          <label class="switch" title="Enable or disable automatic tracker updates">
+            <input id="trackerAutoUpdateEnabled" type="checkbox">
+            <span aria-hidden="true"></span>
+          </label>
+        </div>
+      </div>
+      <div class="tracker-stats">
+        <div><span>Active trackers</span><strong id="trackerCount">0</strong></div>
+        <div><span>Update schedule</span><strong id="trackerSchedule">Every 8 hours</strong></div>
+        <div><span>Last checked</span><strong id="trackerLastChecked">Not checked yet</strong></div>
+        <div><span>Source revision</span><strong id="trackerRevision">Loading…</strong></div>
+      </div>
+      <div id="trackerUpdateError" class="notice error" hidden></div>
+      <div class="tracker-source-row">
+        <span>Source</span>
+        <a id="trackerRepositoryLink" href="https://github.com/VeilanceApp/Veilance-Tracker-DB" target="_blank" rel="noreferrer">VeilanceApp/Veilance-Tracker-DB</a>
+      </div>
+      <div class="tracker-log-section">
+        <div class="tracker-log-heading">
+          <div><strong>Update log</strong><span>Most recent 50 checks</span></div>
+        </div>
+        <div id="trackerUpdateLog" class="tracker-update-log">
+          <div class="empty-state">No tracker update checks recorded yet.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-card">
+      <header class="card-header">
+        <div>
           <span class="eyebrow">OBSERVATION</span>
           <h2>Built-in indicators</h2>
           <p>Turning an indicator off stops new collection for that signal. Existing visit history is not rewritten.</p>

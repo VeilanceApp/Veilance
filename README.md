@@ -1,17 +1,36 @@
-# Veilance Browser Extension v0.4.2
+# Veilance Browser Extension v0.5.0
 
 Veilance is a local-first browser privacy observability extension. It shows what
 a website requests from browser APIs and which network hosts it contacts while
 the page is open. Observations describe behavior, not intent: a finding does not
 automatically mean a website is malicious.
 
-This maintenance release prevents website canvas diagnostics from being
-recorded as Veilance extension errors while retaining canvas readback
-observation. Complete visit history, indicator controls, Veilance JSON tracker
-imports, the expanded privacy indicator catalog, and the locally generated
-Solana wallet remain local-first. Telemetry uploads and payouts remain disabled.
+This release enables the Veilance Tracker Database by default, checks the public
+database every eight hours, and exposes the update controls and update log in
+Settings. Complete visit history, indicator controls, custom rule imports, the
+expanded privacy indicator catalog, and the locally generated Solana wallet
+remain local-first. Telemetry uploads and payouts remain disabled.
 
-## What changed in v0.4.2
+## What changed in v0.5.0
+
+* The current `veilance-json-trackers/*` database snapshot is bundled and
+  enabled on first install
+* Automatic data-only updates come from
+  `VeilanceApp/Veilance-Tracker-DB` every eight hours (three checks per day while
+  the browser is available)
+* Separate Settings controls disable tracker matching or automatic updates;
+  manual update checks remain available
+* Settings retains the latest 50 update results with timestamps, revisions,
+  change counts, validation skips, warnings, and errors
+* Updates are downloaded as a gzip-compressed TAR archive, bounded by size,
+  restricted to JSON inside `veilance-json-trackers`, and validated before the
+  active database is replaced
+* Managed tracker IDs are derived from repository paths, so records owned by the
+  same organization remain distinct
+* Host-indexed evaluation avoids scanning the entire tracker database on every
+  network request
+
+## v0.4.2 canvas compatibility fix
 
 * Veilance observes access to canvas readback methods, then returns the original
   browser method before the website invokes it, keeping Veilance off the native
@@ -64,6 +83,7 @@ Solana wallet remain local-first. Telemetry uploads and payouts remain disabled.
 * Live and History tabs in the popup
 * A dedicated Settings page
 * Individual enable/disable controls for every built-in indicator
+* A bundled, automatically updated tracker database enabled by default
 * Declarative custom indicator rules loaded from a user-selected folder
 * A locally generated Ed25519 Solana wallet and explicit private-key export
 * Telemetry JSON export removed
@@ -121,7 +141,7 @@ Brave.
    * Brave: `brave://extensions`
 3. Enable **Developer mode**.
 4. Select **Load unpacked**.
-5. Choose the extracted `Veilance-main` directory containing `manifest.json`.
+5. Choose the extracted `Veilance-dev` directory containing `manifest.json`.
 6. Pin Veilance to the toolbar.
 7. Reload any sites that were already open so document-start indicators can
    initialize.
@@ -161,6 +181,18 @@ not rewrite existing history.
 
 Veilance observes enabled signals. It does not block, spoof, or modify browser
 fingerprints or website behavior.
+
+## Tracker database updates
+
+Settings shows the managed tracker database separately from user-imported
+custom rules. **Use downloaded trackers** controls matching without deleting the
+local database. **Automatic updates** controls the eight-hour alarm. **Check
+now** always remains available for a manual refresh.
+
+Each successful update is validated completely before it replaces the last
+known-good database. A failed download or invalid archive leaves the active
+tracker set unchanged and adds the error to the visible update log. Tracker
+updates are declarative JSON and cannot execute code.
 
 ## Load indicators from a folder
 
@@ -287,7 +319,7 @@ Important security boundary:
   may be able to recover it.
 * Removing extension data or losing the browser profile can remove the only
   local copy. Back up the key before funding the wallet.
-* Payouts are not active in v0.4.2.
+* Payouts are not active in v0.5.0.
 
 ## SQLite history storage
 
@@ -343,7 +375,19 @@ resetting the visit.
 ### `storage`
 
 Keeps active visit state, indicator settings, the serialized SQLite database,
-custom indicator definitions, and local wallet material.
+custom indicator definitions, managed tracker definitions, the tracker update
+log, and local wallet material.
+
+### `unlimitedStorage`
+
+Allows the full managed tracker database and future database growth to remain in
+extension-local storage without displacing visit history or user rules.
+
+### `alarms`
+
+Schedules tracker database checks every eight hours. If the browser is closed or
+the extension service worker is asleep, Chromium delivers the missed alarm when
+the extension next wakes.
 
 ### HTTP and HTTPS host access
 
@@ -358,6 +402,13 @@ From the extension directory:
 ```bash
 npm test
 npm run check
+```
+
+To rebuild the bundled tracker snapshot from a sibling checkout of
+`Veilance-Tracker-DB`:
+
+```bash
+npm run build:trackers
 ```
 
 To exercise browser APIs manually:
