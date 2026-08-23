@@ -5,7 +5,9 @@ import { readFile, stat } from "node:fs/promises";
 import {
   PAYOUTS_ENABLED,
   TELEMETRY_UPLOAD_ENABLED,
-  TELEMETRY_UPLOAD_ENDPOINT
+  TELEMETRY_UPLOAD_ENDPOINT,
+  TRACKER_DATABASE_ARCHIVE,
+  TRACKER_UPDATE_INTERVAL_MINUTES
 } from "../config.js";
 
 test("telemetry uploading remains disabled until a server is configured", () => {
@@ -30,6 +32,10 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /id="copyVeilanceTemplateButton"/);
   assert.match(html, /Veilance JSON tracker format/);
   assert.match(html, /Indicator file format and matching guide/);
+  assert.match(html, /id="trackerDatabaseEnabled"/);
+  assert.match(html, /id="trackerAutoUpdateEnabled"/);
+  assert.match(html, /id="checkTrackerUpdatesButton"/);
+  assert.match(html, /id="trackerUpdateLog"/);
   assert.match(html, /Export private key/);
   assert.match(html, /id="settingsPayoutButton"[^>]*disabled/);
   assert.match(html, /does not block, spoof, or change/i);
@@ -39,15 +45,26 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.4.1");
+  assert.equal(manifest.version, "0.5.0");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));
+  assert.ok(manifest.permissions.includes("alarms"));
+  assert.ok(manifest.permissions.includes("unlimitedStorage"));
   assert.equal(manifest.background.type, "module");
   assert.equal(manifest.options_ui.page, "settings.html");
   assert.match(manifest.content_security_policy.extension_pages, /wasm-unsafe-eval/);
   assert.ok(manifest.content_scripts.some((entry) => entry.world === "MAIN"));
   assert.equal(JSON.stringify(manifest).includes("http://localhost"), false);
+});
+
+test("tracker updates use the official database three times per day", async () => {
+  assert.equal(TRACKER_UPDATE_INTERVAL_MINUTES, 480);
+  assert.match(TRACKER_DATABASE_ARCHIVE, /^https:\/\/codeload\.github\.com\/VeilanceApp\/Veilance-Tracker-DB\//);
+  const bundle = JSON.parse(await readFile(new URL("../data/veilance-trackers.json", import.meta.url), "utf8"));
+  assert.equal(bundle.schemaVersion, 1);
+  assert.equal(bundle.records.length, 3330);
+  assert.match(bundle.revision, /^[a-f0-9]{40}$/);
 });
 
 test("official SQLite runtime assets are bundled locally", async () => {

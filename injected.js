@@ -100,6 +100,70 @@
     }
   }
 
+  function observeMethodAccess(target, method, onAccess) {
+    if (!target) return;
+    let descriptor;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(target, method);
+    } catch {
+      return;
+    }
+    if (
+      !descriptor ||
+      !descriptor.configurable ||
+      typeof descriptor.value !== "function"
+    ) return;
+
+    const original = descriptor.value;
+    if (original[WRAPPED_FLAG]) return;
+
+    function veilanceObservedMethodGetter() {
+      try {
+        onAccess.call(this);
+      } catch {
+        // Instrumentation must never break the host page.
+      }
+      // Return the native method directly so browser diagnostics created by
+      // the call are attributed to the website instead of this extension.
+      return original;
+    }
+
+    let veilanceObservedMethodSetter;
+    if (descriptor.writable) {
+      veilanceObservedMethodSetter = function (value) {
+        try {
+          if (this === target) {
+            Object.defineProperty(target, method, { ...descriptor, value });
+          } else {
+            Object.defineProperty(this, method, {
+              value,
+              writable: true,
+              enumerable: true,
+              configurable: true
+            });
+          }
+        } catch {
+          // Preserve best-effort assignment behavior for unusual receivers.
+        }
+      };
+    }
+
+    try {
+      Object.defineProperty(veilanceObservedMethodGetter, WRAPPED_FLAG, { value: true });
+      if (veilanceObservedMethodSetter) {
+        Object.defineProperty(veilanceObservedMethodSetter, WRAPPED_FLAG, { value: true });
+      }
+      Object.defineProperty(target, method, {
+        configurable: descriptor.configurable,
+        enumerable: descriptor.enumerable,
+        get: veilanceObservedMethodGetter,
+        set: veilanceObservedMethodSetter
+      });
+    } catch {
+      // Some browser properties are not configurable in every build.
+    }
+  }
+
   function wrapAccessor(target, property, beforeGet, beforeSet) {
     if (!target) return;
     let descriptor;
@@ -331,13 +395,13 @@
   }
 
   // Canvas readback. Normal drawing calls are intentionally ignored.
-  wrapMethod(globalThis.HTMLCanvasElement?.prototype, "toDataURL", () => {
+  observeMethodAccess(globalThis.HTMLCanvasElement?.prototype, "toDataURL", () => {
     emit("canvas", "fingerprinting", "Canvas", "export");
   });
-  wrapMethod(globalThis.HTMLCanvasElement?.prototype, "toBlob", () => {
+  observeMethodAccess(globalThis.HTMLCanvasElement?.prototype, "toBlob", () => {
     emit("canvas", "fingerprinting", "Canvas", "export");
   });
-  wrapMethod(globalThis.CanvasRenderingContext2D?.prototype, "getImageData", () => {
+  observeMethodAccess(globalThis.CanvasRenderingContext2D?.prototype, "getImageData", () => {
     emit("canvas", "fingerprinting", "Canvas", "readback");
   });
   wrapMethod(globalThis.CanvasRenderingContext2D?.prototype, "measureText", () => {

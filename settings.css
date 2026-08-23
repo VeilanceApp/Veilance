@@ -118,6 +118,32 @@ main { width: min(980px, calc(100% - 40px)); margin: 0 auto; padding: 52px 0 80p
 .schema-notes { padding: 13px 0 2px; border-top: 1px solid #1b2a3d; }
 code { color: #77d6ee; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
+.tracker-header-actions { flex-wrap: wrap; justify-content: flex-end; }
+.tracker-control-grid { padding: 18px 24px 4px; display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.tracker-control-row { min-height: 92px; padding: 15px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid #1c2d41; border-radius: 10px; background: #0a121c; }
+.tracker-control-row strong { font-size: 12px; }
+.tracker-control-row p { margin: 6px 0 0; color: #788da4; font-size: 10px; line-height: 1.5; }
+.tracker-stats { padding: 8px 24px 10px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+.tracker-stats div { min-width: 0; padding: 13px 14px; border: 1px solid #1c2c40; border-radius: 9px; background: #09121c; }
+.tracker-stats span { display: block; color: #657b93; font-size: 9px; }
+.tracker-stats strong { display: block; margin-top: 6px; overflow: hidden; color: #d8e6f4; font: 10px ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.tracker-source-row { margin: 4px 24px 0; padding: 11px 13px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid #1b2b3f; border-radius: 9px; color: #667d95; background: #09121c; font-size: 9px; }
+.tracker-source-row a { color: #70d9f3; overflow-wrap: anywhere; text-decoration: none; }
+.tracker-source-row a:hover { color: white; text-decoration: underline; }
+.tracker-log-section { padding: 18px 24px 22px; }
+.tracker-log-heading { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+.tracker-log-heading strong { display: block; font-size: 12px; }
+.tracker-log-heading span { display: block; margin-top: 3px; color: #60758d; font-size: 9px; }
+.tracker-update-log { max-height: 390px; display: grid; gap: 7px; overflow: auto; }
+.tracker-log-entry { padding: 12px 13px; display: grid; grid-template-columns: auto 1fr; gap: 10px; border: 1px solid #1b2c40; border-radius: 9px; background: #09121c; }
+.tracker-log-status { align-self: start; padding: 4px 7px; border: 1px solid #2a5168; border-radius: 999px; color: #70d9f3; background: #0d2635; font: 8px ui-monospace, monospace; text-transform: uppercase; }
+.tracker-log-status.updated, .tracker-log-status.installed { border-color: #28674f; color: #80dfb4; background: #10261f; }
+.tracker-log-status.error { border-color: #683642; color: #efa1aa; background: #251319; }
+.tracker-log-copy { min-width: 0; }
+.tracker-log-copy strong { display: block; font-size: 10px; line-height: 1.45; }
+.tracker-log-copy p { margin: 4px 0 0; color: #71869e; font-size: 9px; line-height: 1.5; }
+.tracker-log-meta { display: flex; flex-wrap: wrap; gap: 5px 10px; margin-top: 7px; color: #566d85; font: 8px ui-monospace, monospace; }
+
 .wallet-section { background: linear-gradient(145deg, rgba(16, 27, 42, .98), rgba(10, 17, 27, .98)); }
 .wallet-address-box { margin: 20px 24px 12px; padding: 15px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid #23415c; border-radius: 10px; background: #091522; }
 .wallet-address-box div { min-width: 0; }
@@ -159,6 +185,9 @@ code { color: #77d6ee; font-family: ui-monospace, SFMono-Regular, Menlo, monospa
   .indicator-groups, .custom-list { padding-right: 14px; padding-left: 14px; }
   .schema-help, .notice, .indicator-how-to, .template-actions { margin-right: 14px; margin-left: 14px; }
   .indicator-how-to { grid-template-columns: 1fr; }
+  .tracker-control-grid, .tracker-stats { grid-template-columns: 1fr; padding-right: 14px; padding-left: 14px; }
+  .tracker-source-row { align-items: flex-start; flex-direction: column; margin-right: 14px; margin-left: 14px; }
+  .tracker-log-section { padding-right: 14px; padding-left: 14px; }
   .database-grid { grid-template-columns: 1fr; }
   .wallet-address-box { align-items: stretch; flex-direction: column; }
   .wallet-actions { flex-direction: column; }

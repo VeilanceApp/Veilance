@@ -6,7 +6,9 @@ import { addNetworkRequest, addPageSignal, createEmptyState } from "../lib/core.
 import {
   BUILT_IN_INDICATORS,
   evaluateCustomIndicators,
+  managedTrackerId,
   mergeIndicatorSettings,
+  parseManagedTrackerRecords,
   parseVeilanceNetworkFilter,
   parseIndicatorDocuments,
   validateCustomIndicator,
@@ -93,6 +95,24 @@ test("Veilance JSON imports domains, metadata, and host-anchored filters", async
   assert.deepEqual(indicator.match.hosts, ["creative-serving.com", "p161.net"]);
   assert.equal(indicator.match.networkFilters.length, 2);
   assert.ok(indicator.match.networkFilters.every((rule) => rule.thirdParty === true));
+});
+
+test("managed tracker ids remain unique when organizations are shared", () => {
+  const records = ["advertising/first.json", "advertising/second.json"].map((path) => ({
+    sourceName: `veilance-json-trackers/${path}`,
+    tracker: {
+      format: "veilance-json",
+      name: path,
+      organization: "shared-owner",
+      domains: [path.replace("advertising/", "").replace(".json", ".example")]
+    }
+  }));
+  const result = parseManagedTrackerRecords(records);
+  assert.equal(result.indicators.length, 2);
+  assert.equal(new Set(result.indicators.map((indicator) => indicator.id)).size, 2);
+  assert.ok(result.indicators.every((indicator) => indicator.id.startsWith("tracker.")));
+  assert.equal(managedTrackerId(records[0].sourceName), result.indicators[0].id);
+  assert.ok(result.indicators.every((indicator) => indicator.defaultEnabled));
 });
 
 test("Veilance third-party filters honor party, resource type, and page-domain constraints", () => {
