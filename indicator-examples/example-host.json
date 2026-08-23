@@ -1,0 +1,11 @@
+{
+  "id": "example-telemetry-host",
+  "name": "Example telemetry host contacted",
+  "category": "Network",
+  "description": "A request contacted example-telemetry.invalid or one of its subdomains.",
+  "severity": "low",
+  "defaultEnabled": false,
+  "match": {
+    "hostSuffix": "example-telemetry.invalid"
+  }
+}

@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import {
   addNetworkRequest,
   addPageSignal,
+  applyPageIdentity,
   buildFindings,
   buildSanitizedPayload,
   classifyTrackerHost,
+  completeVisit,
   containsForbiddenPayloadKey,
   createEmptyState,
   isThirdParty,
@@ -48,6 +50,35 @@ test("network aggregation counts third-party requests and known services", () =>
   assert.equal(state.network.firstPartyRequests, 1);
   assert.equal(state.network.thirdPartyRequests, 1);
   assert.equal(state.network.trackers["google-analytics.com"].count, 1);
+});
+
+test("a visit keeps one identity across redirects and records a definite end", () => {
+  const state = createEmptyState(4, "http://example.com", 1000, {
+    visitId: "visit-1",
+    navigationId: "navigation-1"
+  });
+  addNetworkRequest(state, { url: "http://example.com", type: "main_frame" }, 1050);
+  applyPageIdentity(state, "https://www.example.com/final?secret=yes", 1100);
+  addNetworkRequest(state, { url: "https://www.example.com/app.js", type: "script" }, 1200);
+  completeVisit(state, 1600);
+  assert.equal(state.visitId, "visit-1");
+  assert.equal(state.hostname, "www.example.com");
+  assert.equal(state.network.totalRequests, 2);
+  assert.equal(state.startedAt, 1000);
+  assert.equal(state.endedAt, 1600);
+  assert.equal(state.active, false);
+});
+
+test("known tracker matching can be disabled without disabling request counts", () => {
+  const state = createEmptyState(8, "https://example.com", 1000);
+  addNetworkRequest(
+    state,
+    { url: "https://www.google-analytics.com/g/collect", type: "xmlhttprequest" },
+    1100,
+    { trackersEnabled: false }
+  );
+  assert.equal(state.network.totalRequests, 1);
+  assert.deepEqual(state.network.trackers, {});
 });
 
 test("event detail removes sensitive values", () => {

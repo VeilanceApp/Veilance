@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Veilance Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <header class="page-header">
+    <div class="header-inner">
+      <div class="brand">
+        <img src="assets/icon-48.png" alt="">
+        <div><strong>VEILANCE</strong><span>SETTINGS &amp; LOCAL CONTROL</span></div>
+      </div>
+      <span id="version" class="version"></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="intro">
+      <span class="eyebrow">YOUR BROWSER, YOUR RULES</span>
+      <h1>Privacy observation you can understand and control.</h1>
+      <p>Choose what Veilance watches, inspect what is stored, and back up the wallet generated for this browser. Veilance observes enabled signals; it does not block, spoof, or change a website's fingerprint.</p>
+    </section>
+
+    <section class="settings-card">
+      <header class="card-header">
+        <div>
+          <span class="eyebrow">OBSERVATION</span>
+          <h2>Built-in indicators</h2>
+          <p>Turning an indicator off stops new collection for that signal. Existing visit history is not rewritten.</p>
+        </div>
+        <div class="header-actions">
+          <span id="enabledCount" class="count-badge">0 enabled</span>
+          <button id="resetIndicatorsButton" class="text-button" type="button">Reset defaults</button>
+        </div>
+      </header>
+      <div id="builtInIndicators" class="indicator-groups">
+        <div class="loading">Loading indicators…</div>
+      </div>
+    </section>
+
+    <section class="settings-card">
+      <header class="card-header">
+        <div>
+          <span class="eyebrow">CUSTOM RULES</span>
+          <h2>Load indicators from a folder</h2>
+          <p>You choose the folder. Veilance reads JSON files from that selection once and never scans your files in the background. Imported indicators are declarative matching rules—no code is executed.</p>
+        </div>
+        <button id="chooseFolderButton" class="primary-button" type="button">Choose indicator folder</button>
+        <input id="indicatorFolderInput" type="file" accept=".json,application/json" webkitdirectory multiple hidden>
+      </header>
+      <div id="importStatus" class="notice" hidden></div>
+      <div id="customIndicators" class="custom-list">
+        <div class="empty-state">No custom indicators loaded.</div>
+      </div>
+      <details class="schema-help">
+        <summary>Indicator file format</summary>
+        <p>A file may contain one indicator, an array, or an object with an <code>indicators</code> array. Match one or more observed signals or host suffixes.</p>
+        <pre>{
+  "id": "example-canvas-rule",
+  "name": "Repeated canvas readback",
+  "description": "Canvas data was read at least three times.",
+  "severity": "medium",
+  "match": {
+    "api": "Canvas",
+    "action": "readback",
+    "minCount": 3
+  }
+}</pre>
+      </details>
+    </section>
+
+    <section class="settings-card wallet-section">
+      <header class="card-header">
+        <div>
+          <span class="eyebrow">LOCAL SOLANA WALLET</span>
+          <h2>Your Veilance wallet</h2>
+          <p>This keypair was generated locally with browser cryptography. It is not uploaded or synced by Veilance.</p>
+        </div>
+        <span class="network-badge">SOLANA</span>
+      </header>
+      <div class="wallet-address-box">
+        <div>
+          <span>Public address</span>
+          <strong id="walletAddress">Loading wallet…</strong>
+        </div>
+        <button id="copyAddressButton" class="secondary-button" type="button" disabled>Copy address</button>
+      </div>
+      <div class="warning-box">
+        <strong>Back up the private key before using this wallet.</strong>
+        <p>Anyone with the private key controls the wallet. This release stores it in extension-local browser storage without a separate passphrase. Browser-profile loss or extension-data removal can permanently remove the local copy.</p>
+      </div>
+      <div class="wallet-actions">
+        <button id="exportWalletButton" class="danger-outline-button" type="button" disabled>Export private key</button>
+        <button id="settingsPayoutButton" class="disabled-button" type="button" disabled aria-disabled="true">Payouts coming soon</button>
+      </div>
+    </section>
+
+    <section class="settings-card">
+      <header class="card-header">
+        <div>
+          <span class="eyebrow">LOCAL DATA</span>
+          <h2>Visit history</h2>
+          <p>Complete visit sessions are kept in SQLite and automatically limited to the most recent 20.</p>
+        </div>
+      </header>
+      <div class="database-grid">
+        <div><span>Storage engine</span><strong id="databaseEngine">SQLite WASM</strong></div>
+        <div><span>SQLite version</span><strong id="databaseVersion">Loading…</strong></div>
+        <div><span>Visits stored</span><strong id="databaseCount">0 / 20</strong></div>
+        <div><span>Data location</span><strong>This browser only</strong></div>
+      </div>
+      <button id="clearHistoryButton" class="danger-outline-button full-width" type="button">Clear visit history</button>
+    </section>
+
+    <p id="saveStatus" class="save-status" role="status" aria-live="polite"></p>
+  </main>
+
+  <dialog id="walletDialog" class="wallet-dialog">
+    <form method="dialog" class="dialog-content">
+      <span class="eyebrow">PRIVATE KEY EXPORT</span>
+      <h2>Handle this key like cash.</h2>
+      <p>Veilance will reveal the Solana private key only after you confirm. Never paste it into a website or send it to anyone you do not completely trust.</p>
+      <label class="confirm-row">
+        <input id="privateKeyConfirmation" type="checkbox">
+        <span>I understand that anyone with this key controls the wallet.</span>
+      </label>
+      <div id="privateKeyReveal" hidden>
+        <label for="privateKeyValue">Base58 private key</label>
+        <textarea id="privateKeyValue" rows="4" readonly spellcheck="false"></textarea>
+        <div class="dialog-actions">
+          <button id="copyPrivateKeyButton" class="secondary-button" type="button">Copy private key</button>
+          <button id="downloadKeypairButton" class="secondary-button" type="button">Download Solana keypair</button>
+        </div>
+      </div>
+      <div class="dialog-actions dialog-footer">
+        <button id="cancelWalletExportButton" class="text-button" type="button">Cancel</button>
+        <button id="revealPrivateKeyButton" class="danger-button" type="button" disabled>Reveal private key</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="settings.js"></script>
+</body>
+</html>

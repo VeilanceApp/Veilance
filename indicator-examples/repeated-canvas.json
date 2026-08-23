@@ -1,0 +1,13 @@
+{
+  "id": "repeated-canvas-readback",
+  "name": "Repeated canvas readback",
+  "category": "Fingerprinting",
+  "description": "The page read canvas pixel data at least three times during one visit.",
+  "severity": "medium",
+  "defaultEnabled": true,
+  "match": {
+    "api": "Canvas",
+    "action": "readback",
+    "minCount": 3
+  }
+}

@@ -15,57 +15,88 @@
     <span id="liveState" class="live"><i></i> LOCAL</span>
   </header>
 
+  <nav class="navigation" aria-label="Veilance sections">
+    <button class="nav-button active" type="button" data-view="live">Live</button>
+    <button class="nav-button" type="button" data-view="history">
+      History <span id="historyBadge" class="nav-count">0</span>
+    </button>
+    <button id="settingsButton" class="nav-button settings-button" type="button" title="Open settings">
+      Settings
+    </button>
+  </nav>
+
   <main>
-    <section class="site-card">
-      <div class="site-line">
-        <div>
-          <span class="label">CURRENT SITE</span>
-          <h1 id="hostname">Loading...</h1>
+    <section id="liveView" class="view">
+      <section class="site-card">
+        <div class="site-line">
+          <div>
+            <span class="label">CURRENT VISIT</span>
+            <h1 id="hostname">Loading...</h1>
+          </div>
+          <button id="refreshButton" class="icon-button" type="button" title="Refresh live data" aria-label="Refresh live data">↻</button>
         </div>
-        <button id="refreshButton" class="icon-button" type="button" title="Refresh">R</button>
-      </div>
-      <div id="statusPill" class="status quiet">Waiting for page activity</div>
+        <div id="statusPill" class="status quiet">Waiting for page activity</div>
+        <p id="visitTiming" class="visit-timing">Preparing local observation…</p>
+      </section>
+
+      <section class="metrics" aria-label="Live visit summary">
+        <article><strong id="thirdPartyHosts">0</strong><span>third-party hosts</span></article>
+        <article><strong id="requestCount">0</strong><span>requests observed</span></article>
+        <article><strong id="signalCount">0</strong><span>API signals</span></article>
+        <article><strong id="storageCount">0</strong><span>storage events</span></article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div><span class="label">FINDINGS</span><h2>What happened</h2></div>
+          <span id="findingCount" class="count">0</span>
+        </div>
+        <div id="findings" class="findings">
+          <div class="empty">No privacy-relevant activity has been observed yet.</div>
+        </div>
+      </section>
+
+      <details id="liveDetailPanel" class="details-panel">
+        <summary>Complete visit details <span>Network, APIs, page data, and headers</span></summary>
+        <div id="liveDetails" class="telemetry-details"></div>
+      </details>
+
+      <section class="wallet-card">
+        <div class="wallet-copy">
+          <span class="label">SOLANA WALLET</span>
+          <strong id="walletAddress">Creating locally…</strong>
+          <small>Generated in this browser. Open Settings to back up the private key.</small>
+        </div>
+        <button id="copyWalletButton" class="copy-button" type="button" disabled>Copy address</button>
+        <button id="payoutButton" class="payout-button" type="button" disabled aria-disabled="true">Payouts coming soon</button>
+      </section>
+
+      <button id="clearButton" class="clear-button" type="button">Clear current visit</button>
     </section>
 
-    <section class="metrics" aria-label="Telemetry summary">
-      <article><strong id="thirdPartyHosts">0</strong><span>third-party hosts</span></article>
-      <article><strong id="requestCount">0</strong><span>requests observed</span></article>
-      <article><strong id="signalCount">0</strong><span>API signals</span></article>
-      <article><strong id="storageCount">0</strong><span>storage events</span></article>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <div><span class="label">FINDINGS</span><h2>What happened</h2></div>
-        <span id="findingCount" class="count">0</span>
+    <section id="historyView" class="view" hidden>
+      <div id="historyListView">
+        <section class="history-heading">
+          <div>
+            <span class="label">LOCAL SQLITE HISTORY</span>
+            <h1>Last 20 visits</h1>
+            <p>Each visit is kept as one complete session from navigation start until you leave or close the page.</p>
+          </div>
+          <button id="historyRefreshButton" class="icon-button" type="button" title="Refresh history" aria-label="Refresh history">↻</button>
+        </section>
+        <div id="historyList" class="history-list">
+          <div class="empty panel-empty">No visits have been recorded yet.</div>
+        </div>
       </div>
-      <div id="findings" class="findings">
-        <div class="empty">No privacy-relevant activity has been observed yet.</div>
+
+      <div id="historyDetailView" hidden>
+        <button id="historyBackButton" class="back-button" type="button">← Back to history</button>
+        <div id="historyDetail" class="history-detail"></div>
       </div>
     </section>
-
-    <details class="payload-panel">
-      <summary>Preview sanitized telemetry</summary>
-      <p>This is the exact shape prepared for a future upload. Full paths, page text, form values, cookie values, storage values, clipboard contents, and coordinates are excluded.</p>
-      <pre id="payloadPreview">Open this section to generate a preview.</pre>
-    </details>
-
-    <section class="upload-card">
-      <div class="upload-head">
-        <div><span class="label">CONTRIBUTION</span><h2>Upload telemetry</h2></div>
-        <span class="offline">SERVER NOT CONFIGURED</span>
-      </div>
-      <p>Uploading is disabled in this build. Detection and export remain fully local until a Veilance validation server is connected. Accepted submissions can become eligible for VLNC rewards after server-side validation is live.</p>
-      <button id="uploadButton" class="upload-button" type="button" disabled aria-disabled="true">Upload telemetry</button>
-    </section>
-
-    <div class="actions">
-      <button id="exportButton" type="button">Export JSON</button>
-      <button id="clearButton" type="button" class="subtle">Clear this session</button>
-    </div>
   </main>
 
-  <footer><span>No telemetry leaves your browser.</span><span id="version"></span></footer>
+  <footer><span>No telemetry or wallet keys leave your browser.</span><span id="version"></span></footer>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

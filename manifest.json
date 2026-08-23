@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Veilance",
-  "version": "0.1.0",
-  "description": "See privacy-relevant behavior as it happens in your browser. Telemetry stays local in this release.",
+  "version": "0.2.0",
+  "description": "See privacy-relevant browser activity live and review the last 20 visits. All history stays local.",
   "minimum_chrome_version": "111",
   "permissions": [
     "storage",
-    "webRequest"
+    "webRequest",
+    "webNavigation"
   ],
   "host_permissions": [
     "http://*/*",
@@ -15,6 +16,13 @@
   "background": {
     "service_worker": "background.js",
     "type": "module"
+  },
+  "options_ui": {
+    "page": "settings.html",
+    "open_in_tab": true
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "action": {
     "default_title": "Veilance",

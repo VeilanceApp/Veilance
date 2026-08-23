@@ -1,33 +1,50 @@
-import { TELEMETRY_UPLOAD_ENABLED, TELEMETRY_UPLOAD_ENDPOINT } from "./config.js";
+import { PAYOUTS_ENABLED } from "./config.js";
 
 const elements = {
-  hostname: document.querySelector("#hostname"),
   liveState: document.querySelector("#liveState"),
+  hostname: document.querySelector("#hostname"),
   statusPill: document.querySelector("#statusPill"),
+  visitTiming: document.querySelector("#visitTiming"),
   thirdPartyHosts: document.querySelector("#thirdPartyHosts"),
   requestCount: document.querySelector("#requestCount"),
   signalCount: document.querySelector("#signalCount"),
   storageCount: document.querySelector("#storageCount"),
   findingCount: document.querySelector("#findingCount"),
   findings: document.querySelector("#findings"),
-  payloadPreview: document.querySelector("#payloadPreview"),
-  uploadButton: document.querySelector("#uploadButton"),
-  exportButton: document.querySelector("#exportButton"),
+  liveDetailPanel: document.querySelector("#liveDetailPanel"),
+  liveDetails: document.querySelector("#liveDetails"),
+  walletAddress: document.querySelector("#walletAddress"),
+  copyWalletButton: document.querySelector("#copyWalletButton"),
+  payoutButton: document.querySelector("#payoutButton"),
   clearButton: document.querySelector("#clearButton"),
   refreshButton: document.querySelector("#refreshButton"),
-  version: document.querySelector("#version"),
-  payloadPanel: document.querySelector(".payload-panel")
+  settingsButton: document.querySelector("#settingsButton"),
+  liveView: document.querySelector("#liveView"),
+  historyView: document.querySelector("#historyView"),
+  historyBadge: document.querySelector("#historyBadge"),
+  historyList: document.querySelector("#historyList"),
+  historyRefreshButton: document.querySelector("#historyRefreshButton"),
+  historyListView: document.querySelector("#historyListView"),
+  historyDetailView: document.querySelector("#historyDetailView"),
+  historyDetail: document.querySelector("#historyDetail"),
+  historyBackButton: document.querySelector("#historyBackButton"),
+  version: document.querySelector("#version")
 };
 
 let activeTabId = null;
-let currentPayload = null;
+let activeView = "live";
+let currentLiveState = null;
+let currentLiveFindings = [];
+let walletPublicKey = "";
 
-function send(message) {
-  return chrome.runtime.sendMessage(message);
+async function send(message) {
+  const response = await chrome.runtime.sendMessage(message);
+  if (!response?.ok) throw new Error(response?.error || "Veilance did not return a response");
+  return response;
 }
 
 function escapeHtml(value) {
-  return String(value)
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -37,17 +54,57 @@ function escapeHtml(value) {
 
 function totalStorageEvents(state) {
   return Object.values(state?.signals || {})
-    .filter((signal) => signal.kind === "storage")
-    .reduce((sum, signal) => sum + signal.count, 0);
+    .filter((signal) => signal.indicatorId === "browser-storage" || signal.kind === "storage")
+    .reduce((sum, signal) => sum + Number(signal.count || 0), 0);
 }
 
-function renderFindings(findings) {
-  elements.findingCount.textContent = String(findings.length);
-  if (!findings.length) {
-    elements.findings.innerHTML = '<div class="empty">No privacy-relevant activity has been observed yet. Reload the page after installing Veilance to capture the earliest API calls.</div>';
-    return;
-  }
-  elements.findings.innerHTML = findings.map((finding) => `
+function formatDateTime(value) {
+  if (!Number.isFinite(value)) return "Not available";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit"
+  }).format(new Date(value));
+}
+
+function formatListDate(value) {
+  if (!Number.isFinite(value)) return "Unknown time";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function formatDuration(startedAt, endedAt) {
+  if (!Number.isFinite(startedAt)) return "Unknown duration";
+  const milliseconds = Math.max(0, (Number.isFinite(endedAt) ? endedAt : Date.now()) - startedAt);
+  const seconds = Math.floor(milliseconds / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function humanizeKey(value) {
+  return String(value)
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[-_]/g, " ")
+    .replace(/^./, (character) => character.toUpperCase());
+}
+
+function displayValue(value) {
+  if (value === null || value === undefined) return "Not observed";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+function findingMarkup(finding) {
+  return `
     <article class="finding">
       <div class="finding-title">
         <span class="severity ${escapeHtml(finding.severity)}">${escapeHtml(finding.severity)}</span>
@@ -56,20 +113,120 @@ function renderFindings(findings) {
       <p>${escapeHtml(finding.description)}</p>
       <small>${escapeHtml(finding.evidence)}</small>
     </article>
-  `).join("");
+  `;
+}
+
+function renderFindings(container, findings, emptyText) {
+  if (!findings.length) {
+    container.innerHTML = `<div class="empty">${escapeHtml(emptyText)}</div>`;
+    return;
+  }
+  container.innerHTML = findings.map(findingMarkup).join("");
+}
+
+function keyGridMarkup(values) {
+  return `<div class="key-grid">${values.map(([label, value]) => `
+    <div class="key-item">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(displayValue(value))}</strong>
+    </div>
+  `).join("")}</div>`;
+}
+
+function dataRowsMarkup(rows, emptyText) {
+  if (!rows.length) return `<div class="empty">${escapeHtml(emptyText)}</div>`;
+  return `<div class="row-list">${rows.map((row) => `
+    <div class="data-row">
+      <div class="data-row-head">
+        <strong>${escapeHtml(row.title)}</strong>
+        <span>${escapeHtml(row.value)}</span>
+      </div>
+      ${row.detail ? `<p>${escapeHtml(row.detail)}</p>` : ""}
+    </div>
+  `).join("")}</div>`;
+}
+
+function telemetryDetailsMarkup(state) {
+  if (!state) return '<div class="empty">No visit data is available.</div>';
+  const hosts = Object.values(state.network?.hosts || {})
+    .sort((a, b) => Number(b.count || 0) - Number(a.count || 0) || String(a.host).localeCompare(String(b.host)))
+    .map((host) => ({
+      title: host.host,
+      value: `${host.count} request${host.count === 1 ? "" : "s"}`,
+      detail: `${host.thirdParty ? "Third-party" : "First-party"} · ${Object.entries(host.types || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([type, count]) => `${type} ${count}`)
+        .join(", ") || "resource type unavailable"}`
+    }));
+  const signals = Object.values(state.signals || {})
+    .sort((a, b) => Number(b.count || 0) - Number(a.count || 0) || String(a.api).localeCompare(String(b.api)))
+    .map((signal) => {
+      const detail = Object.entries(signal.detail || {}).map(([key, value]) => `${humanizeKey(key)}: ${value}`);
+      detail.push(`First ${formatDateTime(signal.firstSeen)} · Last ${formatDateTime(signal.lastSeen)}`);
+      return {
+        title: `${signal.api} · ${signal.action}`,
+        value: `${signal.count} event${signal.count === 1 ? "" : "s"}`,
+        detail: `${signal.kind}${signal.indicatorId ? ` · ${signal.indicatorId}` : ""} · ${detail.join(" · ")}`
+      };
+    });
+  const pageEntries = Object.entries(state.page || {}).map(([key, value]) => [humanizeKey(key), value]);
+  const headerEntries = Object.entries(state.security?.headers || {}).map(([key, value]) => [humanizeKey(key), value ? "Present" : "Not observed"]);
+  const resourceTypes = Object.entries(state.network?.resourceTypes || {})
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, count]) => `${humanizeKey(type)} ${count}`)
+    .join(" · ") || "None observed";
+
+  return `
+    <section class="detail-block">
+      <div class="detail-block-head"><h3>Visit timeline</h3><span>${state.active === false ? "COMPLETE" : "ACTIVE"}</span></div>
+      ${keyGridMarkup([
+        ["Started", formatDateTime(state.startedAt)],
+        ["Page load completed", formatDateTime(state.loadCompletedAt)],
+        ["Ended", state.active === false ? formatDateTime(state.endedAt) : "Still active"],
+        ["Duration", formatDuration(state.startedAt, state.endedAt)]
+      ])}
+    </section>
+    <section class="detail-block">
+      <div class="detail-block-head"><h3>Network contacts</h3><span>${hosts.length} HOSTS</span></div>
+      ${keyGridMarkup([
+        ["Total requests", state.network?.totalRequests || 0],
+        ["First-party", state.network?.firstPartyRequests || 0],
+        ["Third-party", state.network?.thirdPartyRequests || 0],
+        ["Known services", Object.keys(state.network?.trackers || {}).length]
+      ])}
+      <p class="visit-timing">Resource types: ${escapeHtml(resourceTypes)}</p>
+      ${dataRowsMarkup(hosts, "No network hosts were observed for this visit.")}
+    </section>
+    <section class="detail-block">
+      <div class="detail-block-head"><h3>Browser API signals</h3><span>${signals.length} TYPES</span></div>
+      ${dataRowsMarkup(signals, "No enabled API indicators fired during this visit.")}
+    </section>
+    <section class="detail-block">
+      <div class="detail-block-head"><h3>Page snapshot</h3><span>COUNTS ONLY</span></div>
+      ${keyGridMarkup(pageEntries)}
+    </section>
+    <section class="detail-block">
+      <div class="detail-block-head"><h3>Response security</h3><span>STATUS ${escapeHtml(displayValue(state.security?.statusCode))}</span></div>
+      ${keyGridMarkup(headerEntries)}
+    </section>
+  `;
 }
 
 function renderUnsupported(tab) {
+  currentLiveState = null;
+  currentLiveFindings = [];
   elements.hostname.textContent = tab?.url?.startsWith("chrome://") ? "Chrome internal page" : "Unsupported page";
   elements.statusPill.className = "status unsupported";
   elements.statusPill.textContent = "Veilance cannot inspect this page";
-  elements.liveState.innerHTML = "UNAVAILABLE";
+  elements.visitTiming.textContent = "Browser-internal and extension pages are outside the observation boundary.";
+  elements.liveState.textContent = "UNAVAILABLE";
   elements.thirdPartyHosts.textContent = "0";
   elements.requestCount.textContent = "0";
   elements.signalCount.textContent = "0";
   elements.storageCount.textContent = "0";
-  renderFindings([]);
-  elements.exportButton.disabled = true;
+  elements.findingCount.textContent = "0";
+  renderFindings(elements.findings, [], "Nothing is collected from this type of page.");
+  elements.liveDetails.innerHTML = '<div class="empty">Complete details are unavailable for this page.</div>';
   elements.clearButton.disabled = true;
 }
 
@@ -82,9 +239,11 @@ async function loadState() {
   }
 
   const response = await send({ type: "VEILANCE_GET_STATE", tabId: activeTabId });
-  const state = response?.state;
-  const summary = response?.summary;
-  const findings = response?.findings || [];
+  const state = response.state;
+  const summary = response.summary;
+  const findings = response.findings || [];
+  currentLiveState = state;
+  currentLiveFindings = findings;
 
   elements.hostname.textContent = state?.hostname || new URL(tab.url).hostname;
   elements.statusPill.className = `status ${summary?.status || "quiet"}`;
@@ -94,68 +253,171 @@ async function loadState() {
   elements.requestCount.textContent = String(state?.network?.totalRequests || 0);
   elements.signalCount.textContent = String(summary?.signalCount || 0);
   elements.storageCount.textContent = String(totalStorageEvents(state));
-  elements.exportButton.disabled = !state;
+  elements.findingCount.textContent = String(findings.length);
+  elements.visitTiming.textContent = state
+    ? `${state.active === false ? "Completed" : "Active"} · started ${formatDateTime(state.startedAt)} · ${formatDuration(state.startedAt, state.endedAt)}`
+    : "Waiting for this page to begin reporting.";
   elements.clearButton.disabled = !state;
-  renderFindings(findings);
-
-  if (elements.payloadPanel.open) await refreshPayloadPreview();
+  renderFindings(
+    elements.findings,
+    findings,
+    "No privacy-relevant activity has been observed yet. Enabled indicators continue watching this visit."
+  );
+  if (elements.liveDetailPanel.open) elements.liveDetails.innerHTML = telemetryDetailsMarkup(state);
 }
 
-async function refreshPayloadPreview() {
-  if (!Number.isInteger(activeTabId)) return;
-  const response = await send({ type: "VEILANCE_GET_PAYLOAD", tabId: activeTabId });
-  currentPayload = response?.payload || null;
-  elements.payloadPreview.textContent = currentPayload
-    ? JSON.stringify(currentPayload, null, 2)
-    : "No telemetry is available for this page.";
+function historyCardMarkup(visit) {
+  const endedAt = visit.endedAt || visit.updatedAt;
+  return `
+    <article class="visit-card">
+      <button class="visit-open" type="button" data-visit-id="${escapeHtml(visit.visitId)}">
+        <div class="visit-top">
+          <strong class="visit-host">${escapeHtml(visit.hostname || visit.origin || "Unknown site")}</strong>
+          <span class="status-dot ${escapeHtml(visit.status)}"></span>
+        </div>
+        <div class="visit-meta">
+          <span>${escapeHtml(formatListDate(visit.startedAt))}</span>
+          <span class="${visit.active ? "active-tag" : ""}">${visit.active ? "ACTIVE" : escapeHtml(formatDuration(visit.startedAt, endedAt))}</span>
+        </div>
+        <div class="visit-metrics">
+          <span>${visit.requestCount} requests</span>
+          <span>${visit.signalCount} signals</span>
+          <span>${visit.findingCount} findings</span>
+        </div>
+      </button>
+    </article>
+  `;
 }
 
-function safeFilename(hostname) {
-  return String(hostname || "site").replace(/[^a-z0-9.-]+/gi, "-").slice(0, 100);
+async function loadHistory() {
+  const response = await send({ type: "VEILANCE_GET_HISTORY" });
+  const visits = response.visits || [];
+  elements.historyBadge.textContent = String(visits.length);
+  if (!visits.length) {
+    elements.historyList.innerHTML = '<div class="empty panel-empty">No visits have been recorded yet. Browse normally and Veilance will keep up to 20 local visit sessions.</div>';
+    return;
+  }
+  elements.historyList.innerHTML = visits.map(historyCardMarkup).join("");
+  for (const button of elements.historyList.querySelectorAll("[data-visit-id]")) {
+    button.addEventListener("click", () => void openHistoryVisit(button.dataset.visitId));
+  }
 }
 
-async function exportPayload() {
-  await refreshPayloadPreview();
-  if (!currentPayload) return;
-  const blob = new Blob([`${JSON.stringify(currentPayload, null, 2)}\n`], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `veilance-${safeFilename(currentPayload.site?.hostname)}-${Date.now()}.json`;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+async function openHistoryVisit(visitId) {
+  elements.historyListView.hidden = true;
+  elements.historyDetailView.hidden = false;
+  elements.historyDetail.innerHTML = '<div class="empty panel-empty">Loading the complete visit…</div>';
+  try {
+    const response = await send({ type: "VEILANCE_GET_VISIT", visitId });
+    const state = response.state;
+    const summary = response.summary;
+    const findings = response.findings || [];
+    if (!state) throw new Error("This visit is no longer in history");
+    elements.historyDetail.innerHTML = `
+      <section class="detail-hero">
+        <span class="label">COMPLETE VISIT</span>
+        <h1>${escapeHtml(state.hostname || state.origin || "Unknown site")}</h1>
+        <div class="status ${escapeHtml(summary.status)}">${escapeHtml(summary.label)}</div>
+        <p>${escapeHtml(formatDateTime(state.startedAt))} · ${escapeHtml(formatDuration(state.startedAt, state.endedAt))} · ${state.active === false ? "Visit complete" : "Visit still active"}</p>
+      </section>
+      <section class="metrics">
+        <article><strong>${state.network?.totalRequests || 0}</strong><span>requests</span></article>
+        <article><strong>${summary.signalCount || 0}</strong><span>API signals</span></article>
+        <article><strong>${summary.thirdPartyHostCount || 0}</strong><span>third parties</span></article>
+        <article><strong>${findings.length}</strong><span>findings</span></article>
+      </section>
+      <section class="detail-section">
+        <header><h3>Findings</h3><p>Observed behavior is evidence, not proof of malicious intent.</p></header>
+        <div class="section-body history-findings"></div>
+      </section>
+      <section class="details-panel" open>
+        <div class="telemetry-details">${telemetryDetailsMarkup(state)}</div>
+      </section>
+      <button class="delete-visit" type="button" data-delete-visit="${escapeHtml(state.visitId)}">Delete this visit</button>
+    `;
+    renderFindings(
+      elements.historyDetail.querySelector(".history-findings"),
+      findings,
+      "No enabled indicator produced a finding during this visit."
+    );
+    elements.historyDetail.querySelector("[data-delete-visit]").addEventListener("click", async () => {
+      if (!confirm("Delete this visit from local history?")) return;
+      await send({ type: "VEILANCE_DELETE_VISIT", visitId: state.visitId });
+      showHistoryList();
+      await loadHistory();
+    });
+  } catch (error) {
+    elements.historyDetail.innerHTML = `<div class="empty panel-empty">${escapeHtml(error.message)}</div>`;
+  }
 }
 
-async function clearState() {
+function showHistoryList() {
+  elements.historyDetailView.hidden = true;
+  elements.historyListView.hidden = false;
+  elements.historyDetail.innerHTML = "";
+}
+
+async function loadWallet() {
+  try {
+    const response = await send({ type: "VEILANCE_GET_WALLET" });
+    walletPublicKey = response.wallet?.publicKey || "";
+    elements.walletAddress.textContent = walletPublicKey || response.walletError || "Wallet unavailable";
+    elements.copyWalletButton.disabled = !walletPublicKey;
+  } catch (error) {
+    elements.walletAddress.textContent = error.message;
+    elements.copyWalletButton.disabled = true;
+  }
+}
+
+async function copyWalletAddress() {
+  if (!walletPublicKey) return;
+  await navigator.clipboard.writeText(walletPublicKey);
+  const original = elements.copyWalletButton.textContent;
+  elements.copyWalletButton.textContent = "Copied";
+  setTimeout(() => { elements.copyWalletButton.textContent = original; }, 1200);
+}
+
+async function clearCurrentVisit() {
   if (!Number.isInteger(activeTabId)) return;
   await send({ type: "VEILANCE_CLEAR_STATE", tabId: activeTabId });
-  currentPayload = null;
-  await loadState();
+  await Promise.all([loadState(), loadHistory()]);
 }
 
-async function uploadPayload() {
-  if (!TELEMETRY_UPLOAD_ENABLED || !TELEMETRY_UPLOAD_ENDPOINT) return;
-  await refreshPayloadPreview();
-  if (!currentPayload) return;
-  const response = await fetch(TELEMETRY_UPLOAD_ENDPOINT, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(currentPayload)
-  });
-  if (!response.ok) throw new Error(`Upload failed with HTTP ${response.status}`);
+async function switchView(view) {
+  activeView = view;
+  elements.liveView.hidden = view !== "live";
+  elements.historyView.hidden = view !== "history";
+  for (const button of document.querySelectorAll(".nav-button[data-view]")) {
+    button.classList.toggle("active", button.dataset.view === view);
+  }
+  if (view === "history") {
+    showHistoryList();
+    await loadHistory();
+  } else {
+    await loadState();
+  }
 }
 
+for (const button of document.querySelectorAll(".nav-button[data-view]")) {
+  button.addEventListener("click", () => void switchView(button.dataset.view));
+}
+elements.settingsButton.addEventListener("click", () => void chrome.runtime.openOptionsPage());
 elements.refreshButton.addEventListener("click", () => void loadState());
-elements.exportButton.addEventListener("click", () => void exportPayload());
-elements.clearButton.addEventListener("click", () => void clearState());
-elements.payloadPanel.addEventListener("toggle", () => {
-  if (elements.payloadPanel.open) void refreshPayloadPreview();
+elements.historyRefreshButton.addEventListener("click", () => void loadHistory());
+elements.historyBackButton.addEventListener("click", showHistoryList);
+elements.clearButton.addEventListener("click", () => void clearCurrentVisit());
+elements.copyWalletButton.addEventListener("click", () => void copyWalletAddress());
+elements.liveDetailPanel.addEventListener("toggle", () => {
+  if (elements.liveDetailPanel.open) elements.liveDetails.innerHTML = telemetryDetailsMarkup(currentLiveState);
 });
-elements.uploadButton.addEventListener("click", () => void uploadPayload());
 
-elements.uploadButton.disabled = !TELEMETRY_UPLOAD_ENABLED || !TELEMETRY_UPLOAD_ENDPOINT;
+elements.payoutButton.disabled = !PAYOUTS_ENABLED;
 elements.version.textContent = `v${chrome.runtime.getManifest().version}`;
 
-void loadState();
-const refreshTimer = setInterval(() => void loadState(), 1200);
+void Promise.all([loadState(), loadWallet(), loadHistory()]).catch((error) => {
+  console.error("Veilance popup failed to initialize", error);
+});
+const refreshTimer = setInterval(() => {
+  if (activeView === "live") void loadState().catch(() => {});
+}, 1500);
 addEventListener("unload", () => clearInterval(refreshTimer));
