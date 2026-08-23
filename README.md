@@ -1,17 +1,26 @@
-# Veilance Browser Extension v0.4.1
+# Veilance Browser Extension v0.4.2
 
 Veilance is a local-first browser privacy observability extension. It shows what
 a website requests from browser APIs and which network hosts it contacts while
 the page is open. Observations describe behavior, not intent: a finding does not
 automatically mean a website is malicious.
 
-This maintenance release prevents a Chromium WebGPU warning on Windows while
-retaining WebGPU observation. Complete visit history, indicator controls,
-Veilance JSON tracker imports, the expanded privacy indicator catalog, and the
-locally generated Solana wallet remain local-first. Telemetry uploads and
-payouts remain disabled.
+This maintenance release prevents website canvas diagnostics from being
+recorded as Veilance extension errors while retaining canvas readback
+observation. Complete visit history, indicator controls, Veilance JSON tracker
+imports, the expanded privacy indicator catalog, and the locally generated
+Solana wallet remain local-first. Telemetry uploads and payouts remain disabled.
 
-## What changed in v0.4.1
+## What changed in v0.4.2
+
+* Veilance observes access to canvas readback methods, then returns the original
+  browser method before the website invokes it, keeping Veilance off the native
+  diagnostic call stack
+* `getImageData()`, `toDataURL()`, and `toBlob()` activity remains observable
+* Veilance does not force `willReadFrequently`, change Pixlr's canvas backend,
+  or hide the diagnostic from the website's own developer console
+
+## v0.4.1 WebGPU compatibility fix
 
 * Windows WebGPU adapter requests no longer forward the `powerPreference` hint
   that Chromium currently ignores and warns about
@@ -278,7 +287,7 @@ Important security boundary:
   may be able to recover it.
 * Removing extension data or losing the browser profile can remove the only
   local copy. Back up the key before funding the wallet.
-* Payouts are not active in v0.4.1.
+* Payouts are not active in v0.4.2.
 
 ## SQLite history storage
 

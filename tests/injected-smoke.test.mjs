@@ -114,6 +114,70 @@ test("main-world instrumentation records new indicator operations without values
   assert.equal(serialized.includes("do-not-store"), false);
 });
 
+test("canvas readback observation leaves Veilance off the native call stack", async () => {
+  class DiagnosticCanvasContext {
+    getImageData() {
+      this.nativeCallStack = new Error("browser diagnostic").stack;
+      return { data: new Uint8ClampedArray(4) };
+    }
+  }
+
+  const originalGetImageData = DiagnosticCanvasContext.prototype.getImageData;
+  const document = new FakeDocument();
+  const pageEvents = new TinyEventTarget();
+  const sandbox = {
+    console,
+    crypto: { randomUUID: () => "canvas-session" },
+    URL,
+    Uint8ClampedArray,
+    location: {
+      href: "https://example.com/editor/",
+      origin: "https://example.com"
+    },
+    CustomEvent: TinyCustomEvent,
+    EventTarget: TinyEventTarget,
+    Document: FakeDocument,
+    document,
+    Navigator: FakeNavigator,
+    navigator: new FakeNavigator(),
+    CanvasRenderingContext2D: DiagnosticCanvasContext,
+    addEventListener: pageEvents.addEventListener.bind(pageEvents),
+    window: null
+  };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+
+  const source = await readFile(new URL("../injected.js", import.meta.url), "utf8");
+  vm.runInContext(source, sandbox, { filename: "injected.js" });
+
+  const events = [];
+  document.addEventListener("__veilance_event_v1__", (event) => events.push(event.detail));
+  document.dispatchEvent(new TinyCustomEvent("__veilance_control_v1__", {
+    detail: { action: "configure", enabledIndicatorIds: ["canvas"] }
+  }));
+
+  const context = new sandbox.CanvasRenderingContext2D();
+  const pixels = context.getImageData(0, 0, 1, 1);
+
+  assert.equal(pixels.data.length, 4);
+  assert.doesNotMatch(
+    context.nativeCallStack,
+    /injected\.js|veilanceWrappedMethod|veilanceObservedMethodGetter/
+  );
+  assert.deepEqual(
+    events.map((event) => [event.indicatorId, event.action]),
+    [["canvas", "readback"]]
+  );
+
+  assert.equal(context.getImageData, originalGetImageData);
+  assert.equal(events.length, 2);
+
+  const replacement = () => "replacement";
+  context.getImageData = replacement;
+  assert.equal(context.getImageData(), "replacement");
+  assert.equal(events.length, 2);
+});
+
 test("Windows WebGPU calls omit only Chromium's ignored power preference", async () => {
   class WindowsNavigator {
     get platform() { return "Win32"; }
