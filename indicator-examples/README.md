@@ -14,3 +14,78 @@ Supported top-level forms:
 
 Signal fields are `indicatorId`, `kind`, `api`, `action`, and `minCount`. Host
 rules use `hosts` or the shorthand `hostSuffix`. `mode` may be `any` or `all`.
+
+## Make your own in five minutes
+
+1. Create an empty folder such as `my-veilance-indicators`.
+2. Copy `useful-starter-rules.json` into it, or select **Download starter
+   rules** in Veilance Settings.
+3. Give every rule a unique `id`, plain-language `name`, and `description`.
+4. Match a broad event source with `indicatorId`, an exact `api` and `action`
+   from a visit's **Complete visit details**, or a host with `hosts`.
+5. Choose the folder in Settings. Fix any validation message shown there.
+
+Veilance automatically prefixes imported ids with `custom.`. Keep the built-in
+source enabled or there will be no retained events for a custom signal rule to
+match.
+
+## Useful source ids
+
+These built-in event sources may be used as `indicatorId` values:
+
+* Fingerprinting: `canvas`, `webgl`, `audio`,
+  `navigator-characteristics`, `screen-characteristics`, `locale-timezone`,
+  `font-probing`, `css-media-queries`, `performance-timing`, `webgpu`,
+  `network-information`, and `media-capabilities`
+* Storage: `browser-storage` and `cookie-access`
+* Sensitive APIs: `media-devices`, `geolocation`, `clipboard`,
+  `permission-queries`, `connected-devices`, `device-sensors`,
+  `credential-management`, `file-system-access`, `speech`, `notifications`,
+  and `battery`
+* Network and browser behavior: `webrtc`, `beacon`, `spa-navigation`, and
+  `privacy-sandbox`
+
+`network-requests`, `known-trackers`, `security-headers`, and `page-structure`
+are built-in settings rather than signal ids. Use a `hosts` rule for network
+destinations and inspect the built-in history fields for headers and structure.
+
+## Rule patterns
+
+Match any use of one source:
+
+```json
+{
+  "match": { "indicatorId": "file-system-access" }
+}
+```
+
+Match a threshold:
+
+```json
+{
+  "match": { "indicatorId": "font-probing", "minCount": 10 }
+}
+```
+
+Require several sources in one visit:
+
+```json
+{
+  "match": {
+    "mode": "all",
+    "signals": [
+      { "indicatorId": "navigator-characteristics" },
+      { "indicatorId": "screen-characteristics" },
+      { "indicatorId": "font-probing" }
+    ]
+  }
+}
+```
+
+Match a service and its subdomains:
+
+```json
+{
+  "match": { "hosts": ["metrics.example"] }
+}
+```

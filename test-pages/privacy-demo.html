@@ -20,6 +20,10 @@
   <button id="network">Third-party request</button>
   <button id="media">Enumerate media devices</button>
   <button id="location">Request location</button>
+  <button id="fingerprint">Fingerprint characteristics</button>
+  <button id="cookies">Cookie access</button>
+  <button id="performance">Performance entries</button>
+  <button id="webgpu">WebGPU adapter</button>
   <pre id="log">Ready.</pre>
   <script>
     const log = (message) => document.querySelector('#log').textContent += `\n${message}`;
@@ -79,6 +83,44 @@
         () => log('Location response received.'),
         (error) => log(`Location request result: ${error.message}`)
       );
+    };
+
+    document.querySelector('#fingerprint').onclick = async () => {
+      void navigator.userAgent;
+      void navigator.hardwareConcurrency;
+      void navigator.deviceMemory;
+      void navigator.languages;
+      void screen.width;
+      void screen.colorDepth;
+      void devicePixelRatio;
+      new Intl.DateTimeFormat().resolvedOptions();
+      new Date().getTimezoneOffset();
+      matchMedia('(prefers-color-scheme: dark)').matches;
+      document.fonts.check('12px sans-serif');
+      const canvas = document.createElement('canvas');
+      canvas.getContext('2d').measureText('veilance');
+      if (navigator.userAgentData?.getHighEntropyValues) {
+        await navigator.userAgentData.getHighEntropyValues(['architecture']);
+      }
+      log('Fingerprint characteristics queried.');
+    };
+
+    document.querySelector('#cookies').onclick = () => {
+      document.cookie = 'veilance-test=1; SameSite=Lax';
+      void document.cookie;
+      log('Cookie read and write complete.');
+    };
+
+    document.querySelector('#performance').onclick = () => {
+      performance.getEntriesByType('navigation');
+      performance.getEntriesByType('resource');
+      log('Performance entries queried.');
+    };
+
+    document.querySelector('#webgpu').onclick = async () => {
+      if (!navigator.gpu) return log('WebGPU unavailable.');
+      await navigator.gpu.requestAdapter();
+      log('WebGPU adapter requested.');
     };
   </script>
 </body>

@@ -105,6 +105,42 @@ test("audio fingerprinting requires a pattern, not a single generic call", () =>
   assert.equal(summarizeState(state).status, "active");
 });
 
+test("multiple characteristic groups produce a broad fingerprint finding", () => {
+  const state = createEmptyState(5, "https://example.com", 1000);
+  addPageSignal(state, {
+    indicatorId: "navigator-characteristics",
+    kind: "fingerprinting",
+    api: "Navigator",
+    action: "read-hardware-concurrency"
+  }, 1100);
+  addPageSignal(state, {
+    indicatorId: "screen-characteristics",
+    kind: "fingerprinting",
+    api: "Screen",
+    action: "read-width"
+  }, 1200);
+  addPageSignal(state, {
+    indicatorId: "font-probing",
+    kind: "fingerprinting",
+    api: "Canvas2D",
+    action: "measure-text"
+  }, 1300);
+  assert.ok(buildFindings(state).some((finding) => finding.id === "broad-fingerprint-surface"));
+});
+
+test("sensitive local API signals produce transparent high-severity findings", () => {
+  const state = createEmptyState(6, "https://example.com", 1000);
+  addPageSignal(state, {
+    indicatorId: "file-system-access",
+    kind: "sensitive-api",
+    api: "FileSystem",
+    action: "directory-picker"
+  }, 1100);
+  const finding = buildFindings(state).find((item) => item.id === "file-system-access");
+  assert.equal(finding.severity, "high");
+  assert.match(finding.description, /never retains file names or contents/i);
+});
+
 test("sanitized payload excludes paths, query strings, values, and coordinates", () => {
   const state = createEmptyState(2, "https://example.com/private?q=secret", 1000);
   addPageSignal(state, {

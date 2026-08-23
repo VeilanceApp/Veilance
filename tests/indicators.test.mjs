@@ -18,6 +18,38 @@ test("built-in indicator settings default on and retain explicit user choices", 
   assert.equal(Object.keys(settings).length, BUILT_IN_INDICATORS.length);
 });
 
+test("expanded catalog exposes useful fingerprinting and sensitive API sources", () => {
+  const ids = new Set(BUILT_IN_INDICATORS.map((indicator) => indicator.id));
+  for (const id of [
+    "cookie-access",
+    "navigator-characteristics",
+    "screen-characteristics",
+    "locale-timezone",
+    "font-probing",
+    "css-media-queries",
+    "performance-timing",
+    "webgpu",
+    "network-information",
+    "media-capabilities",
+    "connected-devices",
+    "device-sensors",
+    "credential-management",
+    "file-system-access",
+    "speech",
+    "privacy-sandbox"
+  ]) {
+    assert.equal(ids.has(id), true, `${id} should be a built-in indicator`);
+  }
+});
+
+test("the bundled starter pack is valid and importable", async () => {
+  const text = await readFile(new URL("../indicator-examples/useful-starter-rules.json", import.meta.url), "utf8");
+  const result = parseIndicatorDocuments([{ sourceName: "useful-starter-rules.json", text }]);
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.indicators.length, 5);
+  assert.ok(result.indicators.every((indicator) => indicator.id.startsWith("custom.")));
+});
+
 test("folder documents accept one indicator, arrays, and indicators wrappers", () => {
   const result = parseIndicatorDocuments([
     {
