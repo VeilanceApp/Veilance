@@ -1,0 +1,15 @@
+{
+  "format": "veilance-json",
+  "name": "Platform161",
+  "category": "advertising",
+  "website_url": "https://platform161.com/",
+  "organization": "platform161",
+  "domains": [
+    "creative-serving.com",
+    "p161.net"
+  ],
+  "filters": [
+    "||ads.creative-serving.com^$3p",
+    "||p161.net^$3p"
+  ]
+}

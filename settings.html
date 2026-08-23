@@ -55,20 +55,66 @@
       <div id="customIndicators" class="custom-list">
         <div class="empty-state">No custom indicators loaded.</div>
       </div>
+      <div class="indicator-how-to">
+        <div class="how-to-step">
+          <span>1</span>
+          <div><strong>Create a folder</strong><p>Keep one or more plain <code>.json</code> rule files together.</p></div>
+        </div>
+        <div class="how-to-step">
+          <span>2</span>
+          <div><strong>Choose what to match</strong><p>Use a built-in source ID, an exact API/action, host suffixes, or Veilance network filters inside JSON.</p></div>
+        </div>
+        <div class="how-to-step">
+          <span>3</span>
+          <div><strong>Load the folder</strong><p>Select <em>Choose indicator folder</em>. Veilance validates the files and shows any readable errors.</p></div>
+        </div>
+      </div>
+      <div class="template-actions">
+        <button id="downloadStarterButton" class="secondary-button" type="button">Download starter rules</button>
+        <button id="copySignalTemplateButton" class="secondary-button" type="button">Copy signal template</button>
+        <button id="copyHostTemplateButton" class="secondary-button" type="button">Copy host template</button>
+        <button id="copyVeilanceTemplateButton" class="secondary-button" type="button">Copy Veilance JSON</button>
+      </div>
       <details class="schema-help">
-        <summary>Indicator file format</summary>
-        <p>A file may contain one indicator, an array, or an object with an <code>indicators</code> array. Match one or more observed signals or host suffixes.</p>
+        <summary>Indicator file format and matching guide</summary>
+        <p>A file may contain one indicator, an array, or an object with an <code>indicators</code> array. The easiest rule matches a built-in source with <code>indicatorId</code>. For a narrower rule, copy the exact <code>API</code> and <code>action</code> shown in Complete visit details. Keep the matching built-in indicator enabled so its signals are available.</p>
         <pre>{
-  "id": "example-canvas-rule",
-  "name": "Repeated canvas readback",
-  "description": "Canvas data was read at least three times.",
+  "id": "repeated-font-probing",
+  "name": "Repeated font probing",
+  "category": "Fingerprinting",
+  "description": "A page used font-probing signals at least ten times.",
   "severity": "medium",
   "match": {
-    "api": "Canvas",
-    "action": "readback",
-    "minCount": 3
+    "indicatorId": "font-probing",
+    "minCount": 10
   }
 }</pre>
+        <div class="schema-notes">
+          <p><code>signals</code> accepts up to 20 matchers. <code>hosts</code> accepts domain suffixes such as <code>metrics.example</code>. Set <code>mode</code> to <code>any</code> or <code>all</code>. Severity may be <code>low</code>, <code>medium</code>, or <code>high</code>.</p>
+          <p>Custom indicators are matching rules only. They never execute code, read page contents, or add new browser instrumentation.</p>
+        </div>
+      </details>
+      <details class="schema-help">
+        <summary>Veilance JSON tracker format</summary>
+        <p>Veilance tracker files store domains and filters as JSON arrays. Veilance supports host-anchored network filters such as <code>||tracker.example^$3p</code>. <code>$3p</code>, first-party forms, common resource types, and <code>domain=</code> constraints are honored. Path, cosmetic, regular-expression, redirect, and exception filters are skipped with a visible warning because Veilance history intentionally does not retain URL paths.</p>
+        <pre>{
+  "format": "veilance-json",
+  "name": "Platform161",
+  "category": "advertising",
+  "website_url": "https://platform161.com/",
+  "organization": "platform161",
+  "domains": [
+    "creative-serving.com",
+    "p161.net"
+  ],
+  "filters": [
+    "||ads.creative-serving.com^$3p",
+    "||p161.net^$3p"
+  ]
+}</pre>
+        <div class="schema-notes">
+          <p>The <code>format</code> field is recommended but optional when <code>domains</code> or <code>filters</code> is present. The rule name is required. <code>organization</code> becomes the default rule id, and <code>description</code>, <code>severity</code>, and <code>defaultEnabled</code> remain optional. Keep the built-in <code>network-requests</code> indicator enabled so tracker rules have request hosts to evaluate.</p>
+        </div>
       </details>
     </section>
 

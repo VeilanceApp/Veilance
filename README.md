@@ -1,15 +1,42 @@
-# Veilance Browser Extension v0.2.0
+# Veilance Browser Extension v0.4.0
 
 Veilance is a local-first browser privacy observability extension. It shows what
 a website requests from browser APIs and which network hosts it contacts while
 the page is open. Observations describe behavior, not intent: a finding does not
 automatically mean a website is malicious.
 
-This release adds complete visit history, user-controlled indicators, folder
-imports, and a locally generated Solana wallet. Telemetry uploads and payouts
-remain disabled.
+This release adds the Veilance JSON tracker schema as a second declarative rule
+format. Complete visit history, indicator controls, folder imports,
+the expanded privacy indicator catalog, and the locally generated Solana wallet
+remain local-first. Telemetry uploads and payouts remain disabled.
 
-## What changed in v0.2.0
+## What changed in v0.4.0
+
+* Veilance JSON tracker objects with `name`, `category`, `website_url`,
+  `organization`, `domains`, and `filters`
+* Host-anchored filter parsing for patterns such as `||tracker.example^$3p`
+* First-/third-party, common resource-type, and `domain=` filter constraints
+* Visible warnings for unsupported path, cosmetic, regular-expression,
+  redirect, and exception filters
+* `trackers` and `rules` JSON array wrappers in addition to `indicators`
+* A copyable Veilance JSON template and import-ready Platform161 example
+
+## v0.3.0 indicator expansion
+
+* New cookie and Storage Access API observation
+* New browser, platform, CPU, memory, language, plugin, and client-hint signals
+* New screen, time zone, locale, font, CSS media-query, performance, WebGPU,
+  network-information, and media-capability signals
+* New connected-device, sensor, credential, file-system, speech, and advertising
+  privacy API signals
+* New combined findings for broad fingerprint profiles and sensitive local API
+  use
+* Built-in source ids are visible next to indicator names in Settings
+* Three-step custom-rule guidance, copyable templates, and a downloadable
+  starter pack in Settings
+* Importable starter examples under `indicator-examples/`
+
+## Existing local-first capabilities
 
 * One stable visit session per top-level navigation
 * Redirects update the same visit instead of resetting its data
@@ -43,6 +70,23 @@ remain disabled.
 * Notification permission requests
 * Battery status access
 * Beacon transmissions
+* Script-visible cookie reads and writes
+* Storage Access and Cookie Store operations
+* Browser, platform, CPU, memory, touch, language, plugin, and client hints
+* Screen geometry, color depth, orientation, and device-pixel ratio reads
+* Locale and time-zone resolution
+* Font availability checks and canvas text measurement
+* JavaScript CSS media and preference queries
+* Performance entry inspection and observation
+* WebGPU adapter, device, format, and adapter-information requests
+* Network Information API characteristic reads
+* Media capability and protected-media checks
+* Bluetooth, USB, HID, serial, MIDI, and gamepad access
+* Motion, orientation, and Generic Sensor activity
+* Credential Management and WebAuthn capability checks
+* Local file-system picker and handle operations
+* Speech voice enumeration and speech-recognition starts
+* Topics, Protected Audience, and Shared Storage API use
 * Script and iframe counts
 * Accessible-cookie counts
 * LocalStorage, SessionStorage, IndexedDB, and CacheStorage counts
@@ -110,21 +154,51 @@ the background.
 
 Imported indicators are data-only rules. They cannot contain or execute
 JavaScript. A file may contain one object, an array, or an object with an
-`indicators` array.
+`indicators`, `trackers`, or `rules` array.
+
+For the easiest start:
+
+1. Select **Download starter rules** in Settings.
+2. Put the downloaded JSON file in its own folder.
+3. Edit the examples or add another `.json` file.
+4. Select **Choose indicator folder** and choose that folder.
+
+Use `indicatorId` to match every retained event from a built-in source. Source
+ids are shown next to each event-based indicator in Settings. Keep that built-in
+indicator enabled. For a narrower rule, use the exact case-sensitive `api` and
+`action` strings shown in a visit's **Complete visit details**.
 
 Signal example:
 
 ```json
 {
-  "id": "repeated-canvas-readback",
-  "name": "Repeated canvas readback",
+  "id": "repeated-font-probing",
+  "name": "Repeated font probing",
   "category": "Fingerprinting",
-  "description": "Canvas data was read at least three times.",
+  "description": "Font-related signals appeared at least ten times.",
   "severity": "medium",
   "match": {
-    "api": "Canvas",
-    "action": "readback",
-    "minCount": 3
+    "indicatorId": "font-probing",
+    "minCount": 10
+  }
+}
+```
+
+Combined example:
+
+```json
+{
+  "id": "broad-fingerprint-profile",
+  "name": "Broad fingerprint profile",
+  "description": "Navigator, screen, and font signals appeared together.",
+  "severity": "medium",
+  "match": {
+    "mode": "all",
+    "signals": [
+      { "indicatorId": "navigator-characteristics" },
+      { "indicatorId": "screen-characteristics" },
+      { "indicatorId": "font-probing" }
+    ]
   }
 }
 ```
@@ -143,7 +217,37 @@ Host example:
 }
 ```
 
-See `indicator-examples/` for files that can be imported directly.
+Veilance JSON tracker example:
+
+```json
+{
+  "format": "veilance-json",
+  "name": "Platform161",
+  "category": "advertising",
+  "website_url": "https://platform161.com/",
+  "organization": "platform161",
+  "domains": [
+    "creative-serving.com",
+    "p161.net"
+  ],
+  "filters": [
+    "||ads.creative-serving.com^$3p",
+    "||p161.net^$3p"
+  ]
+}
+```
+
+Veilance JSON supports host-anchored rules, first-/third-party options, common
+resource types, and `domain=` page constraints. Veilance warns and skips filters
+that require URL paths, cosmetic matching, regular expressions, redirects, or
+exception semantics because history intentionally retains host-level request
+data rather than full URLs. Keep the built-in `network-requests` indicator
+enabled while using tracker rules.
+
+`mode` may be `any` or `all`. A signal matcher may contain `indicatorId`,
+`kind`, `api`, `action`, and `minCount`. Host rules use `hosts` or
+`hostSuffix`. See `indicator-examples/` for import-ready rules and the complete
+authoring guide.
 
 ## Solana wallet
 
@@ -166,7 +270,7 @@ Important security boundary:
   may be able to recover it.
 * Removing extension data or losing the browser profile can remove the only
   local copy. Back up the key before funding the wallet.
-* Payouts are not active in v0.2.0.
+* Payouts are not active in v0.4.0.
 
 ## SQLite history storage
 
@@ -194,6 +298,13 @@ Veilance does not retain:
 * Clipboard contents
 * Camera or microphone data
 * Geolocation coordinates
+* Browser, hardware, screen, network, locale, time-zone, or font values read by
+  instrumented fingerprint indicators
+* Peripheral names, ids, or sensor readings
+* Credential, passkey, challenge, or authenticator response data
+* Local file names or contents
+* Speech audio, recognized text, or installed voice details
+* Advertising topics, auction configuration, or Shared Storage keys and values
 * Passwords, authentication tokens, or authorization headers
 
 History retains the safe origin/hostname, aggregate counts, approved signal

@@ -77,6 +77,8 @@ main { width: min(980px, calc(100% - 40px)); margin: 0 auto; padding: 52px 0 80p
 .indicator-row:hover { background: #0d1723; }
 .indicator-copy { min-width: 0; }
 .indicator-copy strong { display: block; font-size: 12px; }
+.indicator-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 9px; }
+.indicator-id { padding: 3px 6px; border: 1px solid #26394e; border-radius: 5px; color: #6d94b9; background: #09111a; font-size: 8px; }
 .indicator-copy p { margin: 6px 0 0; color: #788da4; font-size: 10px; line-height: 1.5; }
 .dependency { color: #d1a456; }
 .switch { position: relative; width: 42px; height: 24px; flex: 0 0 auto; }
@@ -100,12 +102,20 @@ main { width: min(980px, calc(100% - 40px)); margin: 0 auto; padding: 52px 0 80p
 .severity.low { color: #75d9f3; border: 1px solid #28536a; }
 .custom-row p { margin: 0; color: #788da4; font-size: 10px; line-height: 1.5; }
 .custom-row small { display: block; margin-top: 6px; color: #586e87; font: 9px ui-monospace, monospace; }
+.rule-warning { color: #d4a85f; }
 .custom-actions { display: flex; align-items: center; gap: 10px; }
 .remove-button { width: 30px; height: 30px; border: 1px solid #50313a; border-radius: 7px; color: #cb7f89; background: #1d1217; }
+.indicator-how-to { margin: 14px 24px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.how-to-step { min-width: 0; padding: 13px; display: flex; align-items: flex-start; gap: 10px; border: 1px solid #1c2d41; border-radius: 10px; background: #0a121c; }
+.how-to-step > span { width: 24px; height: 24px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #245b7d; border-radius: 50%; color: #70dcf6; background: #0d2536; font: 9px ui-monospace, monospace; }
+.how-to-step strong { font-size: 11px; }
+.how-to-step p { margin: 5px 0 0; color: #71869e; font-size: 9px; line-height: 1.5; }
+.template-actions { margin: 10px 24px 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .schema-help { margin: 14px 24px 22px; border: 1px solid #1c2d41; border-radius: 10px; overflow: hidden; background: #09111a; }
 .schema-help summary { padding: 13px 15px; color: #a9bfd5; font-size: 11px; font-weight: 700; cursor: pointer; }
 .schema-help p { margin: 0; padding: 0 15px 12px; color: #71869e; font-size: 10px; line-height: 1.55; }
 .schema-help pre { margin: 0; padding: 14px 15px; overflow: auto; border-top: 1px solid #1b2a3d; color: #7fd4ec; background: #060b12; font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.schema-notes { padding: 13px 0 2px; border-top: 1px solid #1b2a3d; }
 code { color: #77d6ee; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .wallet-section { background: linear-gradient(145deg, rgba(16, 27, 42, .98), rgba(10, 17, 27, .98)); }
@@ -147,7 +157,8 @@ code { color: #77d6ee; font-family: ui-monospace, SFMono-Regular, Menlo, monospa
   .header-actions { width: 100%; justify-content: space-between; }
   .primary-button { width: 100%; }
   .indicator-groups, .custom-list { padding-right: 14px; padding-left: 14px; }
-  .schema-help, .notice { margin-right: 14px; margin-left: 14px; }
+  .schema-help, .notice, .indicator-how-to, .template-actions { margin-right: 14px; margin-left: 14px; }
+  .indicator-how-to { grid-template-columns: 1fr; }
   .database-grid { grid-template-columns: 1fr; }
   .wallet-address-box { align-items: stretch; flex-direction: column; }
   .wallet-actions { flex-direction: column; }

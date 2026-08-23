@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Veilance",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "See privacy-relevant browser activity live and review the last 20 visits. All history stays local.",
   "minimum_chrome_version": "111",
   "permissions": [

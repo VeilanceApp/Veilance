@@ -8,6 +8,10 @@ const elements = {
   resetIndicatorsButton: document.querySelector("#resetIndicatorsButton"),
   chooseFolderButton: document.querySelector("#chooseFolderButton"),
   indicatorFolderInput: document.querySelector("#indicatorFolderInput"),
+  downloadStarterButton: document.querySelector("#downloadStarterButton"),
+  copySignalTemplateButton: document.querySelector("#copySignalTemplateButton"),
+  copyHostTemplateButton: document.querySelector("#copyHostTemplateButton"),
+  copyVeilanceTemplateButton: document.querySelector("#copyVeilanceTemplateButton"),
   importStatus: document.querySelector("#importStatus"),
   walletAddress: document.querySelector("#walletAddress"),
   copyAddressButton: document.querySelector("#copyAddressButton"),
@@ -31,6 +35,114 @@ const elements = {
 let settingsData = null;
 let exportedWallet = null;
 let statusTimer = null;
+
+const NON_SIGNAL_INDICATOR_IDS = new Set([
+  "network-requests",
+  "known-trackers",
+  "security-headers",
+  "page-structure"
+]);
+
+const SIGNAL_TEMPLATE = {
+  id: "my-signal-rule",
+  name: "My signal rule",
+  category: "Custom",
+  description: "Explain in plain language what this rule means.",
+  severity: "low",
+  defaultEnabled: true,
+  match: {
+    indicatorId: "font-probing",
+    minCount: 5
+  }
+};
+
+const HOST_TEMPLATE = {
+  id: "my-host-rule",
+  name: "My host rule",
+  category: "Network",
+  description: "A website contacted this service or one of its subdomains.",
+  severity: "low",
+  defaultEnabled: true,
+  match: {
+    hosts: ["metrics.example"]
+  }
+};
+
+const VEILANCE_TEMPLATE = {
+  format: "veilance-json",
+  name: "Platform161",
+  category: "advertising",
+  website_url: "https://platform161.com/",
+  organization: "platform161",
+  domains: [
+    "creative-serving.com",
+    "p161.net"
+  ],
+  filters: [
+    "||ads.creative-serving.com^$3p",
+    "||p161.net^$3p"
+  ]
+};
+
+const STARTER_RULES = {
+  indicators: [
+    {
+      id: "broad-fingerprint-profile",
+      name: "Broad fingerprint profile",
+      category: "Fingerprinting",
+      description: "A page queried navigator, screen, and font characteristics during the same visit.",
+      severity: "medium",
+      match: {
+        mode: "all",
+        signals: [
+          { indicatorId: "navigator-characteristics" },
+          { indicatorId: "screen-characteristics" },
+          { indicatorId: "font-probing" }
+        ]
+      }
+    },
+    {
+      id: "repeated-font-probing",
+      name: "Repeated font probing",
+      category: "Fingerprinting",
+      description: "A page used font-probing signals at least ten times.",
+      severity: "medium",
+      match: { indicatorId: "font-probing", minCount: 10 }
+    },
+    {
+      id: "sensitive-local-access",
+      name: "Sensitive local access",
+      category: "Sensitive APIs",
+      description: "A page used credential, peripheral, or local file-system APIs.",
+      severity: "high",
+      match: {
+        mode: "any",
+        signals: [
+          { indicatorId: "credential-management" },
+          { indicatorId: "connected-devices" },
+          { indicatorId: "file-system-access" }
+        ]
+      }
+    },
+    {
+      id: "advertising-privacy-api-use",
+      name: "Advertising privacy API use",
+      category: "Advertising",
+      description: "A page used Topics, Protected Audience, or Shared Storage.",
+      severity: "medium",
+      match: { indicatorId: "privacy-sandbox" }
+    },
+    {
+      id: "replace-with-your-service-host",
+      name: "Your service host",
+      category: "Network",
+      description: "Replace metrics.example with a host you want to watch.",
+      severity: "low",
+      defaultEnabled: false,
+      match: { hosts: ["metrics.example"] }
+    }
+  ]
+};
 
 async function send(message) {
   const response = await chrome.runtime.sendMessage(message);
@@ -115,7 +227,10 @@ function renderBuiltInIndicators() {
         ${indicators.map((indicator) => `
           <div class="indicator-row">
             <div class="indicator-copy">
-              <strong>${escapeHtml(indicator.name)}</strong>
+              <div class="indicator-heading">
+                <strong>${escapeHtml(indicator.name)}</strong>
+                <code class="indicator-id">${NON_SIGNAL_INDICATOR_IDS.has(indicator.id) ? "setting" : "indicatorId"}: ${escapeHtml(indicator.id)}</code>
+              </div>
               <p>${escapeHtml(indicator.description)}${indicator.dependsOn ? ` <span class="dependency">Requires ${escapeHtml(indicator.dependsOn)}.</span>` : ""}</p>
             </div>
             ${indicatorToggleMarkup(indicator, settingsData.indicatorSettings[indicator.id] !== false)}
@@ -131,7 +246,25 @@ function matchSummary(indicator) {
   const pieces = [];
   if (indicator.match?.signals?.length) pieces.push(`${indicator.match.signals.length} signal rule${indicator.match.signals.length === 1 ? "" : "s"}`);
   if (indicator.match?.hosts?.length) pieces.push(`${indicator.match.hosts.length} host rule${indicator.match.hosts.length === 1 ? "" : "s"}`);
+  if (indicator.match?.networkFilters?.length) pieces.push(`${indicator.match.networkFilters.length} Veilance network filter${indicator.match.networkFilters.length === 1 ? "" : "s"}`);
   return pieces.join(` ${indicator.match?.mode || "any"} `) || "Matching rule";
+}
+
+function customRuleMeta(indicator) {
+  const pieces = [matchSummary(indicator)];
+  if (indicator.sourceFormat === "veilance-json") pieces.push("Veilance JSON");
+  if (indicator.dependsOn) pieces.push(`requires ${indicator.dependsOn}`);
+  if (indicator.organization) pieces.push(indicator.organization);
+  if (indicator.websiteUrl) {
+    try {
+      const url = new URL(indicator.websiteUrl);
+      if (url.protocol === "https:" || url.protocol === "http:") pieces.push(url.hostname);
+    } catch {
+      // Ignore malformed restored metadata.
+    }
+  }
+  pieces.push(indicator.sourceName || "Imported");
+  return pieces.join(" · ");
 }
 
 function renderCustomIndicators() {
@@ -147,7 +280,7 @@ function renderCustomIndicators() {
           <strong>${escapeHtml(indicator.name)}</strong>
         </div>
         <p>${escapeHtml(indicator.description)}</p>
-        <small>${escapeHtml(matchSummary(indicator))} · ${escapeHtml(indicator.sourceName || "Imported")}</small>
+        <small>${escapeHtml(customRuleMeta(indicator))}${indicator.importWarnings?.length ? ` <span class="rule-warning">· ${indicator.importWarnings.length} skipped item${indicator.importWarnings.length === 1 ? "" : "s"}</span>` : ""}</small>
       </div>
       <div class="custom-actions">
         ${indicatorToggleMarkup(indicator, settingsData.indicatorSettings[indicator.id] !== false)}
@@ -227,10 +360,13 @@ async function importFolder(files) {
     renderCustomIndicators();
     updateEnabledCount();
     const errorText = response.errors?.length
-      ? ` ${response.errors.length} file error${response.errors.length === 1 ? "" : "s"}: ${response.errors.slice(0, 3).join(" | ")}`
+      ? ` ${response.errors.length} error${response.errors.length === 1 ? "" : "s"}: ${response.errors.slice(0, 3).join(" | ")}`
+      : "";
+    const warningText = response.warnings?.length
+      ? ` ${response.warnings.length} warning${response.warnings.length === 1 ? "" : "s"}: ${response.warnings.slice(0, 3).join(" | ")}`
       : "";
     showImportStatus(
-      `Loaded ${response.importedCount} indicator${response.importedCount === 1 ? "" : "s"} from the selected folder.${errorText}`,
+      `Loaded ${response.importedCount} indicator${response.importedCount === 1 ? "" : "s"} from the selected folder.${errorText}${warningText}`,
       Boolean(response.errors?.length && !response.importedCount)
     );
   } catch (error) {
@@ -247,6 +383,16 @@ async function copyText(value, button, successText) {
   const original = button.textContent;
   button.textContent = successText;
   setTimeout(() => { button.textContent = original; }, 1300);
+}
+
+function downloadJson(filename, value) {
+  const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function resetWalletDialog() {
@@ -304,6 +450,31 @@ elements.resetIndicatorsButton.addEventListener("click", async () => {
 
 elements.chooseFolderButton.addEventListener("click", () => elements.indicatorFolderInput.click());
 elements.indicatorFolderInput.addEventListener("change", () => void importFolder(elements.indicatorFolderInput.files));
+elements.downloadStarterButton.addEventListener("click", () => {
+  downloadJson("veilance-indicator-starter-rules.json", STARTER_RULES);
+  showImportStatus("Starter rules downloaded. Put the file in a folder, edit any rule you want, then choose that folder above.");
+});
+elements.copySignalTemplateButton.addEventListener("click", () => {
+  void copyText(
+    JSON.stringify(SIGNAL_TEMPLATE, null, 2),
+    elements.copySignalTemplateButton,
+    "Signal template copied"
+  );
+});
+elements.copyHostTemplateButton.addEventListener("click", () => {
+  void copyText(
+    JSON.stringify(HOST_TEMPLATE, null, 2),
+    elements.copyHostTemplateButton,
+    "Host template copied"
+  );
+});
+elements.copyVeilanceTemplateButton.addEventListener("click", () => {
+  void copyText(
+    JSON.stringify(VEILANCE_TEMPLATE, null, 2),
+    elements.copyVeilanceTemplateButton,
+    "Veilance JSON copied"
+  );
+});
 
 elements.copyAddressButton.addEventListener("click", () => {
   const value = settingsData?.wallet?.publicKey;
