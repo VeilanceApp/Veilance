@@ -113,3 +113,113 @@ test("main-world instrumentation records new indicator operations without values
   assert.equal(serialized.includes("secret-value"), false);
   assert.equal(serialized.includes("do-not-store"), false);
 });
+
+test("Windows WebGPU calls omit only Chromium's ignored power preference", async () => {
+  class WindowsNavigator {
+    get platform() { return "Win32"; }
+  }
+
+  class FakeGPU {
+    requestAdapter(options) {
+      this.receivedOptions = options;
+      return Promise.resolve(null);
+    }
+  }
+
+  const document = new FakeDocument();
+  const pageEvents = new TinyEventTarget();
+  const sandbox = {
+    console,
+    crypto: { randomUUID: () => "windows-webgpu-session" },
+    URL,
+    location: {
+      href: "https://example.com/",
+      origin: "https://example.com"
+    },
+    CustomEvent: TinyCustomEvent,
+    EventTarget: TinyEventTarget,
+    Document: FakeDocument,
+    document,
+    Navigator: WindowsNavigator,
+    navigator: new WindowsNavigator(),
+    GPU: FakeGPU,
+    addEventListener: pageEvents.addEventListener.bind(pageEvents),
+    window: null
+  };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+
+  const source = await readFile(new URL("../injected.js", import.meta.url), "utf8");
+  vm.runInContext(source, sandbox, { filename: "injected.js" });
+
+  const events = [];
+  document.addEventListener("__veilance_event_v1__", (event) => events.push(event.detail));
+  document.dispatchEvent(new TinyCustomEvent("__veilance_control_v1__", {
+    detail: { action: "configure", enabledIndicatorIds: ["webgpu"] }
+  }));
+
+  const requestedOptions = Object.freeze({
+    powerPreference: "high-performance",
+    forceFallbackAdapter: true,
+    featureLevel: "core",
+    futureOption: "preserved"
+  });
+  const gpu = new sandbox.GPU();
+  await gpu.requestAdapter(requestedOptions);
+
+  assert.equal(gpu.receivedOptions.powerPreference, undefined);
+  assert.equal(gpu.receivedOptions.forceFallbackAdapter, true);
+  assert.equal(gpu.receivedOptions.featureLevel, "core");
+  assert.equal(gpu.receivedOptions.futureOption, "preserved");
+  assert.equal(requestedOptions.powerPreference, "high-performance");
+  assert.deepEqual(
+    events.map((event) => [event.indicatorId, event.action]),
+    [["webgpu", "request-adapter"]]
+  );
+});
+
+test("non-Windows WebGPU calls preserve the power preference", async () => {
+  class LinuxNavigator {
+    get platform() { return "Linux x86_64"; }
+  }
+
+  class FakeGPU {
+    requestAdapter(options) {
+      this.receivedOptions = options;
+      return Promise.resolve(null);
+    }
+  }
+
+  const document = new FakeDocument();
+  const pageEvents = new TinyEventTarget();
+  const sandbox = {
+    console,
+    crypto: { randomUUID: () => "linux-webgpu-session" },
+    URL,
+    location: {
+      href: "https://example.com/",
+      origin: "https://example.com"
+    },
+    CustomEvent: TinyCustomEvent,
+    EventTarget: TinyEventTarget,
+    Document: FakeDocument,
+    document,
+    Navigator: LinuxNavigator,
+    navigator: new LinuxNavigator(),
+    GPU: FakeGPU,
+    addEventListener: pageEvents.addEventListener.bind(pageEvents),
+    window: null
+  };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+
+  const source = await readFile(new URL("../injected.js", import.meta.url), "utf8");
+  vm.runInContext(source, sandbox, { filename: "injected.js" });
+
+  const requestedOptions = { powerPreference: "low-power" };
+  const gpu = new sandbox.GPU();
+  await gpu.requestAdapter(requestedOptions);
+
+  assert.equal(gpu.receivedOptions, requestedOptions);
+  assert.equal(gpu.receivedOptions.powerPreference, "low-power");
+});

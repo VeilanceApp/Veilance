@@ -1,16 +1,24 @@
-# Veilance Browser Extension v0.4.0
+# Veilance Browser Extension v0.4.1
 
 Veilance is a local-first browser privacy observability extension. It shows what
 a website requests from browser APIs and which network hosts it contacts while
 the page is open. Observations describe behavior, not intent: a finding does not
 automatically mean a website is malicious.
 
-This release adds the Veilance JSON tracker schema as a second declarative rule
-format. Complete visit history, indicator controls, folder imports,
-the expanded privacy indicator catalog, and the locally generated Solana wallet
-remain local-first. Telemetry uploads and payouts remain disabled.
+This maintenance release prevents a Chromium WebGPU warning on Windows while
+retaining WebGPU observation. Complete visit history, indicator controls,
+Veilance JSON tracker imports, the expanded privacy indicator catalog, and the
+locally generated Solana wallet remain local-first. Telemetry uploads and
+payouts remain disabled.
 
-## What changed in v0.4.0
+## What changed in v0.4.1
+
+* Windows WebGPU adapter requests no longer forward the `powerPreference` hint
+  that Chromium currently ignores and warns about
+* All other current and future adapter options pass through unchanged
+* WebGPU adapter requests are still recorded as privacy-relevant activity
+
+## v0.4.0 Veilance JSON tracker support
 
 * Veilance JSON tracker objects with `name`, `category`, `website_url`,
   `organization`, `domains`, and `filters`
@@ -270,7 +278,7 @@ Important security boundary:
   may be able to recover it.
 * Removing extension data or losing the browser profile can remove the only
   local copy. Back up the key before funding the wallet.
-* Payouts are not active in v0.4.0.
+* Payouts are not active in v0.4.1.
 
 ## SQLite history storage
 
