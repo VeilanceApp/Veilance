@@ -29,6 +29,49 @@ Veilance automatically prefixes imported ids with `custom.`. Keep the built-in
 source enabled or there will be no retained events for a custom signal rule to
 match.
 
+## Veilance tracker JSON
+
+Veilance accepts its own tracker definitions as JSON, with domains and filters
+stored in arrays:
+
+```json
+{
+  "format": "veilance-json",
+  "name": "Platform161",
+  "category": "advertising",
+  "website_url": "https://platform161.com/",
+  "organization": "platform161",
+  "domains": [
+    "creative-serving.com",
+    "p161.net"
+  ],
+  "filters": [
+    "||ads.creative-serving.com^$3p",
+    "||p161.net^$3p"
+  ]
+}
+```
+
+The `format` field is recommended but optional when `domains` or `filters` is
+present. `organization` becomes the default id, so the example is stored as
+`custom.platform161`. See `veilance-platform161.json` for an import-ready copy.
+Keep the built-in `network-requests` indicator enabled while using tracker
+rules.
+
+Supported filter behavior:
+
+* Host anchors such as `||tracker.example^`
+* Third-party options: `$3p`, `$third-party`
+* First-party options: `$1p`, `$first-party`, `$~3p`, `$~third-party`
+* Common resource types such as `script`, `image`, `stylesheet`, `font`,
+  `media`, `xmlhttprequest`, `ping`, and `websocket`, including negated types
+* Page-host constraints using `domain=allowed.example|~blocked.example`
+
+Veilance skips unsupported path-specific, cosmetic, regular-expression,
+redirect, and exception filters with a visible import warning. This is
+intentional: visit history retains hostnames and aggregate resource types, not
+URL paths, queries, or response bodies.
+
 ## Useful source ids
 
 These built-in event sources may be used as `indicatorId` values:

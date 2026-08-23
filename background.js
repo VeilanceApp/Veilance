@@ -556,6 +556,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ok: true,
           importedCount: parsed.indicators.length,
           errors: parsed.errors,
+          warnings: parsed.warnings,
           customIndicators,
           indicatorSettings
         };

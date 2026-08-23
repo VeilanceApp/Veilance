@@ -1,16 +1,27 @@
-# Veilance Browser Extension v0.3.0
+# Veilance Browser Extension v0.4.0
 
 Veilance is a local-first browser privacy observability extension. It shows what
 a website requests from browser APIs and which network hosts it contacts while
 the page is open. Observations describe behavior, not intent: a finding does not
 automatically mean a website is malicious.
 
-This release expands privacy observation with 16 additional built-in indicator
-families and a clearer, downloadable custom-rule starter workflow. Complete
-visit history, indicator controls, folder imports, and the locally generated
-Solana wallet remain local-first. Telemetry uploads and payouts remain disabled.
+This release adds the Veilance JSON tracker schema as a second declarative rule
+format. Complete visit history, indicator controls, folder imports,
+the expanded privacy indicator catalog, and the locally generated Solana wallet
+remain local-first. Telemetry uploads and payouts remain disabled.
 
-## What changed in v0.3.0
+## What changed in v0.4.0
+
+* Veilance JSON tracker objects with `name`, `category`, `website_url`,
+  `organization`, `domains`, and `filters`
+* Host-anchored filter parsing for patterns such as `||tracker.example^$3p`
+* First-/third-party, common resource-type, and `domain=` filter constraints
+* Visible warnings for unsupported path, cosmetic, regular-expression,
+  redirect, and exception filters
+* `trackers` and `rules` JSON array wrappers in addition to `indicators`
+* A copyable Veilance JSON template and import-ready Platform161 example
+
+## v0.3.0 indicator expansion
 
 * New cookie and Storage Access API observation
 * New browser, platform, CPU, memory, language, plugin, and client-hint signals
@@ -143,7 +154,7 @@ the background.
 
 Imported indicators are data-only rules. They cannot contain or execute
 JavaScript. A file may contain one object, an array, or an object with an
-`indicators` array.
+`indicators`, `trackers`, or `rules` array.
 
 For the easiest start:
 
@@ -206,6 +217,33 @@ Host example:
 }
 ```
 
+Veilance JSON tracker example:
+
+```json
+{
+  "format": "veilance-json",
+  "name": "Platform161",
+  "category": "advertising",
+  "website_url": "https://platform161.com/",
+  "organization": "platform161",
+  "domains": [
+    "creative-serving.com",
+    "p161.net"
+  ],
+  "filters": [
+    "||ads.creative-serving.com^$3p",
+    "||p161.net^$3p"
+  ]
+}
+```
+
+Veilance JSON supports host-anchored rules, first-/third-party options, common
+resource types, and `domain=` page constraints. Veilance warns and skips filters
+that require URL paths, cosmetic matching, regular expressions, redirects, or
+exception semantics because history intentionally retains host-level request
+data rather than full URLs. Keep the built-in `network-requests` indicator
+enabled while using tracker rules.
+
 `mode` may be `any` or `all`. A signal matcher may contain `indicatorId`,
 `kind`, `api`, `action`, and `minCount`. Host rules use `hosts` or
 `hostSuffix`. See `indicator-examples/` for import-ready rules and the complete
@@ -232,7 +270,7 @@ Important security boundary:
   may be able to recover it.
 * Removing extension data or losing the browser profile can remove the only
   local copy. Back up the key before funding the wallet.
-* Payouts are not active in v0.3.0.
+* Payouts are not active in v0.4.0.
 
 ## SQLite history storage
 

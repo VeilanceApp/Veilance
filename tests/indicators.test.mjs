@@ -7,8 +7,10 @@ import {
   BUILT_IN_INDICATORS,
   evaluateCustomIndicators,
   mergeIndicatorSettings,
+  parseVeilanceNetworkFilter,
   parseIndicatorDocuments,
-  validateCustomIndicator
+  validateCustomIndicator,
+  validateVeilanceTrackerIndicator
 } from "../lib/indicators.js";
 
 test("built-in indicator settings default on and retain explicit user choices", () => {
@@ -74,6 +76,90 @@ test("folder documents accept one indicator, arrays, and indicators wrappers", (
   ]);
   assert.equal(result.errors.length, 0);
   assert.deepEqual(result.indicators.map((item) => item.id), ["custom.canvas-three", "custom.host"]);
+});
+
+test("Veilance JSON imports domains, metadata, and host-anchored filters", async () => {
+  const text = await readFile(new URL("../indicator-examples/veilance-platform161.json", import.meta.url), "utf8");
+  const result = parseIndicatorDocuments([{ sourceName: "veilance-platform161.json", text }]);
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.warnings.length, 0);
+  assert.equal(result.indicators.length, 1);
+  const indicator = result.indicators[0];
+  assert.equal(indicator.id, "custom.platform161");
+  assert.equal(indicator.sourceFormat, "veilance-json");
+  assert.equal(indicator.organization, "platform161");
+  assert.equal(indicator.dependsOn, "network-requests");
+  assert.equal(indicator.websiteUrl, "https://platform161.com/");
+  assert.deepEqual(indicator.match.hosts, ["creative-serving.com", "p161.net"]);
+  assert.equal(indicator.match.networkFilters.length, 2);
+  assert.ok(indicator.match.networkFilters.every((rule) => rule.thirdParty === true));
+});
+
+test("Veilance third-party filters honor party, resource type, and page-domain constraints", () => {
+  const partyOnly = validateVeilanceTrackerIndicator({
+    name: "Third-party tracker",
+    organization: "third-party-tracker",
+    filters: ["||p161.net^$3p"]
+  });
+  const thirdParty = createEmptyState(19, "https://publisher.example", 1000);
+  addNetworkRequest(thirdParty, { url: "https://ads.p161.net/ad.js", type: "script" }, 1100);
+  assert.equal(evaluateCustomIndicators(thirdParty, [partyOnly], { [partyOnly.id]: true }).length, 1);
+  const sameParty = createEmptyState(18, "https://p161.net", 1000);
+  addNetworkRequest(sameParty, { url: "https://ads.p161.net/ad.js", type: "script" }, 1100);
+  assert.equal(evaluateCustomIndicators(sameParty, [partyOnly], { [partyOnly.id]: true }).length, 0);
+
+  const indicator = validateVeilanceTrackerIndicator({
+    name: "Constrained tracker",
+    organization: "constrained-tracker",
+    filters: ["||tracker.example^$3p,script,domain=publisher.example|~private.publisher.example"]
+  });
+
+  const matching = createEmptyState(20, "https://news.publisher.example", 1000);
+  addNetworkRequest(matching, { url: "https://cdn.tracker.example/a.js", type: "script" }, 1100);
+  assert.equal(evaluateCustomIndicators(matching, [indicator], { [indicator.id]: true }).length, 1);
+
+  const wrongType = createEmptyState(21, "https://news.publisher.example", 1000);
+  addNetworkRequest(wrongType, { url: "https://cdn.tracker.example/pixel.gif", type: "image" }, 1100);
+  assert.equal(evaluateCustomIndicators(wrongType, [indicator], { [indicator.id]: true }).length, 0);
+
+  const excludedPage = createEmptyState(22, "https://private.publisher.example", 1000);
+  addNetworkRequest(excludedPage, { url: "https://cdn.tracker.example/a.js", type: "script" }, 1100);
+  assert.equal(evaluateCustomIndicators(excludedPage, [indicator], { [indicator.id]: true }).length, 0);
+
+  const firstParty = createEmptyState(23, "https://tracker.example", 1000);
+  addNetworkRequest(firstParty, { url: "https://cdn.tracker.example/a.js", type: "script" }, 1100);
+  assert.equal(evaluateCustomIndicators(firstParty, [indicator], { [indicator.id]: true }).length, 0);
+});
+
+test("unsupported Veilance filters are skipped with transparent warnings", () => {
+  const parsedFilter = parseVeilanceNetworkFilter("||tracker.example/collect.js$3p");
+  assert.equal(parsedFilter.supported, false);
+  assert.match(parsedFilter.reason, /host-anchored filters/);
+
+  const result = parseIndicatorDocuments([{
+    sourceName: "mixed.json",
+    text: JSON.stringify({
+      name: "Mixed tracker",
+      organization: "mixed-tracker",
+      domains: ["tracker.example"],
+      filters: ["||tracker.example/collect.js$3p", "@@||tracker.example^"]
+    })
+  }]);
+  assert.equal(result.indicators.length, 1);
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.warnings.length, 2);
+  assert.equal(result.indicators[0].veilance.skippedFilterCount, 2);
+
+  const unusable = parseIndicatorDocuments([{
+    sourceName: "unusable.json",
+    text: JSON.stringify({
+      name: "Unusable tracker",
+      organization: "unusable-tracker",
+      filters: ["||tracker.example/path.js$3p"]
+    })
+  }]);
+  assert.equal(unusable.indicators.length, 0);
+  assert.match(unusable.errors[0], /host-anchored filters/);
 });
 
 test("custom signal indicators evaluate only after their threshold", () => {

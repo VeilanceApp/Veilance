@@ -11,6 +11,7 @@ const elements = {
   downloadStarterButton: document.querySelector("#downloadStarterButton"),
   copySignalTemplateButton: document.querySelector("#copySignalTemplateButton"),
   copyHostTemplateButton: document.querySelector("#copyHostTemplateButton"),
+  copyVeilanceTemplateButton: document.querySelector("#copyVeilanceTemplateButton"),
   importStatus: document.querySelector("#importStatus"),
   walletAddress: document.querySelector("#walletAddress"),
   copyAddressButton: document.querySelector("#copyAddressButton"),
@@ -65,6 +66,22 @@ const HOST_TEMPLATE = {
   match: {
     hosts: ["metrics.example"]
   }
+};
+
+const VEILANCE_TEMPLATE = {
+  format: "veilance-json",
+  name: "Platform161",
+  category: "advertising",
+  website_url: "https://platform161.com/",
+  organization: "platform161",
+  domains: [
+    "creative-serving.com",
+    "p161.net"
+  ],
+  filters: [
+    "||ads.creative-serving.com^$3p",
+    "||p161.net^$3p"
+  ]
 };
 
 const STARTER_RULES = {
@@ -229,7 +246,25 @@ function matchSummary(indicator) {
   const pieces = [];
   if (indicator.match?.signals?.length) pieces.push(`${indicator.match.signals.length} signal rule${indicator.match.signals.length === 1 ? "" : "s"}`);
   if (indicator.match?.hosts?.length) pieces.push(`${indicator.match.hosts.length} host rule${indicator.match.hosts.length === 1 ? "" : "s"}`);
+  if (indicator.match?.networkFilters?.length) pieces.push(`${indicator.match.networkFilters.length} Veilance network filter${indicator.match.networkFilters.length === 1 ? "" : "s"}`);
   return pieces.join(` ${indicator.match?.mode || "any"} `) || "Matching rule";
+}
+
+function customRuleMeta(indicator) {
+  const pieces = [matchSummary(indicator)];
+  if (indicator.sourceFormat === "veilance-json") pieces.push("Veilance JSON");
+  if (indicator.dependsOn) pieces.push(`requires ${indicator.dependsOn}`);
+  if (indicator.organization) pieces.push(indicator.organization);
+  if (indicator.websiteUrl) {
+    try {
+      const url = new URL(indicator.websiteUrl);
+      if (url.protocol === "https:" || url.protocol === "http:") pieces.push(url.hostname);
+    } catch {
+      // Ignore malformed restored metadata.
+    }
+  }
+  pieces.push(indicator.sourceName || "Imported");
+  return pieces.join(" · ");
 }
 
 function renderCustomIndicators() {
@@ -245,7 +280,7 @@ function renderCustomIndicators() {
           <strong>${escapeHtml(indicator.name)}</strong>
         </div>
         <p>${escapeHtml(indicator.description)}</p>
-        <small>${escapeHtml(matchSummary(indicator))} · ${escapeHtml(indicator.sourceName || "Imported")}</small>
+        <small>${escapeHtml(customRuleMeta(indicator))}${indicator.importWarnings?.length ? ` <span class="rule-warning">· ${indicator.importWarnings.length} skipped item${indicator.importWarnings.length === 1 ? "" : "s"}</span>` : ""}</small>
       </div>
       <div class="custom-actions">
         ${indicatorToggleMarkup(indicator, settingsData.indicatorSettings[indicator.id] !== false)}
@@ -325,10 +360,13 @@ async function importFolder(files) {
     renderCustomIndicators();
     updateEnabledCount();
     const errorText = response.errors?.length
-      ? ` ${response.errors.length} file error${response.errors.length === 1 ? "" : "s"}: ${response.errors.slice(0, 3).join(" | ")}`
+      ? ` ${response.errors.length} error${response.errors.length === 1 ? "" : "s"}: ${response.errors.slice(0, 3).join(" | ")}`
+      : "";
+    const warningText = response.warnings?.length
+      ? ` ${response.warnings.length} warning${response.warnings.length === 1 ? "" : "s"}: ${response.warnings.slice(0, 3).join(" | ")}`
       : "";
     showImportStatus(
-      `Loaded ${response.importedCount} indicator${response.importedCount === 1 ? "" : "s"} from the selected folder.${errorText}`,
+      `Loaded ${response.importedCount} indicator${response.importedCount === 1 ? "" : "s"} from the selected folder.${errorText}${warningText}`,
       Boolean(response.errors?.length && !response.importedCount)
     );
   } catch (error) {
@@ -428,6 +466,13 @@ elements.copyHostTemplateButton.addEventListener("click", () => {
     JSON.stringify(HOST_TEMPLATE, null, 2),
     elements.copyHostTemplateButton,
     "Host template copied"
+  );
+});
+elements.copyVeilanceTemplateButton.addEventListener("click", () => {
+  void copyText(
+    JSON.stringify(VEILANCE_TEMPLATE, null, 2),
+    elements.copyVeilanceTemplateButton,
+    "Veilance JSON copied"
   );
 });
 
