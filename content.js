@@ -116,10 +116,10 @@
     }
   }
 
-  async function captureSnapshot() {
+  async function collectPageSnapshot() {
     const pageStructureEnabled = enabledIndicatorIds.has("page-structure");
     const storageEnabled = enabledIndicatorIds.has("browser-storage");
-    if (!pageStructureEnabled && !storageEnabled) return;
+    if (!pageStructureEnabled && !storageEnabled) return null;
     const scripts = Array.from(document.scripts || []);
     const iframes = Array.from(document.querySelectorAll("iframe[src]"));
     const [indexedDbCount, cacheCount] = await Promise.all([
@@ -127,28 +127,30 @@
       storageEnabled ? optionalCacheCount() : null
     ]);
 
-    safeSend({
-      type: "VEILANCE_PAGE_SNAPSHOT",
-      snapshot: {
-        secureContext: pageStructureEnabled ? Boolean(globalThis.isSecureContext) : undefined,
-        scriptCount: pageStructureEnabled ? scripts.length : undefined,
-        thirdPartyScriptCount: pageStructureEnabled
-          ? scripts.filter((script) => script.src && isThirdPartyUrl(script.src)).length
-          : undefined,
-        iframeCount: pageStructureEnabled ? iframes.length : undefined,
-        thirdPartyIframeCount: pageStructureEnabled
-          ? iframes.filter((frame) => frame.src && isThirdPartyUrl(frame.src)).length
-          : undefined,
-        accessibleCookieCount: storageEnabled ? countAccessibleCookies() : undefined,
-        localStorageKeyCount: storageEnabled ? storageLengthByName("localStorage") : undefined,
-        sessionStorageKeyCount: storageEnabled ? storageLengthByName("sessionStorage") : undefined,
-        indexedDbCount,
-        cacheCount,
-        serviceWorkerControlled: pageStructureEnabled
-          ? Boolean(navigator.serviceWorker?.controller)
-          : undefined
-      }
-    });
+    return {
+      secureContext: pageStructureEnabled ? Boolean(globalThis.isSecureContext) : undefined,
+      scriptCount: pageStructureEnabled ? scripts.length : undefined,
+      thirdPartyScriptCount: pageStructureEnabled
+        ? scripts.filter((script) => script.src && isThirdPartyUrl(script.src)).length
+        : undefined,
+      iframeCount: pageStructureEnabled ? iframes.length : undefined,
+      thirdPartyIframeCount: pageStructureEnabled
+        ? iframes.filter((frame) => frame.src && isThirdPartyUrl(frame.src)).length
+        : undefined,
+      accessibleCookieCount: storageEnabled ? countAccessibleCookies() : undefined,
+      localStorageKeyCount: storageEnabled ? storageLengthByName("localStorage") : undefined,
+      sessionStorageKeyCount: storageEnabled ? storageLengthByName("sessionStorage") : undefined,
+      indexedDbCount,
+      cacheCount,
+      serviceWorkerControlled: pageStructureEnabled
+        ? Boolean(navigator.serviceWorker?.controller)
+        : undefined
+    };
+  }
+
+  async function captureSnapshot() {
+    const snapshot = await collectPageSnapshot();
+    if (snapshot) safeSend({ type: "VEILANCE_PAGE_SNAPSHOT", snapshot });
   }
 
   function scheduleSnapshot(delay = 300) {
@@ -200,9 +202,26 @@
     scheduleSnapshot(0);
   }
 
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type !== "VEILANCE_INDICATOR_CONFIG_CHANGED") return;
-    configureMainWorld(message.enabledIndicatorIds, false);
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "VEILANCE_INDICATOR_CONFIG_CHANGED") {
+      configureMainWorld(message.enabledIndicatorIds, false);
+      return undefined;
+    }
+    if (message?.type !== "VEILANCE_CAPTURE_REDACTED_DOCUMENT") return undefined;
+    void (async () => {
+      try {
+        const redactor = globalThis.VeilanceRedactedHtml;
+        if (!redactor?.captureRedactedDocument) throw new Error("The redacted HTML capture policy is unavailable");
+        const [pageSnapshot, captured] = await Promise.all([
+          collectPageSnapshot(),
+          Promise.resolve().then(() => redactor.captureRedactedDocument(document, location))
+        ]);
+        sendResponse({ ok: true, document: captured, pageSnapshot });
+      } catch (error) {
+        sendResponse({ ok: false, error: String(error?.message || error) });
+      }
+    })();
+    return true;
   });
 
   void (async () => {

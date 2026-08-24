@@ -32,6 +32,21 @@ const elements = {
   databaseVersion: document.querySelector("#databaseVersion"),
   databaseCount: document.querySelector("#databaseCount"),
   clearHistoryButton: document.querySelector("#clearHistoryButton"),
+  snapshotCount: document.querySelector("#snapshotCount"),
+  snapshotUploadConsent: document.querySelector("#snapshotUploadConsent"),
+  snapshotUploadDescription: document.querySelector("#snapshotUploadDescription"),
+  queueAllSnapshotsButton: document.querySelector("#queueAllSnapshotsButton"),
+  refreshSnapshotsButton: document.querySelector("#refreshSnapshotsButton"),
+  clearSnapshotsButton: document.querySelector("#clearSnapshotsButton"),
+  snapshotList: document.querySelector("#snapshotList"),
+  snapshotDialog: document.querySelector("#snapshotDialog"),
+  snapshotDialogTitle: document.querySelector("#snapshotDialogTitle"),
+  snapshotPreviewMetadata: document.querySelector("#snapshotPreviewMetadata"),
+  snapshotHtmlPreview: document.querySelector("#snapshotHtmlPreview"),
+  downloadSnapshotButton: document.querySelector("#downloadSnapshotButton"),
+  downloadSnapshotHtmlButton: document.querySelector("#downloadSnapshotHtmlButton"),
+  queueSnapshotButton: document.querySelector("#queueSnapshotButton"),
+  closeSnapshotDialogButton: document.querySelector("#closeSnapshotDialogButton"),
   saveStatus: document.querySelector("#saveStatus"),
   walletDialog: document.querySelector("#walletDialog"),
   privateKeyConfirmation: document.querySelector("#privateKeyConfirmation"),
@@ -46,6 +61,8 @@ const elements = {
 let settingsData = null;
 let exportedWallet = null;
 let statusTimer = null;
+let snapshotSummaries = [];
+let selectedSnapshot = null;
 
 const NON_SIGNAL_INDICATOR_IDS = new Set([
   "network-requests",
@@ -402,6 +419,173 @@ function renderDatabase() {
   elements.databaseCount.textContent = `${database.visitCount || 0} / ${database.maximumVisits || 20}`;
 }
 
+function formatBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+}
+
+function canQueueSnapshot(snapshot) {
+  const upload = settingsData?.snapshotUpload || {};
+  return Boolean(
+    upload.available &&
+    upload.consent &&
+    ["local", "failed"].includes(snapshot?.upload?.status)
+  );
+}
+
+function renderSnapshotUpload() {
+  const upload = settingsData?.snapshotUpload || {};
+  elements.snapshotUploadConsent.disabled = !upload.available;
+  elements.snapshotUploadConsent.checked = Boolean(upload.available && upload.consent);
+  if (!upload.available) {
+    elements.snapshotUploadDescription.textContent = "Uploads are disabled in this build. Local capture, review, download, and deletion remain available.";
+  } else if (!upload.consent) {
+    elements.snapshotUploadDescription.textContent = `Uploads are available through ${upload.endpointHost}. Enable this control to opt in; nothing is queued automatically.`;
+  } else {
+    elements.snapshotUploadDescription.textContent = `Uploads are allowed through ${upload.endpointHost}. Only snapshots you explicitly queue are batched after a randomized 5–15 minute delay.`;
+  }
+}
+
+function snapshotRowMarkup(snapshot) {
+  const status = String(snapshot.upload?.status || "local");
+  const queueDisabled = canQueueSnapshot(snapshot) ? "" : "disabled";
+  const error = snapshot.upload?.lastError
+    ? `<p class="snapshot-row-error">${escapeHtml(snapshot.upload.lastError)}</p>`
+    : "";
+  return `
+    <article class="snapshot-row">
+      <div class="snapshot-row-copy">
+        <div class="snapshot-row-title">
+          <strong>${escapeHtml(snapshot.hostname || "Unknown website")}</strong>
+          <span class="snapshot-upload-status ${escapeHtml(status)}">${escapeHtml(status)}</span>
+        </div>
+        <div class="snapshot-row-meta">
+          <span>${escapeHtml(formatTrackerDate(snapshot.createdAt))}</span>
+          <span>${escapeHtml(formatBytes(snapshot.sizeBytes))}</span>
+          <span>${escapeHtml(snapshot.eventId || snapshot.snapshotId)}</span>
+          ${snapshot.upload?.nextAttemptAt ? `<span>next ${escapeHtml(formatTrackerDate(snapshot.upload.nextAttemptAt))}</span>` : ""}
+          ${snapshot.upload?.uploadedAt ? `<span>uploaded ${escapeHtml(formatTrackerDate(snapshot.upload.uploadedAt))}</span>` : ""}
+          ${snapshot.upload?.attempts ? `<span>${escapeHtml(snapshot.upload.attempts)} attempt${snapshot.upload.attempts === 1 ? "" : "s"}</span>` : ""}
+        </div>
+        ${error}
+      </div>
+      <div class="snapshot-row-actions">
+        <button class="secondary-button" type="button" data-preview-snapshot="${escapeHtml(snapshot.snapshotId)}">Review</button>
+        <button class="secondary-button" type="button" data-download-snapshot="${escapeHtml(snapshot.snapshotId)}">Download</button>
+        <button class="primary-button" type="button" data-queue-snapshot="${escapeHtml(snapshot.snapshotId)}" ${queueDisabled}>Queue</button>
+        <button class="danger-outline-button" type="button" data-delete-snapshot="${escapeHtml(snapshot.snapshotId)}">Delete</button>
+      </div>
+    </article>
+  `;
+}
+
+async function loadSnapshots() {
+  const response = await send({ type: "VEILANCE_LIST_TELEMETRY_SNAPSHOTS" });
+  snapshotSummaries = response.snapshots || [];
+  const maximum = settingsData?.database?.maximumSnapshots || 20;
+  elements.snapshotCount.textContent = `${snapshotSummaries.length} / ${maximum}`;
+  elements.clearSnapshotsButton.disabled = snapshotSummaries.length === 0;
+  elements.queueAllSnapshotsButton.disabled = !(
+    settingsData?.snapshotUpload?.available &&
+    settingsData?.snapshotUpload?.consent &&
+    snapshotSummaries.some((snapshot) => ["local", "failed"].includes(snapshot.upload?.status))
+  );
+  if (!snapshotSummaries.length) {
+    elements.snapshotList.innerHTML = '<div class="empty-state">No telemetry snapshots stored. Open a public website and use Take snapshot in the popup.</div>';
+    return;
+  }
+  elements.snapshotList.innerHTML = snapshotSummaries.map(snapshotRowMarkup).join("");
+  for (const button of elements.snapshotList.querySelectorAll("[data-preview-snapshot]")) {
+    button.addEventListener("click", () => void openSnapshot(button.dataset.previewSnapshot));
+  }
+  for (const button of elements.snapshotList.querySelectorAll("[data-download-snapshot]")) {
+    button.addEventListener("click", () => void downloadSnapshotById(button.dataset.downloadSnapshot));
+  }
+  for (const button of elements.snapshotList.querySelectorAll("[data-queue-snapshot]")) {
+    button.addEventListener("click", () => void queueSnapshotById(button.dataset.queueSnapshot));
+  }
+  for (const button of elements.snapshotList.querySelectorAll("[data-delete-snapshot]")) {
+    button.addEventListener("click", () => void deleteSnapshotById(button.dataset.deleteSnapshot));
+  }
+}
+
+function snapshotFilename(snapshot, suffix) {
+  const host = String(snapshot?.hostname || "website").replace(/[^a-z0-9.-]+/gi, "-").slice(0, 80);
+  const stamp = new Date(snapshot?.createdAt || Date.now()).toISOString().replace(/[:.]/g, "-");
+  return `veilance-snapshot-${host}-${stamp}.${suffix}`;
+}
+
+async function getSnapshot(snapshotId) {
+  const response = await send({ type: "VEILANCE_GET_TELEMETRY_SNAPSHOT", snapshotId });
+  return response.snapshot;
+}
+
+async function openSnapshot(snapshotId) {
+  try {
+    selectedSnapshot = await getSnapshot(snapshotId);
+    const payload = selectedSnapshot.payload || {};
+    const redactedDocument = payload.redactedDocument || {};
+    const metadata = {
+      local: {
+        snapshotId: selectedSnapshot.snapshotId,
+        createdAt: new Date(selectedSnapshot.createdAt).toISOString(),
+        sizeBytes: selectedSnapshot.sizeBytes,
+        upload: selectedSnapshot.upload
+      },
+      payload: {
+        ...payload,
+        redactedDocument: {
+          ...redactedDocument,
+          html: "[shown in the redacted HTML field below]"
+        }
+      }
+    };
+    elements.snapshotDialogTitle.textContent = selectedSnapshot.hostname || "Telemetry snapshot";
+    elements.snapshotPreviewMetadata.textContent = JSON.stringify(metadata, null, 2);
+    elements.snapshotHtmlPreview.value = String(redactedDocument.html || "");
+    elements.queueSnapshotButton.disabled = !canQueueSnapshot(selectedSnapshot);
+    elements.snapshotDialog.showModal();
+  } catch (error) {
+    showSaveStatus(error.message, true);
+  }
+}
+
+async function downloadSnapshotById(snapshotId) {
+  try {
+    const snapshot = await getSnapshot(snapshotId);
+    downloadJson(snapshotFilename(snapshot, "json"), snapshot);
+    showSaveStatus("Telemetry snapshot downloaded as JSON.");
+  } catch (error) {
+    showSaveStatus(error.message, true);
+  }
+}
+
+async function queueSnapshotById(snapshotId) {
+  try {
+    const response = await send({ type: "VEILANCE_QUEUE_TELEMETRY_SNAPSHOT", snapshotId });
+    await loadSnapshots();
+    if (selectedSnapshot?.snapshotId === snapshotId) elements.queueSnapshotButton.disabled = true;
+    showSaveStatus(`Snapshot queued for a privacy-delayed batch after ${formatTrackerDate(response.nextAttemptAt)}.`);
+  } catch (error) {
+    showSaveStatus(error.message, true);
+  }
+}
+
+async function deleteSnapshotById(snapshotId) {
+  const snapshot = snapshotSummaries.find((item) => item.snapshotId === snapshotId);
+  if (!confirm(`Delete the local snapshot for ${snapshot?.hostname || "this website"}?`)) return;
+  try {
+    await send({ type: "VEILANCE_DELETE_TELEMETRY_SNAPSHOT", snapshotId });
+    if (selectedSnapshot?.snapshotId === snapshotId) elements.snapshotDialog.close();
+    await loadSnapshots();
+    showSaveStatus("Local telemetry snapshot deleted.");
+  } catch (error) {
+    showSaveStatus(error.message, true);
+  }
+}
+
 async function loadSettings() {
   settingsData = await send({ type: "VEILANCE_GET_SETTINGS" });
   renderBuiltInIndicators();
@@ -409,7 +593,9 @@ async function loadSettings() {
   renderTrackerDatabase();
   renderWallet();
   renderDatabase();
+  renderSnapshotUpload();
   updateEnabledCount();
+  await loadSnapshots();
 }
 
 async function importFolder(files) {
@@ -467,6 +653,16 @@ async function copyText(value, button, successText) {
 
 function downloadJson(filename, value) {
   const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadText(filename, value) {
+  const blob = new Blob([String(value || "")], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -628,6 +824,95 @@ elements.copyPrivateKeyButton.addEventListener("click", () => {
 });
 elements.downloadKeypairButton.addEventListener("click", downloadKeypair);
 elements.walletDialog.addEventListener("close", resetWalletDialog);
+
+elements.snapshotUploadConsent.addEventListener("change", async () => {
+  const previous = !elements.snapshotUploadConsent.checked;
+  elements.snapshotUploadConsent.disabled = true;
+  try {
+    const response = await send({
+      type: "VEILANCE_SET_SNAPSHOT_UPLOAD_CONSENT",
+      enabled: elements.snapshotUploadConsent.checked
+    });
+    settingsData.snapshotUpload = response.snapshotUpload;
+    renderSnapshotUpload();
+    await loadSnapshots();
+    showSaveStatus(elements.snapshotUploadConsent.checked
+      ? "Pseudonymous snapshot uploads allowed. Nothing is uploaded until you queue it."
+      : "Snapshot uploads paused. Local snapshots remain available.");
+  } catch (error) {
+    elements.snapshotUploadConsent.checked = previous;
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.snapshotUploadConsent.disabled = !settingsData?.snapshotUpload?.available;
+  }
+});
+
+elements.refreshSnapshotsButton.addEventListener("click", async () => {
+  elements.refreshSnapshotsButton.disabled = true;
+  try {
+    await loadSnapshots();
+    showSaveStatus("Telemetry snapshot list refreshed.");
+  } catch (error) {
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.refreshSnapshotsButton.disabled = false;
+  }
+});
+
+elements.queueAllSnapshotsButton.addEventListener("click", async () => {
+  elements.queueAllSnapshotsButton.disabled = true;
+  try {
+    const response = await send({ type: "VEILANCE_QUEUE_ALL_TELEMETRY_SNAPSHOTS" });
+    await loadSnapshots();
+    showSaveStatus(`${response.queued || 0} snapshot${response.queued === 1 ? "" : "s"} queued for a privacy-delayed batch.`);
+  } catch (error) {
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.queueAllSnapshotsButton.disabled = !(
+      settingsData?.snapshotUpload?.available &&
+      settingsData?.snapshotUpload?.consent &&
+      snapshotSummaries.some((snapshot) => ["local", "failed"].includes(snapshot.upload?.status))
+    );
+  }
+});
+
+elements.clearSnapshotsButton.addEventListener("click", async () => {
+  if (!confirm("Clear every locally stored telemetry snapshot? Visit history is not affected.")) return;
+  elements.clearSnapshotsButton.disabled = true;
+  try {
+    await send({ type: "VEILANCE_CLEAR_TELEMETRY_SNAPSHOTS" });
+    if (elements.snapshotDialog.open) elements.snapshotDialog.close();
+    await loadSnapshots();
+    showSaveStatus("Local telemetry snapshots cleared.");
+  } catch (error) {
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.clearSnapshotsButton.disabled = snapshotSummaries.length === 0;
+  }
+});
+
+elements.downloadSnapshotButton.addEventListener("click", () => {
+  if (!selectedSnapshot) return;
+  downloadJson(snapshotFilename(selectedSnapshot, "json"), selectedSnapshot);
+  showSaveStatus("Telemetry snapshot downloaded as JSON.");
+});
+elements.downloadSnapshotHtmlButton.addEventListener("click", () => {
+  if (!selectedSnapshot) return;
+  downloadText(
+    snapshotFilename(selectedSnapshot, "redacted-html.txt"),
+    selectedSnapshot.payload?.redactedDocument?.html || ""
+  );
+  showSaveStatus("Redacted HTML downloaded as inert text.");
+});
+elements.queueSnapshotButton.addEventListener("click", () => {
+  if (selectedSnapshot) void queueSnapshotById(selectedSnapshot.snapshotId);
+});
+elements.closeSnapshotDialogButton.addEventListener("click", () => elements.snapshotDialog.close());
+elements.snapshotDialog.addEventListener("close", () => {
+  selectedSnapshot = null;
+  elements.snapshotPreviewMetadata.textContent = "";
+  elements.snapshotHtmlPreview.value = "";
+});
 
 elements.clearHistoryButton.addEventListener("click", async () => {
   if (!confirm("Clear all locally stored visit history? The current active visit may appear again as it continues.")) return;

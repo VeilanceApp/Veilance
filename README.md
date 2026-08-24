@@ -1,17 +1,54 @@
-# Veilance Browser Extension v0.5.0
+# Veilance Browser Extension v0.6.0
 
 Veilance is a local-first browser privacy observability extension. It shows what
 a website requests from browser APIs and which network hosts it contacts while
 the page is open. Observations describe behavior, not intent: a finding does not
 automatically mean a website is malicious.
 
-This release enables the Veilance Tracker Database by default, checks the public
-database every eight hours, and exposes the update controls and update log in
-Settings. Complete visit history, indicator controls, custom rule imports, the
-expanded privacy indicator catalog, and the locally generated Solana wallet
-remain local-first. Telemetry uploads and payouts remain disabled.
+This release adds explicit local telemetry snapshots. A user can capture the
+current public website from the popup, review the resulting evidence and inert
+redacted HTML in Settings, download it, or delete it. Snapshot uploads have a
+complete queue and API path but remain disabled by the build gate. Payouts also
+remain disabled.
 
-## What changed in v0.5.0
+## What changed in v0.6.0
+
+* User-triggered snapshots combine host-level network observations, tracker
+  matches, browser API names/actions and counts, page/security counts, and an
+  inert structural HTML representation
+* HTML redaction removes all page text, form values, URL paths and searches,
+  event handlers, arbitrary attributes, inline script source, comments, styles,
+  private network origins, and other value-bearing content
+* External resource URLs are reduced to public origins and stored only in
+  non-executable `data-veilance-*` attributes
+* Inline scripts contribute only coarse capability hints such as Canvas,
+  WebGL, WebGPU, audio, font, navigator, advertising, or anti-blocking behavior
+* DOM ids, classes, and attribute names contribute only coarse advertising,
+  consent, tracking, or anti-blocking marker counts; their original values are
+  never retained
+* The final background validator rejects a snapshot if it contains raw text,
+  executable URL attributes, URL paths/searches, private hosts, or forbidden
+  identity/value fields
+* Remote signal reduction uses an explicit built-in indicator/API/action
+  allowlist, so a page cannot place arbitrary strings in uploadable signal
+  fields by dispatching a lookalike event
+* The SQLite snapshot vault is separate from visit history and retains the 20
+  newest snapshots
+* Settings provides snapshot review, redacted-HTML inspection, JSON/text
+  download, deletion, queue status, retry errors, and clear-all controls
+* Future uploads use a random 256-bit contributor id that is never the Solana
+  wallet address; precise local capture time and upload state are excluded from
+  the transmitted payload
+* Uploads require both the compile-time build gate and separate user consent,
+  plus an explicit queue action for each snapshot or group of snapshots
+* Queued snapshots batch after a randomized 5–15 minute delay and retry with
+  jittered 1 minute, 5 minute, 15 minute, 1 hour, and 4 hour backoff
+* Upload batches are capped at 20 observations and approximately 2 MiB before
+  gzip compression
+* Incognito, localhost, private IP, `.local`, `.internal`, `.lan`, and other
+  browser-local targets cannot produce uploadable snapshots
+
+## v0.5.0 tracker database updates
 
 * The current `veilance-json-trackers/*` database snapshot is bundled and
   enabled on first install
@@ -86,7 +123,8 @@ remain local-first. Telemetry uploads and payouts remain disabled.
 * A bundled, automatically updated tracker database enabled by default
 * Declarative custom indicator rules loaded from a user-selected folder
 * A locally generated Ed25519 Solana wallet and explicit private-key export
-* Telemetry JSON export removed
+* Automatic visit-payload export removed; explicit local snapshot downloads use
+  the stricter snapshot safety policy
 * Payout controls shown as disabled until payout infrastructure is ready
 
 ## What Veilance detects
@@ -141,7 +179,7 @@ Brave.
    * Brave: `brave://extensions`
 3. Enable **Developer mode**.
 4. Select **Load unpacked**.
-5. Choose the extracted `Veilance-dev` directory containing `manifest.json`.
+5. Choose the extracted `Veilance-main` directory containing `manifest.json`.
 6. Pin Veilance to the toolbar.
 7. Reload any sites that were already open so document-start indicators can
    initialize.
@@ -172,6 +210,24 @@ The History tab shows the latest 20 visits. Select a visit to review:
 “Complete” refers to Veilance's complete observation record for the visit. It
 does not include page content, form values, exact URLs, or other excluded
 sensitive data.
+
+### Take a telemetry snapshot
+
+While viewing a public HTTP(S) website, select **Take snapshot** in the popup.
+The capture is intentional and one-time; ordinary browsing does not retain page
+HTML. Open **Settings → Snapshot vault** to:
+
+* Review the raw telemetry fields and the redacted HTML as inert text
+* Inspect third-party resource origins, inline-script capability hints, and
+  advertising, consent, tracking, or anti-blocking structural markers
+* Download the complete local record as JSON or the redacted HTML as `.txt`
+* Delete one snapshot or clear the vault without clearing visit history
+* If a future build enables uploads, opt in and explicitly queue selected local
+  snapshots
+
+The snapshot provides evidence for an analyst or backend classifier. It does
+not label a site as malicious and does not upload the locally generated
+`findings` or severity interpretations.
 
 ## Indicator settings
 
@@ -319,7 +375,7 @@ Important security boundary:
   may be able to recover it.
 * Removing extension data or losing the browser profile can remove the only
   local copy. Back up the key before funding the wallet.
-* Payouts are not active in v0.5.0.
+* Payouts are not active in v0.6.0.
 
 ## SQLite history storage
 
@@ -329,15 +385,61 @@ database bytes are serialized into extension-local storage so Manifest V3
 service-worker restarts do not lose history.
 
 The `visits` table stores one row per visit and prunes itself to the most recent
-20 rows. Derived summary columns make the History list inexpensive while the
-complete sanitized state remains available for the detail view.
+20 rows. The separate `telemetry_snapshots` table stores no more than 20
+user-triggered snapshots, their local queue state, and the redacted payload.
+Derived summary columns keep both lists inexpensive while the complete local
+records remain available for review.
 
 No remote executable code is loaded. The bundled SQLite runtime is version
 3.53.0 from the official `sqlite/sqlite-wasm` project.
 
+## Snapshot upload gate and API contract
+
+Uploading is off by default:
+
+```javascript
+export const TELEMETRY_UPLOAD_ENABLED = false;
+export const TELEMETRY_UPLOAD_ENDPOINT = "https://api.veilance.com/v1/telemetry/snapshots";
+```
+
+After the HTTPS endpoint exists, set `TELEMETRY_UPLOAD_ENABLED` to `true` and
+package a new build. The user must then enable **Allow pseudonymous snapshot
+uploads** in Settings and explicitly queue local snapshots. Enabling the build
+gate alone never uploads existing or future snapshots.
+
+The extension posts gzip-compressed JSON when the runtime supports
+`CompressionStream`:
+
+```json
+{
+  "schemaVersion": "veilance.telemetry-snapshot-batch.v1",
+  "batchId": "random-uuid",
+  "contributorId": "random-256-bit-id-unrelated-to-the-wallet",
+  "observations": [
+    {
+      "schemaVersion": "veilance.telemetry-snapshot.v1",
+      "eventId": "idempotent-event-id",
+      "site": { "hostname": "example.com", "https": true },
+      "observation": { "durationSeconds": 42, "totalRequests": 137 },
+      "thirdPartyHosts": [],
+      "trackers": [],
+      "signals": [],
+      "page": {},
+      "security": {},
+      "redactedDocument": {}
+    }
+  ]
+}
+```
+
+The API should deduplicate rewards and storage by each observation's `eventId`.
+Only the payload under `observations` is transmitted. Local `snapshotId`, exact
+capture time, queue state, retry errors, and wallet data stay in SQLite or
+extension-local settings.
+
 ## Privacy boundary
 
-Veilance does not retain:
+Routine visit history does not retain:
 
 * Full URL paths, query strings, or fragments
 * Page text or HTML
@@ -359,6 +461,14 @@ Veilance does not retain:
 History retains the safe origin/hostname, aggregate counts, approved signal
 metadata, and timing needed to explain what happened during the visit.
 
+A user-triggered telemetry snapshot additionally retains a redacted HTML
+structure. It contains standard tag names, fixed redaction placeholders,
+allowlisted non-value attributes, public resource origins in inert
+`data-veilance-*` attributes, and coarse evidence counters. It never contains
+page text, inline script source, arbitrary id/class values, live `src`/`href`
+attributes, form values or field attributes, cookie/storage contents, URL
+paths/searches, or private host origins.
+
 ## Permissions
 
 ### `webRequest`
@@ -376,7 +486,8 @@ resetting the visit.
 
 Keeps active visit state, indicator settings, the serialized SQLite database,
 custom indicator definitions, managed tracker definitions, the tracker update
-log, and local wallet material.
+log, local snapshot consent, the pseudonymous random contributor id, and local wallet
+material.
 
 ### `unlimitedStorage`
 
@@ -385,9 +496,10 @@ extension-local storage without displacing visit history or user rules.
 
 ### `alarms`
 
-Schedules tracker database checks every eight hours. If the browser is closed or
-the extension service worker is asleep, Chromium delivers the missed alarm when
-the extension next wakes.
+Schedules tracker database checks every eight hours. In an upload-enabled build,
+it also wakes privacy-delayed queued snapshot batches and retries. If the
+browser is closed or the extension service worker is asleep, Chromium delivers
+the missed alarm when the extension next wakes.
 
 ### HTTP and HTTPS host access
 
@@ -432,7 +544,7 @@ controls, and inspect the Live and History tabs.
 * Detection is heuristic; legitimate application behavior can trigger findings
 * Custom rules evaluate retained signals and hosts, so their required built-in
   data source must remain enabled
-* Telemetry uploads and wallet payouts are disabled
+* Telemetry snapshot uploads and wallet payouts are disabled by build flags
 
 ## Third-party runtime
 

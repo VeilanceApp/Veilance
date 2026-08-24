@@ -74,11 +74,20 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--cyan); ou
 .nav-count { display: inline-grid; min-width: 18px; height: 18px; margin-left: 4px; place-items: center; border-radius: 999px; color: #7edff4; background: #102b41; font: 9px ui-monospace, monospace; }
 
 main { min-height: 500px; padding: 14px; }
-.site-card, .panel, .details-panel, .wallet-card, .history-heading, .visit-card, .detail-section {
+.site-card, .panel, .details-panel, .snapshot-card, .wallet-card, .history-heading, .visit-card, .detail-section {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
 }
+
+.snapshot-card { margin-top: 9px; padding: 13px; }
+.snapshot-card > div > strong { display: block; margin-top: 5px; color: #e8f4ff; font-size: 12px; }
+.snapshot-card > div > p { margin: 6px 0 0; color: #7990a8; font-size: 9px; line-height: 1.55; }
+.snapshot-button { width: 100%; margin-top: 10px; padding: 10px; border: 1px solid #2f6b8d; border-radius: 8px; color: #dff8ff; background: linear-gradient(135deg, #174a78, #12677a); font-size: 10px; font-weight: 800; cursor: pointer; }
+.snapshot-button:hover { filter: brightness(1.08); }
+.snapshot-button:disabled { cursor: not-allowed; opacity: .5; }
+.snapshot-status { min-height: 14px; margin: 7px 0 0; color: #69cfe9; font-size: 8px; line-height: 1.45; }
+.snapshot-status.error { color: #e69aa4; }
 .site-card { padding: 15px 16px 13px; }
 .site-line { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .label { color: #69809a; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .14em; }

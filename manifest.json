@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Veilance",
-  "version": "0.5.0",
-  "description": "See privacy-relevant browser activity live and review the last 20 visits. All history stays local.",
+  "version": "0.6.0",
+  "description": "Observe privacy-relevant browser activity and create locally stored, redacted telemetry snapshots.",
   "minimum_chrome_version": "111",
   "permissions": [
     "storage",
@@ -13,7 +13,8 @@
   ],
   "host_permissions": [
     "http://*/*",
-    "https://*/*"
+    "https://*/*",
+    "https://api.veilance.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -52,7 +53,7 @@
     },
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["content.js"],
+      "js": ["lib/redacted-html.js", "content.js"],
       "run_at": "document_start",
       "world": "ISOLATED",
       "all_frames": false
