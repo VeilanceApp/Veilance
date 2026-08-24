@@ -1,11 +1,11 @@
 {
   "name": "veilance-browser-extension",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check background.js && node --check content.js && node --check injected.js && node --check popup.js && node --check settings.js && node --check lib/core.js && node --check lib/encoding.js && node --check lib/history-store.js && node --check lib/indicators.js && node --check lib/sqlite-visits.js && node --check lib/tracker-updater.js && node --check lib/wallet.js && node --check scripts/build-tracker-bundle.mjs",
+    "check": "node --check background.js && node --check content.js && node --check injected.js && node --check popup.js && node --check settings.js && node --check lib/core.js && node --check lib/encoding.js && node --check lib/history-store.js && node --check lib/indicators.js && node --check lib/redacted-html.js && node --check lib/sqlite-visits.js && node --check lib/tracker-updater.js && node --check lib/wallet.js && node --check scripts/build-tracker-bundle.mjs",
     "build:trackers": "node scripts/build-tracker-bundle.mjs"
   }
 }

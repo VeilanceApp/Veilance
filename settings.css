@@ -57,6 +57,7 @@ main { width: min(980px, calc(100% - 40px)); margin: 0 auto; padding: 52px 0 80p
 }
 .primary-button { flex: 0 0 auto; padding: 11px 14px; border: 1px solid #2b7bc7; color: white; background: linear-gradient(135deg, #216df3, #12b9e4); }
 .primary-button:hover { filter: brightness(1.08); }
+.primary-button:disabled { cursor: not-allowed; filter: none; opacity: .42; }
 .secondary-button { padding: 9px 11px; border: 1px solid #31506d; color: #b6cee5; background: #0c1824; }
 .secondary-button:hover { border-color: #4778a6; color: white; }
 .secondary-button:disabled { cursor: not-allowed; opacity: .45; }
@@ -144,6 +145,30 @@ code { color: #77d6ee; font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .tracker-log-copy p { margin: 4px 0 0; color: #71869e; font-size: 9px; line-height: 1.5; }
 .tracker-log-meta { display: flex; flex-wrap: wrap; gap: 5px 10px; margin-top: 7px; color: #566d85; font: 8px ui-monospace, monospace; }
 
+.snapshot-section { background: linear-gradient(145deg, rgba(11, 24, 37, .98), rgba(9, 17, 27, .98)); }
+.snapshot-privacy-grid { padding: 18px 24px 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.snapshot-privacy-grid > div { padding: 14px; border: 1px solid #1d3547; border-radius: 10px; background: #09141e; }
+.snapshot-privacy-grid strong { color: #d7eafa; font-size: 11px; }
+.snapshot-privacy-grid p { margin: 6px 0 0; color: #71889f; font-size: 9px; line-height: 1.6; }
+.snapshot-upload-control { margin: 4px 24px 0; padding: 15px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border: 1px solid #27455d; border-radius: 10px; background: #0a1722; }
+.snapshot-upload-control strong { display: block; font-size: 12px; }
+.snapshot-upload-control p { margin: 5px 0 0; color: #7890a8; font-size: 10px; line-height: 1.5; }
+.snapshot-upload-control small { display: block; margin-top: 5px; color: #536b82; font-size: 9px; line-height: 1.45; }
+.snapshot-toolbar { padding: 14px 24px 10px; display: flex; flex-wrap: wrap; gap: 9px; }
+.snapshot-list { padding: 0 24px 22px; display: grid; gap: 8px; }
+.snapshot-row { padding: 13px 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; border: 1px solid #1d3044; border-radius: 10px; background: #09121c; }
+.snapshot-row-copy { min-width: 0; }
+.snapshot-row-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.snapshot-row-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.snapshot-upload-status { padding: 3px 7px; border: 1px solid #31536a; border-radius: 999px; color: #7bcfe6; background: #0c2634; font: 8px ui-monospace, monospace; text-transform: uppercase; }
+.snapshot-upload-status.uploaded { border-color: #28674f; color: #80dfb4; background: #10261f; }
+.snapshot-upload-status.failed, .snapshot-upload-status.blocked { border-color: #683642; color: #efa1aa; background: #251319; }
+.snapshot-upload-status.queued, .snapshot-upload-status.uploading { border-color: #665321; color: #e9ca7a; background: #261f0f; }
+.snapshot-row-meta { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 7px; color: #5b738b; font: 8px ui-monospace, monospace; }
+.snapshot-row-error { margin: 7px 0 0; color: #d68591; font-size: 9px; line-height: 1.45; }
+.snapshot-row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.snapshot-row-actions button { padding: 7px 9px; }
+
 .wallet-section { background: linear-gradient(145deg, rgba(16, 27, 42, .98), rgba(10, 17, 27, .98)); }
 .wallet-address-box { margin: 20px 24px 12px; padding: 15px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid #23415c; border-radius: 10px; background: #091522; }
 .wallet-address-box div { min-width: 0; }
@@ -162,8 +187,9 @@ code { color: #77d6ee; font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .loading { padding: 30px 0 10px; color: #6c8299; font-size: 11px; }
 .save-status { min-height: 20px; margin: 16px 4px 0; color: #69cfe9; font-size: 10px; }
 
-.wallet-dialog { width: min(610px, calc(100% - 32px)); padding: 0; border: 1px solid #35485d; border-radius: 14px; color: var(--text); background: #0b131e; box-shadow: 0 30px 100px rgba(0, 0, 0, .6); }
-.wallet-dialog::backdrop { background: rgba(2, 5, 9, .78); backdrop-filter: blur(5px); }
+.wallet-dialog, .snapshot-dialog { width: min(760px, calc(100% - 32px)); padding: 0; border: 1px solid #35485d; border-radius: 14px; color: var(--text); background: #0b131e; box-shadow: 0 30px 100px rgba(0, 0, 0, .6); }
+.wallet-dialog { width: min(610px, calc(100% - 32px)); }
+.wallet-dialog::backdrop, .snapshot-dialog::backdrop { background: rgba(2, 5, 9, .78); backdrop-filter: blur(5px); }
 .dialog-content { padding: 24px; }
 .dialog-content h2 { margin: 8px 0 0; font-size: 24px; }
 .dialog-content > p { margin: 11px 0 0; color: #899eb5; font-size: 12px; line-height: 1.65; }
@@ -175,6 +201,10 @@ code { color: #77d6ee; font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .dialog-actions { display: flex; flex-wrap: wrap; gap: 9px; }
 #privateKeyReveal .dialog-actions { margin-top: 9px; }
 .dialog-footer { margin-top: 20px; justify-content: flex-end; }
+.snapshot-dialog label { display: block; margin: 16px 0 7px; color: #71879e; font-size: 10px; }
+.snapshot-preview-metadata { max-height: 220px; margin: 16px 0 0; padding: 13px; overflow: auto; border: 1px solid #26394d; border-radius: 9px; color: #7fd4ec; background: #060b12; font: 9px/1.55 ui-monospace, monospace; white-space: pre-wrap; }
+#snapshotHtmlPreview { width: 100%; min-height: 320px; resize: vertical; padding: 12px; border: 1px solid #3a4b5f; border-radius: 9px; color: #cfe2f4; background: #060b12; font: 9px/1.55 ui-monospace, monospace; }
+.snapshot-dialog-actions { margin-top: 12px; justify-content: flex-end; }
 
 @media (max-width: 700px) {
   .header-inner, main { width: min(100% - 24px, 980px); }
@@ -188,6 +218,11 @@ code { color: #77d6ee; font-family: ui-monospace, SFMono-Regular, Menlo, monospa
   .tracker-control-grid, .tracker-stats { grid-template-columns: 1fr; padding-right: 14px; padding-left: 14px; }
   .tracker-source-row { align-items: flex-start; flex-direction: column; margin-right: 14px; margin-left: 14px; }
   .tracker-log-section { padding-right: 14px; padding-left: 14px; }
+  .snapshot-privacy-grid { grid-template-columns: 1fr; padding-right: 14px; padding-left: 14px; }
+  .snapshot-upload-control { align-items: flex-start; margin-right: 14px; margin-left: 14px; }
+  .snapshot-toolbar, .snapshot-list { padding-right: 14px; padding-left: 14px; }
+  .snapshot-row { grid-template-columns: 1fr; }
+  .snapshot-row-actions { justify-content: flex-start; }
   .database-grid { grid-template-columns: 1fr; }
   .wallet-address-box { align-items: stretch; flex-direction: column; }
   .wallet-actions { flex-direction: column; }

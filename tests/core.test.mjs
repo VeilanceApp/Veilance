@@ -7,15 +7,19 @@ import {
   applyPageIdentity,
   buildFindings,
   buildSanitizedPayload,
+  buildTelemetrySnapshot,
   classifyTrackerHost,
   completeVisit,
   containsForbiddenPayloadKey,
   createEmptyState,
   isThirdParty,
+  isPublicTelemetryHostname,
+  isRedactedHtmlSafe,
   registrableDomain,
   safePageIdentity,
   sanitizeEventDetail,
-  summarizeState
+  summarizeState,
+  validateTelemetrySnapshot
 } from "../lib/core.js";
 
 test("page identity retains only origin-level data", () => {
@@ -144,6 +148,7 @@ test("sensitive local API signals produce transparent high-severity findings", (
 test("sanitized payload excludes paths, query strings, values, and coordinates", () => {
   const state = createEmptyState(2, "https://example.com/private?q=secret", 1000);
   addPageSignal(state, {
+    indicatorId: "geolocation",
     kind: "sensitive-api",
     api: "Geolocation",
     action: "get-position",
@@ -151,11 +156,106 @@ test("sanitized payload excludes paths, query strings, values, and coordinates",
   }, 1100);
   const payload = buildSanitizedPayload(state, "0.1.0", 1200);
   const text = JSON.stringify(payload);
-  assert.equal(payload.site.origin, "https://example.com");
+  assert.deepEqual(payload.site, { hostname: "example.com", https: true });
+  assert.equal(payload.schemaVersion, "veilance.telemetry.v1");
+  assert.equal("origin" in payload.site, false);
+  assert.equal("findings" in payload, false);
+  assert.equal("detail" in payload.signals[0], false);
   assert.equal(text.includes("/private"), false);
   assert.equal(text.includes("q=secret"), false);
   assert.equal(text.includes("35.1"), false);
   assert.equal(text.includes("-97.4"), false);
   assert.equal(text.includes('"value":"secret"'), false);
   assert.equal(containsForbiddenPayloadKey(payload), false);
+});
+
+test("remote signal reducer drops page-injected API and action strings outside the explicit allowlist", () => {
+  const state = createEmptyState(9, "https://example.com", 1000);
+  addPageSignal(state, {
+    indicatorId: "canvas",
+    kind: "fingerprinting",
+    api: "Canvas",
+    action: "export"
+  }, 1100);
+  addPageSignal(state, {
+    indicatorId: "canvas",
+    kind: "fingerprinting",
+    api: "account@example.com",
+    action: "session-secret-value"
+  }, 1200);
+  const payload = buildSanitizedPayload(state, "0.6.0", 1300, { eventId: "allowed-event-1" });
+  assert.deepEqual(payload.signals, [{
+    indicatorId: "canvas",
+    api: "Canvas",
+    action: "export",
+    count: 1
+  }]);
+  assert.equal(JSON.stringify(payload).includes("session-secret-value"), false);
+  assert.equal(JSON.stringify(payload).includes("account@example.com"), false);
+});
+
+test("telemetry eligibility blocks browser-local and private network hosts", () => {
+  assert.equal(isPublicTelemetryHostname("example.com"), true);
+  assert.equal(isPublicTelemetryHostname("localhost"), false);
+  assert.equal(isPublicTelemetryHostname("router.local"), false);
+  assert.equal(isPublicTelemetryHostname("127.0.0.1"), false);
+  assert.equal(isPublicTelemetryHostname("10.1.2.3"), false);
+  assert.equal(isPublicTelemetryHostname("172.16.20.4"), false);
+  assert.equal(isPublicTelemetryHostname("192.168.1.50"), false);
+  assert.equal(isPublicTelemetryHostname("::1"), false);
+  assert.equal(isPublicTelemetryHostname("::ffff:192.168.1.50"), false);
+});
+
+test("local snapshot adds only safety-validated redacted HTML and evidence counters", () => {
+  const state = createEmptyState(3, "https://example.com/private?q=secret", 1000);
+  addNetworkRequest(state, { url: "https://tracker.example/pixel?id=secret", type: "image" }, 1050);
+  addPageSignal(state, {
+    indicatorId: "canvas",
+    kind: "fingerprinting",
+    api: "Canvas",
+    action: "export",
+    detail: { value: "secret" }
+  }, 1100);
+  const documentCapture = {
+    format: "veilance.redacted-html.v1",
+    hostname: "example.com",
+    https: true,
+    html: '<!doctype html>\n<html><body data-veilance-markers="advertising">[REDACTED TEXT]<script type="application/veilance-redacted" data-veilance-inline="redacted" data-veilance-api-hints="canvas">[REDACTED INLINE SCRIPT]</script></body></html>',
+    truncated: false,
+    originalElementCount: 4,
+    redaction: { textNodesRedacted: 1, inlineScriptsRedacted: 1 },
+    resourceHosts: [{ host: "tracker.example", thirdParty: true, count: 1, tags: { img: 1 } }],
+    inlineScriptHints: { canvas: 1 },
+    domMarkers: { advertising: 1 }
+  };
+  assert.equal(isRedactedHtmlSafe(documentCapture.html), true);
+  const snapshot = buildTelemetrySnapshot(state, documentCapture, "0.6.0", 1200, {
+    eventId: "snapshot-event-1",
+    trackers: [{ id: "example-tracker", category: "advertising", requests: 1 }]
+  });
+  assert.equal(snapshot.schemaVersion, "veilance.telemetry-snapshot.v1");
+  assert.equal(snapshot.eventId, "snapshot-event-1");
+  assert.equal(snapshot.trackers[0].id, "example-tracker");
+  assert.equal(snapshot.redactedDocument.evidence.inlineScriptHints.canvas, 1);
+  assert.equal(validateTelemetrySnapshot(snapshot), true);
+  assert.equal(JSON.stringify(snapshot).includes("secret"), false);
+  assert.equal(validateTelemetrySnapshot({ ...snapshot, analystNote: "account-secret" }), false);
+  assert.equal(validateTelemetrySnapshot({
+    ...snapshot,
+    signals: [...snapshot.signals, {
+      indicatorId: "canvas",
+      api: "account@example.com",
+      action: "secret-value",
+      count: 1
+    }]
+  }), false);
+});
+
+test("redacted HTML safety validator refuses text or executable attributes", () => {
+  assert.equal(isRedactedHtmlSafe('<!doctype html>\n<html><body>account name</body></html>'), false);
+  assert.equal(isRedactedHtmlSafe('<!doctype html>\n<html><body><img src="https://tracker.example/pixel"></body></html>'), false);
+  assert.equal(isRedactedHtmlSafe('<!doctype html>\n<html><body onload="steal()"></body></html>'), false);
+  assert.equal(isRedactedHtmlSafe('<!doctype html>\n<html><body title="account-name"></body></html>'), false);
+  assert.equal(isRedactedHtmlSafe('<!doctype html>\n<html><body data-veilance-note="account-name"></body></html>'), false);
+  assert.equal(isRedactedHtmlSafe('<!doctype html>\n<html><body><script>[REDACTED INLINE SCRIPT]</script></body></html>'), false);
 });

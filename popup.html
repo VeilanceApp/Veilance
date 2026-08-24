@@ -61,6 +61,16 @@
         <div id="liveDetails" class="telemetry-details"></div>
       </details>
 
+      <section class="snapshot-card">
+        <div>
+          <span class="label">LOCAL TELEMETRY SNAPSHOT</span>
+          <strong>Capture review evidence</strong>
+          <p>Save current host, request and API counts, tracker matches, and inert redacted HTML. Page text, form data, values, URL paths, and secrets are removed.</p>
+        </div>
+        <button id="snapshotButton" class="snapshot-button" type="button">Take snapshot</button>
+        <p id="snapshotStatus" class="snapshot-status" role="status" aria-live="polite"></p>
+      </section>
+
       <section class="wallet-card">
         <div class="wallet-copy">
           <span class="label">SOLANA WALLET</span>
@@ -96,7 +106,7 @@
     </section>
   </main>
 
-  <footer><span>No telemetry or wallet keys leave your browser.</span><span id="version"></span></footer>
+  <footer><span>Snapshots stay local unless you explicitly queue one after uploads are enabled.</span><span id="version"></span></footer>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

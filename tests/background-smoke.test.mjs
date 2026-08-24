@@ -68,8 +68,24 @@ test("background starts SQLite, creates a wallet, and restricts private export t
       onRemoved: eventSlot(),
       onActivated: eventSlot(),
       query: async () => [],
-      sendMessage: async () => {},
-      get: async () => ({ url: "https://example.com" })
+      sendMessage: async (_tabId, message) => message?.type === "VEILANCE_CAPTURE_REDACTED_DOCUMENT"
+        ? {
+            ok: true,
+            document: {
+              format: "veilance.redacted-html.v1",
+              hostname: "example.com",
+              https: true,
+              html: "<!doctype html>\n<html><body>[REDACTED TEXT]</body></html>",
+              truncated: false,
+              originalElementCount: 2,
+              redaction: { textNodesRedacted: 1 },
+              resourceHosts: [],
+              inlineScriptHints: {},
+              domMarkers: {}
+            }
+          }
+        : undefined,
+      get: async () => ({ id: 7, url: "https://example.com/private?q=secret", incognito: false })
     },
     alarms: {
       onAlarm: eventSlot(),
@@ -80,7 +96,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
     runtime: {
       onMessage,
       onInstalled: eventSlot(),
-      getManifest: () => ({ version: "0.5.0" }),
+      getManifest: () => ({ version: "0.6.0" }),
       getURL: (path) => `chrome-extension://veilance-test/${path}`
     }
   };
@@ -102,6 +118,8 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(settings.trackerDatabase.databaseEnabled, true);
   assert.equal(settings.trackerDatabase.autoUpdateEnabled, true);
   assert.equal(settings.trackerDatabase.updateLog[0].status, "installed");
+  assert.equal(settings.snapshotUpload.available, false);
+  assert.equal(settings.database.snapshotCount, 0);
   assert.equal(alarms.get("veilanceTrackerDatabaseUpdateV1").periodInMinutes, 480);
   assert.ok(settings.wallet.publicKey.length >= 32);
   assert.equal("secretKeyBase64" in settings.wallet, false);
@@ -130,6 +148,29 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(updatesDisabled.trackerDatabase.autoUpdateEnabled, false);
   assert.equal(alarms.has("veilanceTrackerDatabaseUpdateV1"), false);
 
+  const captured = await dispatch(
+    { type: "VEILANCE_CREATE_TELEMETRY_SNAPSHOT", tabId: 7 },
+    { url: "chrome-extension://veilance-test/popup.html" }
+  );
+  assert.equal(captured.ok, true);
+  assert.equal(captured.snapshot.hostname, "example.com");
+
+  const snapshotList = await dispatch(
+    { type: "VEILANCE_LIST_TELEMETRY_SNAPSHOTS" },
+    { url: "chrome-extension://veilance-test/settings.html" }
+  );
+  assert.equal(snapshotList.snapshots.length, 1);
+  const snapshot = await dispatch(
+    { type: "VEILANCE_GET_TELEMETRY_SNAPSHOT", snapshotId: snapshotList.snapshots[0].snapshotId },
+    { url: "chrome-extension://veilance-test/settings.html" }
+  );
+  const snapshotText = JSON.stringify(snapshot.snapshot.payload);
+  assert.equal(snapshot.snapshot.payload.schemaVersion, "veilance.telemetry-snapshot.v1");
+  assert.equal(snapshotText.includes("/private"), false);
+  assert.equal(snapshotText.includes("q=secret"), false);
+  assert.equal(snapshotText.includes("wallet"), false);
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
   globalThis.fetch = originalFetch;
   delete globalThis.chrome;
 });

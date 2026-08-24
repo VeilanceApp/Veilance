@@ -173,6 +173,49 @@
       </details>
     </section>
 
+    <section class="settings-card snapshot-section">
+      <header class="card-header">
+        <div>
+          <span class="eyebrow">LOCAL TELEMETRY SNAPSHOTS</span>
+          <h2>Snapshot vault</h2>
+          <p>Use <strong>Take snapshot</strong> in the popup while viewing a public website. Veilance stores up to 20 snapshots locally with raw observation counts and an inert redacted copy of the document structure.</p>
+        </div>
+        <span id="snapshotCount" class="count-badge">0 / 20</span>
+      </header>
+
+      <div class="snapshot-privacy-grid">
+        <div>
+          <strong>Included</strong>
+          <p>Website and third-party hostnames, request types, tracker matches, API names/actions and counts, page/security counts, structural ad/consent/anti-blocking markers, script capability hints, and redacted HTML.</p>
+        </div>
+        <div>
+          <strong>Always removed</strong>
+          <p>Page text, URL paths/searches, form values, cookies, storage contents, event-handler attributes, inline script source, device fingerprint values, private/internal hosts, authorization data, and wallet keys.</p>
+        </div>
+      </div>
+
+      <div class="snapshot-upload-control">
+        <div>
+          <strong>Allow pseudonymous snapshot uploads</strong>
+          <p id="snapshotUploadDescription">Uploads are disabled in this build. Local capture, review, download, and deletion remain available.</p>
+          <small>A random contributor ID is kept separate from the Solana wallet. Each snapshot must still be explicitly queued.</small>
+        </div>
+        <label class="switch" title="Allow or pause pseudonymous snapshot uploads">
+          <input id="snapshotUploadConsent" type="checkbox" disabled>
+          <span aria-hidden="true"></span>
+        </label>
+      </div>
+
+      <div class="snapshot-toolbar">
+        <button id="queueAllSnapshotsButton" class="primary-button" type="button" disabled>Queue local snapshots</button>
+        <button id="refreshSnapshotsButton" class="secondary-button" type="button">Refresh list</button>
+        <button id="clearSnapshotsButton" class="danger-outline-button" type="button">Clear snapshots</button>
+      </div>
+      <div id="snapshotList" class="snapshot-list">
+        <div class="empty-state">No telemetry snapshots stored. Open a public website and use Take snapshot in the popup.</div>
+      </div>
+    </section>
+
     <section class="settings-card wallet-section">
       <header class="card-header">
         <div>
@@ -241,6 +284,23 @@
         <button id="revealPrivateKeyButton" class="danger-button" type="button" disabled>Reveal private key</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="snapshotDialog" class="snapshot-dialog">
+    <div class="dialog-content">
+      <span class="eyebrow">REDACTED SNAPSHOT REVIEW</span>
+      <h2 id="snapshotDialogTitle">Telemetry snapshot</h2>
+      <p>HTML is shown only as inert text. The snapshot contains evidence for review, not a final determination that a service is a fingerprinter, ad tracker, or anti-blocking system.</p>
+      <pre id="snapshotPreviewMetadata" class="snapshot-preview-metadata"></pre>
+      <label for="snapshotHtmlPreview">Redacted HTML</label>
+      <textarea id="snapshotHtmlPreview" rows="18" readonly spellcheck="false"></textarea>
+      <div class="dialog-actions snapshot-dialog-actions">
+        <button id="downloadSnapshotButton" class="secondary-button" type="button">Download snapshot JSON</button>
+        <button id="downloadSnapshotHtmlButton" class="secondary-button" type="button">Download HTML as text</button>
+        <button id="queueSnapshotButton" class="primary-button" type="button" disabled>Queue upload</button>
+        <button id="closeSnapshotDialogButton" class="text-button" type="button">Close</button>
+      </div>
+    </div>
   </dialog>
 
   <script type="module" src="settings.js"></script>

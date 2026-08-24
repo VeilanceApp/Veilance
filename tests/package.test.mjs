@@ -12,7 +12,7 @@ import {
 
 test("telemetry uploading remains disabled until a server is configured", () => {
   assert.equal(TELEMETRY_UPLOAD_ENABLED, false);
-  assert.equal(TELEMETRY_UPLOAD_ENDPOINT, "");
+  assert.equal(TELEMETRY_UPLOAD_ENDPOINT, "https://api.veilance.com/v1/telemetry/snapshots");
   assert.equal(PAYOUTS_ENABLED, false);
 });
 
@@ -22,6 +22,8 @@ test("popup removes telemetry JSON export and visibly disables payouts", async (
   assert.doesNotMatch(html, /id="exportButton"/);
   assert.match(html, /id="payoutButton"[^>]*disabled/);
   assert.match(html, /Last 20 visits/);
+  assert.match(html, /id="snapshotButton"/);
+  assert.match(html, /redacted HTML/i);
 });
 
 test("settings exposes indicator folders, wallet export, and disabled payouts", async () => {
@@ -38,14 +40,29 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /id="trackerUpdateLog"/);
   assert.match(html, /Export private key/);
   assert.match(html, /id="settingsPayoutButton"[^>]*disabled/);
+  assert.match(html, /id="snapshotUploadConsent"[^>]*disabled/);
+  assert.match(html, /id="snapshotList"/);
+  assert.match(html, /id="snapshotHtmlPreview"/);
+  assert.match(html, /private\/internal hosts/i);
   assert.match(html, /does not block, spoof, or change/i);
+});
+
+test("popup and Settings scripts reference elements that exist in their pages", async () => {
+  for (const name of ["popup", "settings"]) {
+    const [html, source] = await Promise.all([
+      readFile(new URL(`../${name}.html`, import.meta.url), "utf8"),
+      readFile(new URL(`../${name}.js`, import.meta.url), "utf8")
+    ]);
+    const ids = [...source.matchAll(/querySelector\("#([a-zA-Z0-9_-]+)"\)/g)].map((match) => match[1]);
+    for (const id of ids) assert.match(html, new RegExp(`id=["']${id}["']`), `${name}.html should contain #${id}`);
+  }
 });
 
 test("manifest enables visit lifecycle observation and local SQLite WASM", async () => {
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.5.0");
+  assert.equal(manifest.version, "0.6.0");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));
@@ -55,6 +72,7 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   assert.equal(manifest.options_ui.page, "settings.html");
   assert.match(manifest.content_security_policy.extension_pages, /wasm-unsafe-eval/);
   assert.ok(manifest.content_scripts.some((entry) => entry.world === "MAIN"));
+  assert.ok(manifest.content_scripts.some((entry) => entry.js?.includes("lib/redacted-html.js")));
   assert.equal(JSON.stringify(manifest).includes("http://localhost"), false);
 });
 

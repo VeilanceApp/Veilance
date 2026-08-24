@@ -13,6 +13,8 @@ const elements = {
   findings: document.querySelector("#findings"),
   liveDetailPanel: document.querySelector("#liveDetailPanel"),
   liveDetails: document.querySelector("#liveDetails"),
+  snapshotButton: document.querySelector("#snapshotButton"),
+  snapshotStatus: document.querySelector("#snapshotStatus"),
   walletAddress: document.querySelector("#walletAddress"),
   copyWalletButton: document.querySelector("#copyWalletButton"),
   payoutButton: document.querySelector("#payoutButton"),
@@ -36,6 +38,7 @@ let activeView = "live";
 let currentLiveState = null;
 let currentLiveFindings = [];
 let walletPublicKey = "";
+let snapshotCaptureBusy = false;
 
 async function send(message) {
   const response = await chrome.runtime.sendMessage(message);
@@ -228,6 +231,8 @@ function renderUnsupported(tab) {
   renderFindings(elements.findings, [], "Nothing is collected from this type of page.");
   elements.liveDetails.innerHTML = '<div class="empty">Complete details are unavailable for this page.</div>';
   elements.clearButton.disabled = true;
+  elements.snapshotButton.disabled = true;
+  elements.snapshotStatus.textContent = "Snapshots are unavailable for browser-internal pages.";
 }
 
 async function loadState() {
@@ -258,6 +263,7 @@ async function loadState() {
     ? `${state.active === false ? "Completed" : "Active"} · started ${formatDateTime(state.startedAt)} · ${formatDuration(state.startedAt, state.endedAt)}`
     : "Waiting for this page to begin reporting.";
   elements.clearButton.disabled = !state;
+  elements.snapshotButton.disabled = !state || snapshotCaptureBusy;
   renderFindings(
     elements.findings,
     findings,
@@ -383,6 +389,30 @@ async function clearCurrentVisit() {
   await Promise.all([loadState(), loadHistory()]);
 }
 
+async function takeTelemetrySnapshot() {
+  if (!Number.isInteger(activeTabId) || snapshotCaptureBusy) return;
+  snapshotCaptureBusy = true;
+  elements.snapshotButton.disabled = true;
+  elements.snapshotButton.textContent = "Redacting…";
+  elements.snapshotStatus.classList.remove("error");
+  elements.snapshotStatus.textContent = "Building an inert, redacted copy of this page locally…";
+  try {
+    const response = await send({
+      type: "VEILANCE_CREATE_TELEMETRY_SNAPSHOT",
+      tabId: activeTabId
+    });
+    const host = response.snapshot?.hostname || currentLiveState?.hostname || "this site";
+    elements.snapshotStatus.textContent = `Saved ${host} locally. Review or download it in Settings.`;
+  } catch (error) {
+    elements.snapshotStatus.classList.add("error");
+    elements.snapshotStatus.textContent = error.message;
+  } finally {
+    snapshotCaptureBusy = false;
+    elements.snapshotButton.textContent = "Take snapshot";
+    elements.snapshotButton.disabled = !currentLiveState;
+  }
+}
+
 async function switchView(view) {
   activeView = view;
   elements.liveView.hidden = view !== "live";
@@ -406,6 +436,7 @@ elements.refreshButton.addEventListener("click", () => void loadState());
 elements.historyRefreshButton.addEventListener("click", () => void loadHistory());
 elements.historyBackButton.addEventListener("click", showHistoryList);
 elements.clearButton.addEventListener("click", () => void clearCurrentVisit());
+elements.snapshotButton.addEventListener("click", () => void takeTelemetrySnapshot());
 elements.copyWalletButton.addEventListener("click", () => void copyWalletAddress());
 elements.liveDetailPanel.addEventListener("toggle", () => {
   if (elements.liveDetailPanel.open) elements.liveDetails.innerHTML = telemetryDetailsMarkup(currentLiveState);

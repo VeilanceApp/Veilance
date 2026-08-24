@@ -93,3 +93,44 @@ test("active rows without a restored browser tab are finalized at their last obs
   assert.equal(finalized.endedAt, 1450);
   await store.close();
 });
+
+test("SQLite snapshot vault stores payloads separately, prunes old rows, and persists upload state", async () => {
+  let saved = null;
+  const sqlite3 = await sqlite3InitModule({ print: () => {}, printErr: () => {} });
+  const store = new SqliteVisitStore(sqlite3, {
+    load: async () => saved,
+    save: async (bytes) => { saved = bytes.slice(); }
+  }, { filename: "snapshot-vault.sqlite3", maxVisits: 20, maxSnapshots: 3 });
+
+  for (let number = 1; number <= 4; number += 1) {
+    await store.upsertSnapshot({
+      snapshotId: `snapshot-${number}`,
+      hostname: `site-${number}.example`,
+      createdAt: 1000 + number,
+      payload: {
+        schemaVersion: "veilance.telemetry-snapshot.v1",
+        eventId: `event-${number}`,
+        site: { hostname: `site-${number}.example`, https: true },
+        redactedDocument: {
+          format: "veilance.redacted-html.v1",
+          html: "<!doctype html>\n<html><body>[REDACTED TEXT]</body></html>"
+        }
+      }
+    });
+  }
+
+  const summaries = await store.listSnapshotSummaries();
+  assert.deepEqual(summaries.map((item) => item.snapshotId), ["snapshot-4", "snapshot-3", "snapshot-2"]);
+  assert.equal(await store.getSnapshot("snapshot-1"), null);
+  assert.equal((await store.getSnapshot("snapshot-4")).payload.eventId, "event-4");
+
+  await store.updateSnapshotUpload("snapshot-4", {
+    status: "queued",
+    nextAttemptAt: 2000
+  });
+  const due = await store.listDueSnapshotUploads(2000, 20);
+  assert.equal(due.length, 1);
+  assert.equal(due[0].snapshotId, "snapshot-4");
+  assert.equal((await store.info()).snapshotCount, 3);
+  await store.close();
+});

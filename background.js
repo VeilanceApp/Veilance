@@ -6,11 +6,14 @@ import {
   applyResponseHeaders,
   buildFindings,
   buildSanitizedPayload,
+  buildTelemetrySnapshot,
   completeVisit,
   createEmptyState,
+  isPublicTelemetryHostname,
   markVisitLoaded,
   safePageIdentity,
-  summarizeState
+  summarizeState,
+  validateTelemetrySnapshot
 } from "./lib/core.js";
 import { historyStoreReady } from "./lib/history-store.js";
 import {
@@ -27,7 +30,11 @@ import {
   TRACKER_DATABASE_ARCHIVE,
   TRACKER_DATABASE_BUNDLE,
   TRACKER_DATABASE_REPOSITORY,
-  TRACKER_UPDATE_INTERVAL_MINUTES
+  TRACKER_UPDATE_INTERVAL_MINUTES,
+  TELEMETRY_UPLOAD_BATCH_LIMIT,
+  TELEMETRY_UPLOAD_ENABLED,
+  TELEMETRY_UPLOAD_ENDPOINT,
+  TELEMETRY_UPLOAD_MAX_BATCH_BYTES
 } from "./config.js";
 import { diffTrackerSets, fetchTrackerArchive } from "./lib/tracker-updater.js";
 import { exportSolanaWallet, generateSolanaWallet, publicWalletRecord } from "./lib/wallet.js";
@@ -39,8 +46,14 @@ const MANAGED_TRACKERS_KEY = "veilanceManagedTrackersV1";
 const TRACKER_DATABASE_STATE_KEY = "veilanceTrackerDatabaseStateV1";
 const WALLET_STORAGE_KEY = "veilanceSolanaWalletV1";
 const TRACKER_UPDATE_ALARM = "veilanceTrackerDatabaseUpdateV1";
+const SNAPSHOT_UPLOAD_ALARM = "veilanceTelemetrySnapshotUploadV1";
+const SNAPSHOT_UPLOAD_CONSENT_KEY = "veilanceTelemetrySnapshotConsentV1";
+const TELEMETRY_CONTRIBUTOR_ID_KEY = "veilanceTelemetryContributorIdV1";
 const MAX_TRACKER_UPDATE_LOG = 50;
 const HISTORY_FLUSH_DELAY_MS = 200;
+const SNAPSHOT_UPLOAD_DELAY_MIN_MS = 5 * 60 * 1000;
+const SNAPSHOT_UPLOAD_DELAY_MAX_MS = 15 * 60 * 1000;
+const SNAPSHOT_RETRY_DELAYS_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000, 4 * 60 * 60 * 1000];
 
 const states = new Map();
 const pendingHistory = new Map();
@@ -55,11 +68,106 @@ let trackerSyncPromise = null;
 let wallet = null;
 let walletError = null;
 let historyStore = null;
+let snapshotUploadConsent = false;
+let telemetryContributorId = null;
+let snapshotUploadPromise = null;
+let snapshotUploadAbortController = null;
 
 function newId() {
   return typeof crypto?.randomUUID === "function"
     ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    : `${Date.now()}-${randomBytesHex(16)}`;
+}
+
+function randomBytesHex(length = 32) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function randomSnapshotDelay() {
+  return SNAPSHOT_UPLOAD_DELAY_MIN_MS + Math.floor(
+    Math.random() * (SNAPSHOT_UPLOAD_DELAY_MAX_MS - SNAPSHOT_UPLOAD_DELAY_MIN_MS + 1)
+  );
+}
+
+function telemetryEndpoint() {
+  if (!TELEMETRY_UPLOAD_ENABLED) return null;
+  try {
+    const parsed = new URL(TELEMETRY_UPLOAD_ENDPOINT);
+    return parsed.protocol === "https:" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function snapshotUploadingAvailable() {
+  return Boolean(telemetryEndpoint());
+}
+
+function publicSnapshotUploadState() {
+  const endpoint = telemetryEndpoint();
+  return {
+    available: Boolean(endpoint),
+    consent: Boolean(endpoint && snapshotUploadConsent),
+    endpointHost: endpoint?.hostname || null,
+    contributorIdPresent: Boolean(telemetryContributorId)
+  };
+}
+
+function isExtensionPage(sender, filenames) {
+  if (typeof sender?.url !== "string") return false;
+  return filenames.some((filename) => {
+    const expected = chrome.runtime.getURL(filename);
+    return sender.url === expected || sender.url.startsWith(`${expected}?`) || sender.url.startsWith(`${expected}#`);
+  });
+}
+
+function hostSuffixMatches(hostname, suffix) {
+  const host = String(hostname || "").toLowerCase();
+  const domain = String(suffix || "").toLowerCase();
+  return Boolean(host && domain && (host === domain || host.endsWith(`.${domain}`)));
+}
+
+function trackerObservationsFor(state) {
+  const observations = new Map();
+  for (const entry of Object.values(state?.network?.trackers || {})) {
+    const id = String(entry?.domain || "").slice(0, 100);
+    if (!id) continue;
+    observations.set(id, {
+      id,
+      category: String(entry?.category || "unknown").slice(0, 64),
+      requests: Math.max(0, Number(entry?.count) || 0)
+    });
+  }
+
+  if (!trackerDatabaseState.databaseEnabled || !managedTrackers.length) return [...observations.values()];
+  const matchedIds = new Set(
+    evaluateCustomIndicators(state, managedTrackers, null).map((finding) => finding.indicatorId)
+  );
+  for (const tracker of managedTrackers) {
+    if (!matchedIds.has(tracker.id)) continue;
+    const suffixes = new Set([
+      ...(Array.isArray(tracker.match?.hosts) ? tracker.match.hosts : []),
+      ...(Array.isArray(tracker.match?.networkFilters)
+        ? tracker.match.networkFilters.map((rule) => rule?.host)
+        : [])
+    ].filter(Boolean));
+    const suffixList = [...suffixes];
+    let requests = 0;
+    for (const entry of Object.values(state?.network?.hosts || {})) {
+      if (suffixList.some((suffix) => hostSuffixMatches(entry.host, suffix))) {
+        requests += Math.max(0, Number(entry.count) || 0);
+      }
+    }
+    observations.set(tracker.id, {
+      id: tracker.id,
+      category: String(tracker.category || "unknown").slice(0, 64),
+      requests: Math.max(1, requests)
+    });
+    if (observations.size >= 200) break;
+  }
+  return [...observations.values()];
 }
 
 function queueTab(tabId, operation) {
@@ -244,12 +352,23 @@ const ready = (async () => {
       CUSTOM_INDICATORS_KEY,
       MANAGED_TRACKERS_KEY,
       TRACKER_DATABASE_STATE_KEY,
-      WALLET_STORAGE_KEY
+      WALLET_STORAGE_KEY,
+      SNAPSHOT_UPLOAD_CONSENT_KEY,
+      TELEMETRY_CONTRIBUTOR_ID_KEY
     ]),
     historyStoreReady
   ]);
 
   historyStore = store;
+  snapshotUploadConsent = localStored?.[SNAPSHOT_UPLOAD_CONSENT_KEY] === true;
+  telemetryContributorId = typeof localStored?.[TELEMETRY_CONTRIBUTOR_ID_KEY] === "string"
+    ? localStored[TELEMETRY_CONTRIBUTOR_ID_KEY].slice(0, 128)
+    : null;
+  if (snapshotUploadConsent && snapshotUploadingAvailable() && !telemetryContributorId) {
+    telemetryContributorId = randomBytesHex(32);
+    await chrome.storage.local.set({ [TELEMETRY_CONTRIBUTOR_ID_KEY]: telemetryContributorId });
+  }
+  await historyStore.recoverInterruptedSnapshotUploads();
   const savedCustom = localStored?.[CUSTOM_INDICATORS_KEY];
   customIndicators = Array.isArray(savedCustom) ? savedCustom.slice(0, 100) : [];
   indicatorSettings = mergeIndicatorSettings(
@@ -314,6 +433,7 @@ const ready = (async () => {
 
   if (pendingHistory.size) await flushHistory();
   await configureTrackerAlarm();
+  await configureSnapshotUploadAlarm();
 })();
 
 async function configureTrackerAlarm() {
@@ -328,6 +448,143 @@ async function configureTrackerAlarm() {
     delayInMinutes: existing ? TRACKER_UPDATE_INTERVAL_MINUTES : 5,
     periodInMinutes: TRACKER_UPDATE_INTERVAL_MINUTES
   });
+}
+
+async function configureSnapshotUploadAlarm() {
+  if (!chrome.alarms) return;
+  if (!snapshotUploadingAvailable() || !snapshotUploadConsent || !telemetryContributorId) {
+    await chrome.alarms.clear(SNAPSHOT_UPLOAD_ALARM);
+    return;
+  }
+  const nextAttemptAt = await historyStore.nextSnapshotUploadAt();
+  if (!Number.isFinite(nextAttemptAt)) {
+    await chrome.alarms.clear(SNAPSHOT_UPLOAD_ALARM);
+    return;
+  }
+  chrome.alarms.create(SNAPSHOT_UPLOAD_ALARM, {
+    when: Math.max(Date.now() + 30000, nextAttemptAt)
+  });
+}
+
+function retryAt(attempts, now = Date.now()) {
+  const delay = SNAPSHOT_RETRY_DELAYS_MS[Math.min(Math.max(0, attempts - 1), SNAPSHOT_RETRY_DELAYS_MS.length - 1)];
+  const jitter = 0.8 + Math.random() * 0.4;
+  return now + Math.floor(delay * jitter);
+}
+
+async function encodedSnapshotBatch(records) {
+  const envelope = {
+    schemaVersion: "veilance.telemetry-snapshot-batch.v1",
+    batchId: newId(),
+    contributorId: telemetryContributorId,
+    observations: records.map((record) => record.payload)
+  };
+  const json = JSON.stringify(envelope);
+  if (typeof CompressionStream !== "function") {
+    return { body: json, headers: { "Content-Type": "application/json" } };
+  }
+  const compressed = new Blob([json], { type: "application/json" })
+    .stream()
+    .pipeThrough(new CompressionStream("gzip"));
+  return {
+    body: await new Response(compressed).arrayBuffer(),
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Encoding": "gzip"
+    }
+  };
+}
+
+async function performSnapshotUploads(trigger = "scheduled") {
+  const endpoint = telemetryEndpoint();
+  if (!endpoint || !snapshotUploadConsent || !telemetryContributorId) return { uploaded: 0, trigger };
+  const candidates = await historyStore.listDueSnapshotUploads(Date.now(), TELEMETRY_UPLOAD_BATCH_LIMIT);
+  const due = [];
+  let uncompressedBytes = 0;
+  for (const record of candidates) {
+    const recordBytes = Math.max(0, Number(record.sizeBytes) || 0);
+    if (due.length && uncompressedBytes + recordBytes > TELEMETRY_UPLOAD_MAX_BATCH_BYTES) break;
+    due.push(record);
+    uncompressedBytes += recordBytes;
+  }
+  if (!due.length) {
+    await configureSnapshotUploadAlarm();
+    return { uploaded: 0, trigger };
+  }
+
+  const valid = [];
+  for (const record of due) {
+    if (!validateTelemetrySnapshot(record.payload)) {
+      await historyStore.updateSnapshotUpload(record.snapshotId, {
+        status: "blocked",
+        nextAttemptAt: null,
+        lastError: "The local safety validator refused this snapshot. It was not uploaded."
+      });
+      continue;
+    }
+    const attempts = Number(record.upload?.attempts || 0) + 1;
+    await historyStore.updateSnapshotUpload(record.snapshotId, {
+      status: "uploading",
+      attempts,
+      nextAttemptAt: null,
+      lastAttemptAt: Date.now(),
+      lastError: null
+    });
+    valid.push({ ...record, nextAttempts: attempts });
+  }
+  if (!valid.length) {
+    await configureSnapshotUploadAlarm();
+    return { uploaded: 0, trigger };
+  }
+
+  try {
+    const request = await encodedSnapshotBatch(valid);
+    const controller = new AbortController();
+    snapshotUploadAbortController = controller;
+    const response = await fetch(endpoint.href, {
+      method: "POST",
+      headers: request.headers,
+      body: request.body,
+      credentials: "omit",
+      cache: "no-store",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`Snapshot API returned HTTP ${response.status}`);
+    const uploadedAt = Date.now();
+    for (const record of valid) {
+      await historyStore.updateSnapshotUpload(record.snapshotId, {
+        status: "uploaded",
+        nextAttemptAt: null,
+        uploadedAt,
+        lastError: null
+      });
+    }
+    return { uploaded: valid.length, trigger };
+  } catch (error) {
+    const message = String(error?.message || error).slice(0, 500);
+    const now = Date.now();
+    for (const record of valid) {
+      await historyStore.updateSnapshotUpload(record.snapshotId, {
+        status: "failed",
+        nextAttemptAt: retryAt(record.nextAttempts, now),
+        lastError: message
+      });
+    }
+    throw error;
+  } finally {
+    snapshotUploadAbortController = null;
+    await configureSnapshotUploadAlarm();
+  }
+}
+
+function uploadDueSnapshots(trigger = "scheduled") {
+  if (snapshotUploadPromise) return snapshotUploadPromise;
+  snapshotUploadPromise = performSnapshotUploads(trigger).finally(() => {
+    snapshotUploadPromise = null;
+  });
+  return snapshotUploadPromise;
 }
 
 async function refreshTrackerFindings() {
@@ -584,10 +841,17 @@ function isSettingsPage(sender) {
 
 if (chrome.alarms?.onAlarm) {
   chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm?.name !== TRACKER_UPDATE_ALARM) return;
-    void ready
-      .then(() => trackerDatabaseState.autoUpdateEnabled && syncTrackerDatabase("scheduled"))
-      .catch((error) => console.error("Veilance tracker update failed", error));
+    if (alarm?.name === TRACKER_UPDATE_ALARM) {
+      void ready
+        .then(() => trackerDatabaseState.autoUpdateEnabled && syncTrackerDatabase("scheduled"))
+        .catch((error) => console.error("Veilance tracker update failed", error));
+      return;
+    }
+    if (alarm?.name === SNAPSHOT_UPLOAD_ALARM) {
+      void ready
+        .then(() => uploadDueSnapshots("scheduled"))
+        .catch((error) => console.error("Veilance telemetry snapshot upload failed", error));
+    }
   });
 }
 
@@ -731,7 +995,66 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case "VEILANCE_GET_PAYLOAD": {
         const state = states.get(Number(message.tabId)) || null;
-        return { ok: true, payload: buildSanitizedPayload(state, chrome.runtime.getManifest().version) };
+        return {
+          ok: true,
+          payload: buildSanitizedPayload(state, chrome.runtime.getManifest().version, Date.now(), {
+            trackers: trackerObservationsFor(state)
+          })
+        };
+      }
+
+      case "VEILANCE_CREATE_TELEMETRY_SNAPSHOT": {
+        if (!isExtensionPage(sender, ["popup.html"])) {
+          throw new Error("Telemetry snapshots can be captured only from the Veilance popup");
+        }
+        const tabId = Number(message.tabId);
+        if (!Number.isInteger(tabId) || tabId < 0) throw new Error("Choose a website tab before taking a snapshot");
+        const tab = await chrome.tabs.get(tabId);
+        if (tab?.incognito) throw new Error("Telemetry snapshots are disabled in Incognito");
+        const page = safePageIdentity(tab?.url || "");
+        if (!page || !isPublicTelemetryHostname(page.hostname)) {
+          throw new Error("Snapshots are limited to public HTTP(S) websites; private and internal hosts are excluded");
+        }
+        const captured = await chrome.tabs.sendMessage(tabId, {
+          type: "VEILANCE_CAPTURE_REDACTED_DOCUMENT"
+        });
+        if (!captured?.ok || !captured.document) {
+          throw new Error(captured?.error || "The page did not return a redacted document");
+        }
+        return queueTab(tabId, async () => {
+          let state = states.get(tabId);
+          if (!state || state.origin !== page.origin) {
+            state = await beginVisit(tabId, tab.url, { now: Date.now(), navigationId: newId() });
+          }
+          const createdAt = Date.now();
+          const latestPageSnapshot = snapshotForEnabledIndicators(captured.pageSnapshot);
+          if (Object.keys(latestPageSnapshot).length) {
+            applyPageSnapshot(state, latestPageSnapshot, createdAt);
+            await saveState(tabId, state);
+          }
+          const snapshotId = newId();
+          const payload = buildTelemetrySnapshot(
+            state,
+            captured.document,
+            chrome.runtime.getManifest().version,
+            createdAt,
+            {
+              eventId: snapshotId,
+              trackers: trackerObservationsFor(state)
+            }
+          );
+          if (!validateTelemetrySnapshot(payload)) {
+            throw new Error("The snapshot failed Veilance's final safety validator");
+          }
+          await historyStore.upsertSnapshot({
+            snapshotId,
+            hostname: page.hostname,
+            createdAt,
+            payload
+          });
+          const snapshots = await historyStore.listSnapshotSummaries(1);
+          return { ok: true, snapshot: snapshots[0] || { snapshotId, hostname: page.hostname, createdAt } };
+        });
       }
 
       case "VEILANCE_CLEAR_STATE": {
@@ -794,6 +1117,78 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         for (const state of states.values()) scheduleHistory(state);
         return { ok: true };
 
+      case "VEILANCE_LIST_TELEMETRY_SNAPSHOTS":
+        if (!isSettingsPage(sender)) throw new Error("Telemetry snapshots are available only from Veilance Settings");
+        return { ok: true, snapshots: await historyStore.listSnapshotSummaries(20) };
+
+      case "VEILANCE_GET_TELEMETRY_SNAPSHOT": {
+        if (!isSettingsPage(sender)) throw new Error("Telemetry snapshots are available only from Veilance Settings");
+        const snapshot = await historyStore.getSnapshot(message.snapshotId);
+        if (!snapshot) throw new Error("Telemetry snapshot was not found");
+        return { ok: true, snapshot };
+      }
+
+      case "VEILANCE_DELETE_TELEMETRY_SNAPSHOT": {
+        if (!isSettingsPage(sender)) throw new Error("Telemetry snapshots are available only from Veilance Settings");
+        const snapshot = await historyStore.getSnapshot(message.snapshotId);
+        if (!snapshot) return { ok: true };
+        if (snapshot.upload?.status === "uploading") throw new Error("Wait for the active upload to finish before deleting this snapshot");
+        await historyStore.deleteSnapshot(snapshot.snapshotId);
+        await configureSnapshotUploadAlarm();
+        return { ok: true };
+      }
+
+      case "VEILANCE_CLEAR_TELEMETRY_SNAPSHOTS":
+        if (!isSettingsPage(sender)) throw new Error("Telemetry snapshots are available only from Veilance Settings");
+        if (snapshotUploadPromise) throw new Error("Wait for the active upload to finish before clearing snapshots");
+        await historyStore.clearSnapshots();
+        await configureSnapshotUploadAlarm();
+        return { ok: true };
+
+      case "VEILANCE_SET_SNAPSHOT_UPLOAD_CONSENT": {
+        if (!isSettingsPage(sender)) throw new Error("Snapshot upload consent is available only from Veilance Settings");
+        const enabled = Boolean(message.enabled);
+        if (enabled && !snapshotUploadingAvailable()) {
+          throw new Error("Telemetry uploading is disabled in this build");
+        }
+        snapshotUploadConsent = enabled;
+        if (!enabled) snapshotUploadAbortController?.abort();
+        if (enabled && !telemetryContributorId) telemetryContributorId = randomBytesHex(32);
+        await chrome.storage.local.set({
+          [SNAPSHOT_UPLOAD_CONSENT_KEY]: snapshotUploadConsent,
+          ...(telemetryContributorId ? { [TELEMETRY_CONTRIBUTOR_ID_KEY]: telemetryContributorId } : {})
+        });
+        await configureSnapshotUploadAlarm();
+        return { ok: true, snapshotUpload: publicSnapshotUploadState() };
+      }
+
+      case "VEILANCE_QUEUE_TELEMETRY_SNAPSHOT": {
+        if (!isSettingsPage(sender)) throw new Error("Snapshot uploads are available only from Veilance Settings");
+        if (!snapshotUploadingAvailable()) throw new Error("Telemetry uploading is disabled in this build");
+        if (!snapshotUploadConsent) throw new Error("Enable snapshot upload consent before queueing a snapshot");
+        const snapshot = await historyStore.getSnapshot(message.snapshotId);
+        if (!snapshot) throw new Error("Telemetry snapshot was not found");
+        if (snapshot.upload?.status === "uploaded") return { ok: true, snapshot };
+        const nextAttemptAt = Date.now() + randomSnapshotDelay();
+        await historyStore.updateSnapshotUpload(snapshot.snapshotId, {
+          status: "queued",
+          nextAttemptAt,
+          lastError: null
+        });
+        await configureSnapshotUploadAlarm();
+        return { ok: true, nextAttemptAt };
+      }
+
+      case "VEILANCE_QUEUE_ALL_TELEMETRY_SNAPSHOTS": {
+        if (!isSettingsPage(sender)) throw new Error("Snapshot uploads are available only from Veilance Settings");
+        if (!snapshotUploadingAvailable()) throw new Error("Telemetry uploading is disabled in this build");
+        if (!snapshotUploadConsent) throw new Error("Enable snapshot upload consent before queueing snapshots");
+        const nextAttemptAt = Date.now() + randomSnapshotDelay();
+        const queued = await historyStore.queueAllSnapshots(nextAttemptAt);
+        await configureSnapshotUploadAlarm();
+        return { ok: true, queued, nextAttemptAt };
+      }
+
       case "VEILANCE_GET_SETTINGS":
         return {
           ok: true,
@@ -803,7 +1198,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           trackerDatabase: publicTrackerDatabaseState(),
           wallet: publicWalletRecord(wallet),
           walletError,
-          database: await historyStore.info()
+          database: await historyStore.info(),
+          snapshotUpload: publicSnapshotUploadState()
         };
 
       case "VEILANCE_SET_INDICATOR": {
