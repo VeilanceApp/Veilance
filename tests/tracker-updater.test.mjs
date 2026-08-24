@@ -5,6 +5,7 @@ import { gzipSync } from "node:zlib";
 import {
   diffTrackerSets,
   extractTrackerDocumentsFromTar,
+  fetchJsonDatabaseArchive,
   fetchTrackerArchive,
   sha256Hex
 } from "../lib/tracker-updater.js";
@@ -59,6 +60,38 @@ test("TAR extraction reads only nested veilance-json-trackers JSON files", () =>
     "veilance-json-trackers/advertising/one.json",
     "veilance-json-trackers/site_analytics/two.json"
   ]);
+});
+
+test("TAR extraction supports the flat Veilance detection database folder", () => {
+  const archive = tarArchive([
+    ["Veilance-Detection-DB-main/README.md", "ignored"],
+    ["Veilance-Detection-DB-main/veilance-json-detections/one.json", '{"id":"one"}'],
+    ["Veilance-Detection-DB-main/veilance-json-detections/two.json", '{"id":"two"}'],
+    ["Veilance-Detection-DB-main/other/three.json", '{"id":"three"}']
+  ]);
+  const documents = extractTrackerDocumentsFromTar(archive, "veilance-json-detections");
+  assert.deepEqual(documents.map((document) => document.sourceName), [
+    "veilance-json-detections/one.json",
+    "veilance-json-detections/two.json"
+  ]);
+});
+
+test("remote detection download uses the requested JSON folder", async () => {
+  const archive = tarArchive([
+    ["Veilance-Detection-DB-main/veilance-json-detections/test.json", '{"id":"test"}']
+  ]);
+  const compressed = gzipSync(archive);
+  const result = await fetchJsonDatabaseArchive(
+    "https://example.test/detections.tar.gz",
+    "veilance-json-detections",
+    async () => new Response(compressed, {
+      status: 200,
+      headers: { "content-length": String(compressed.length), etag: '"detection-revision"' }
+    })
+  );
+  assert.equal(result.documents.length, 1);
+  assert.equal(result.documents[0].sourceName, "veilance-json-detections/test.json");
+  assert.equal(result.etag, '"detection-revision"');
 });
 
 test("remote tracker download verifies, decompresses, and hashes the archive", async () => {

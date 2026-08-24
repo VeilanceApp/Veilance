@@ -24,10 +24,15 @@ import {
   isIndicatorEnabled,
   mergeIndicatorSettings,
   parseIndicatorDocuments,
+  parseManagedDetectionDocuments,
   parseManagedTrackerDocuments,
   parseManagedTrackerRecords
 } from "./lib/indicators.js";
 import {
+  DETECTION_DATABASE_ARCHIVE,
+  DETECTION_DATABASE_FOLDER,
+  DETECTION_DATABASE_REPOSITORY,
+  DETECTION_UPDATE_INTERVAL_MINUTES,
   TRACKER_DATABASE_ARCHIVE,
   TRACKER_DATABASE_BUNDLE,
   TRACKER_DATABASE_REPOSITORY,
@@ -37,7 +42,7 @@ import {
   TELEMETRY_UPLOAD_ENDPOINT,
   TELEMETRY_UPLOAD_MAX_BATCH_BYTES
 } from "./config.js";
-import { diffTrackerSets, fetchTrackerArchive } from "./lib/tracker-updater.js";
+import { diffTrackerSets, fetchJsonDatabaseArchive, fetchTrackerArchive } from "./lib/tracker-updater.js";
 import { exportSolanaWallet, generateSolanaWallet, publicWalletRecord } from "./lib/wallet.js";
 
 const SESSION_STORAGE_KEY = "veilanceTabStatesV2";
@@ -45,12 +50,16 @@ const INDICATOR_SETTINGS_KEY = "veilanceIndicatorSettingsV1";
 const CUSTOM_INDICATORS_KEY = "veilanceCustomIndicatorsV1";
 const MANAGED_TRACKERS_KEY = "veilanceManagedTrackersV1";
 const TRACKER_DATABASE_STATE_KEY = "veilanceTrackerDatabaseStateV1";
+const MANAGED_DETECTIONS_KEY = "veilanceManagedDetectionsV1";
+const DETECTION_DATABASE_STATE_KEY = "veilanceDetectionDatabaseStateV1";
 const WALLET_STORAGE_KEY = "veilanceSolanaWalletV1";
 const TRACKER_UPDATE_ALARM = "veilanceTrackerDatabaseUpdateV1";
+const DETECTION_UPDATE_ALARM = "veilanceDetectionDatabaseUpdateV1";
 const SNAPSHOT_UPLOAD_ALARM = "veilanceTelemetrySnapshotUploadV1";
 const SNAPSHOT_UPLOAD_CONSENT_KEY = "veilanceTelemetrySnapshotConsentV1";
 const TELEMETRY_CONTRIBUTOR_ID_KEY = "veilanceTelemetryContributorIdV1";
 const MAX_TRACKER_UPDATE_LOG = 50;
+const MAX_DETECTION_UPDATE_LOG = 50;
 const HISTORY_FLUSH_DELAY_MS = 200;
 const SNAPSHOT_UPLOAD_DELAY_MIN_MS = 5 * 60 * 1000;
 const SNAPSHOT_UPLOAD_DELAY_MAX_MS = 15 * 60 * 1000;
@@ -63,9 +72,12 @@ let sessionPersistTimer = null;
 let historyFlushTimer = null;
 let customIndicators = [];
 let managedTrackers = [];
+let managedDetections = [];
 let indicatorSettings = mergeIndicatorSettings(null);
 let trackerDatabaseState = normalizeTrackerDatabaseState(null);
+let detectionDatabaseState = normalizeDetectionDatabaseState(null);
 let trackerSyncPromise = null;
+let detectionSyncPromise = null;
 let wallet = null;
 let walletError = null;
 let historyStore = null;
@@ -201,6 +213,9 @@ function findingsFor(state) {
   const combined = [
     ...buildFindings(state),
     ...evaluateCustomIndicators(state, customIndicators, indicatorSettings),
+    ...(detectionDatabaseState.databaseEnabled
+      ? evaluateCustomIndicators(state, managedDetections, null)
+      : []),
     ...(trackerDatabaseState.databaseEnabled
       ? evaluateCustomIndicators(state, managedTrackers, null)
       : [])
@@ -265,6 +280,60 @@ function publicTrackerDatabaseState() {
     repository: TRACKER_DATABASE_REPOSITORY,
     intervalMinutes: TRACKER_UPDATE_INTERVAL_MINUTES,
     updateInProgress: Boolean(trackerSyncPromise)
+  };
+}
+
+function cleanDetectionLogEntry(value) {
+  return {
+    timestamp: Number.isFinite(value?.timestamp) ? value.timestamp : Date.now(),
+    trigger: String(value?.trigger || "automatic").slice(0, 24),
+    status: String(value?.status || "unknown").slice(0, 24),
+    message: String(value?.message || "").slice(0, 500),
+    detectionCount: Math.max(0, Number(value?.detectionCount) || 0),
+    added: Math.max(0, Number(value?.added) || 0),
+    updated: Math.max(0, Number(value?.updated) || 0),
+    removed: Math.max(0, Number(value?.removed) || 0),
+    skipped: Math.max(0, Number(value?.skipped) || 0),
+    warnings: Math.max(0, Number(value?.warnings) || 0),
+    revision: String(value?.revision || "").slice(0, 128)
+  };
+}
+
+function normalizeDetectionDatabaseState(value, detectionCount = 0) {
+  const state = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    databaseEnabled: state.databaseEnabled !== false,
+    autoUpdateEnabled: state.autoUpdateEnabled !== false,
+    detectionCount: Math.max(0, Number(state.detectionCount) || detectionCount || 0),
+    sourceCount: Math.max(0, Number(state.sourceCount) || detectionCount || 0),
+    skippedCount: Math.max(0, Number(state.skippedCount) || 0),
+    warningCount: Math.max(0, Number(state.warningCount) || 0),
+    lastCheckAt: Number.isFinite(state.lastCheckAt) ? state.lastCheckAt : null,
+    lastSuccessAt: Number.isFinite(state.lastSuccessAt) ? state.lastSuccessAt : null,
+    lastStatus: String(state.lastStatus || "not-checked").slice(0, 32),
+    lastError: String(state.lastError || "").slice(0, 500),
+    sourceRevision: String(state.sourceRevision || "").slice(0, 128),
+    sourceEtag: String(state.sourceEtag || "").slice(0, 160),
+    archiveSha256: String(state.archiveSha256 || "").slice(0, 64),
+    updateLog: Array.isArray(state.updateLog)
+      ? state.updateLog.slice(0, MAX_DETECTION_UPDATE_LOG).map(cleanDetectionLogEntry)
+      : []
+  };
+}
+
+function addDetectionUpdateLog(entry) {
+  detectionDatabaseState.updateLog = [
+    cleanDetectionLogEntry(entry),
+    ...detectionDatabaseState.updateLog
+  ].slice(0, MAX_DETECTION_UPDATE_LOG);
+}
+
+function publicDetectionDatabaseState() {
+  return {
+    ...detectionDatabaseState,
+    repository: DETECTION_DATABASE_REPOSITORY,
+    intervalMinutes: DETECTION_UPDATE_INTERVAL_MINUTES,
+    updateInProgress: Boolean(detectionSyncPromise)
   };
 }
 
@@ -357,6 +426,8 @@ const ready = (async () => {
       CUSTOM_INDICATORS_KEY,
       MANAGED_TRACKERS_KEY,
       TRACKER_DATABASE_STATE_KEY,
+      MANAGED_DETECTIONS_KEY,
+      DETECTION_DATABASE_STATE_KEY,
       WALLET_STORAGE_KEY,
       SNAPSHOT_UPLOAD_CONSENT_KEY,
       TELEMETRY_CONTRIBUTOR_ID_KEY
@@ -408,6 +479,17 @@ const ready = (async () => {
     await chrome.storage.local.set({ [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState });
   }
 
+  const savedManagedDetections = localStored?.[MANAGED_DETECTIONS_KEY];
+  managedDetections = Array.isArray(savedManagedDetections) ? savedManagedDetections.slice(0, 5000) : [];
+  detectionDatabaseState = normalizeDetectionDatabaseState(
+    localStored?.[DETECTION_DATABASE_STATE_KEY],
+    managedDetections.length
+  );
+  if (detectionDatabaseState.detectionCount !== managedDetections.length) {
+    detectionDatabaseState.detectionCount = managedDetections.length;
+    await chrome.storage.local.set({ [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState });
+  }
+
   const sessionValue = sessionStored?.[SESSION_STORAGE_KEY];
   if (sessionValue && typeof sessionValue === "object") {
     for (const [tabId, savedState] of Object.entries(sessionValue)) {
@@ -438,6 +520,7 @@ const ready = (async () => {
 
   if (pendingHistory.size) await flushHistory();
   await configureTrackerAlarm();
+  await configureDetectionAlarm();
   await configureSnapshotUploadAlarm();
 })();
 
@@ -452,6 +535,20 @@ async function configureTrackerAlarm() {
   chrome.alarms.create(TRACKER_UPDATE_ALARM, {
     delayInMinutes: existing ? TRACKER_UPDATE_INTERVAL_MINUTES : 5,
     periodInMinutes: TRACKER_UPDATE_INTERVAL_MINUTES
+  });
+}
+
+async function configureDetectionAlarm() {
+  if (!chrome.alarms) return;
+  if (!detectionDatabaseState.autoUpdateEnabled) {
+    await chrome.alarms.clear(DETECTION_UPDATE_ALARM);
+    return;
+  }
+  const existing = await chrome.alarms.get(DETECTION_UPDATE_ALARM);
+  if (existing?.periodInMinutes === DETECTION_UPDATE_INTERVAL_MINUTES) return;
+  chrome.alarms.create(DETECTION_UPDATE_ALARM, {
+    delayInMinutes: existing ? DETECTION_UPDATE_INTERVAL_MINUTES : 5,
+    periodInMinutes: DETECTION_UPDATE_INTERVAL_MINUTES
   });
 }
 
@@ -592,7 +689,7 @@ function uploadDueSnapshots(trigger = "scheduled") {
   return snapshotUploadPromise;
 }
 
-async function refreshTrackerFindings() {
+async function refreshManagedFindings() {
   for (const [tabId, state] of states) {
     scheduleHistory(state);
     await updateBadge(tabId, state);
@@ -670,7 +767,7 @@ async function performTrackerSync(trigger) {
       [MANAGED_TRACKERS_KEY]: managedTrackers,
       [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState
     });
-    await refreshTrackerFindings();
+    await refreshManagedFindings();
     return publicTrackerDatabaseState();
   } catch (error) {
     trackerDatabaseState.lastCheckAt = checkedAt;
@@ -697,6 +794,110 @@ function syncTrackerDatabase(trigger = "automatic") {
     trackerSyncPromise = null;
   });
   return trackerSyncPromise;
+}
+
+function detectionUpdateMessage(parsed, changes) {
+  const changeText = `${changes.added} added, ${changes.updated} updated, ${changes.removed} removed`;
+  const validationText = parsed.skippedCount || parsed.warningCount
+    ? ` ${parsed.skippedCount} skipped; ${parsed.warningCount} warnings.`
+    : "";
+  return `${parsed.indicators.length.toLocaleString()} detections active (${changeText}).${validationText}`;
+}
+
+async function performDetectionSync(trigger) {
+  const checkedAt = Date.now();
+  try {
+    const downloaded = await fetchJsonDatabaseArchive(
+      DETECTION_DATABASE_ARCHIVE,
+      DETECTION_DATABASE_FOLDER
+    );
+    if (downloaded.archiveSha256 === detectionDatabaseState.archiveSha256) {
+      detectionDatabaseState.lastCheckAt = checkedAt;
+      detectionDatabaseState.lastSuccessAt = checkedAt;
+      detectionDatabaseState.lastStatus = "up-to-date";
+      detectionDatabaseState.lastError = "";
+      addDetectionUpdateLog({
+        timestamp: checkedAt,
+        trigger,
+        status: "up-to-date",
+        message: `${managedDetections.length.toLocaleString()} detections are already current.`,
+        detectionCount: managedDetections.length,
+        skipped: detectionDatabaseState.skippedCount,
+        warnings: detectionDatabaseState.warningCount,
+        revision: detectionDatabaseState.sourceRevision
+      });
+      await chrome.storage.local.set({ [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState });
+      return publicDetectionDatabaseState();
+    }
+
+    const parsed = parseManagedDetectionDocuments(downloaded.documents);
+    if (!parsed.indicators.length) throw new Error("The detection update contained no usable detection records");
+    if (parsed.errorCount > Math.max(10, Math.floor(parsed.sourceCount * 0.05))) {
+      throw new Error(`Detection update rejected because ${parsed.errorCount} records failed validation`);
+    }
+    if (managedDetections.length >= 20 && parsed.indicators.length < managedDetections.length / 2) {
+      throw new Error("Detection update rejected because it would remove more than half of the active database");
+    }
+
+    const changes = diffTrackerSets(managedDetections, parsed.indicators);
+    managedDetections = parsed.indicators;
+    const changed = changes.added > 0 || changes.updated > 0 || changes.removed > 0;
+    detectionDatabaseState = normalizeDetectionDatabaseState({
+      ...detectionDatabaseState,
+      detectionCount: managedDetections.length,
+      sourceCount: parsed.sourceCount,
+      skippedCount: parsed.skippedCount,
+      warningCount: parsed.warningCount,
+      lastCheckAt: checkedAt,
+      lastSuccessAt: checkedAt,
+      lastStatus: changed ? "updated" : "up-to-date",
+      lastError: "",
+      sourceRevision: downloaded.archiveSha256,
+      sourceEtag: downloaded.etag,
+      archiveSha256: downloaded.archiveSha256
+    }, managedDetections.length);
+    addDetectionUpdateLog({
+      timestamp: checkedAt,
+      trigger,
+      status: changed ? "updated" : "up-to-date",
+      message: detectionUpdateMessage(parsed, changes),
+      detectionCount: managedDetections.length,
+      ...changes,
+      skipped: parsed.skippedCount,
+      warnings: parsed.warningCount,
+      revision: downloaded.archiveSha256
+    });
+    await chrome.storage.local.set({
+      [MANAGED_DETECTIONS_KEY]: managedDetections,
+      [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState
+    });
+    await refreshManagedFindings();
+    return publicDetectionDatabaseState();
+  } catch (error) {
+    detectionDatabaseState.lastCheckAt = checkedAt;
+    detectionDatabaseState.lastStatus = "error";
+    detectionDatabaseState.lastError = String(error?.message || error).slice(0, 500);
+    addDetectionUpdateLog({
+      timestamp: checkedAt,
+      trigger,
+      status: "error",
+      message: detectionDatabaseState.lastError,
+      detectionCount: managedDetections.length,
+      skipped: detectionDatabaseState.skippedCount,
+      warnings: detectionDatabaseState.warningCount,
+      revision: detectionDatabaseState.sourceRevision
+    });
+    await chrome.storage.local.set({ [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState });
+    throw error;
+  }
+}
+
+function syncDetectionDatabase(trigger = "automatic") {
+  if (detectionSyncPromise) return detectionSyncPromise;
+  detectionSyncPromise = performDetectionSync(trigger).finally(() => {
+    detectionSyncPromise = null;
+  });
+  return detectionSyncPromise;
 }
 
 function scheduleSessionPersist() {
@@ -850,6 +1051,12 @@ if (chrome.alarms?.onAlarm) {
       void ready
         .then(() => trackerDatabaseState.autoUpdateEnabled && syncTrackerDatabase("scheduled"))
         .catch((error) => console.error("Veilance tracker update failed", error));
+      return;
+    }
+    if (alarm?.name === DETECTION_UPDATE_ALARM) {
+      void ready
+        .then(() => detectionDatabaseState.autoUpdateEnabled && syncDetectionDatabase("scheduled"))
+        .catch((error) => console.error("Veilance detection update failed", error));
       return;
     }
     if (alarm?.name === SNAPSHOT_UPLOAD_ALARM) {
@@ -1213,6 +1420,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           customIndicators,
           indicatorSettings,
           trackerDatabase: publicTrackerDatabaseState(),
+          detectionDatabase: publicDetectionDatabaseState(),
           wallet: publicWalletRecord(wallet),
           walletError,
           database: await historyStore.info(),
@@ -1238,7 +1446,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!isSettingsPage(sender)) throw new Error("Tracker database controls are available only from Veilance Settings");
         trackerDatabaseState.databaseEnabled = Boolean(message.enabled);
         await chrome.storage.local.set({ [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState });
-        await refreshTrackerFindings();
+        await refreshManagedFindings();
         return { ok: true, trackerDatabase: publicTrackerDatabaseState() };
 
       case "VEILANCE_SET_TRACKER_AUTO_UPDATE":
@@ -1252,6 +1460,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!isSettingsPage(sender)) throw new Error("Tracker updates are available only from Veilance Settings");
         await syncTrackerDatabase("manual");
         return { ok: true, trackerDatabase: publicTrackerDatabaseState() };
+
+      case "VEILANCE_SET_DETECTION_DATABASE_ENABLED":
+        if (!isSettingsPage(sender)) throw new Error("Detection database controls are available only from Veilance Settings");
+        detectionDatabaseState.databaseEnabled = Boolean(message.enabled);
+        await chrome.storage.local.set({ [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState });
+        await refreshManagedFindings();
+        return { ok: true, detectionDatabase: publicDetectionDatabaseState() };
+
+      case "VEILANCE_SET_DETECTION_AUTO_UPDATE":
+        if (!isSettingsPage(sender)) throw new Error("Detection update controls are available only from Veilance Settings");
+        detectionDatabaseState.autoUpdateEnabled = Boolean(message.enabled);
+        await chrome.storage.local.set({ [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState });
+        await configureDetectionAlarm();
+        return { ok: true, detectionDatabase: publicDetectionDatabaseState() };
+
+      case "VEILANCE_CHECK_DETECTION_UPDATES":
+        if (!isSettingsPage(sender)) throw new Error("Detection updates are available only from Veilance Settings");
+        await syncDetectionDatabase("manual");
+        return { ok: true, detectionDatabase: publicDetectionDatabaseState() };
 
       case "VEILANCE_IMPORT_INDICATORS": {
         const parsed = parseIndicatorDocuments(message.documents);
@@ -1309,6 +1536,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.runtime.onInstalled.addListener(() => {
   void ready.then(async () => {
     console.info(`Veilance v${chrome.runtime.getManifest().version} installed. Collection and history remain local.`);
-    if (trackerDatabaseState.autoUpdateEnabled) await syncTrackerDatabase("install");
-  }).catch((error) => console.error("Veilance install-time tracker update failed", error));
+    if (trackerDatabaseState.autoUpdateEnabled) {
+      await syncTrackerDatabase("install").catch((error) => {
+        console.error("Veilance install-time tracker update failed", error);
+      });
+    }
+    if (detectionDatabaseState.autoUpdateEnabled) {
+      await syncDetectionDatabase("install").catch((error) => {
+        console.error("Veilance install-time detection update failed", error);
+      });
+    }
+  }).catch((error) => console.error("Veilance install initialization failed", error));
 });

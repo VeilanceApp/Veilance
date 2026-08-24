@@ -11,3 +11,8 @@ export const TRACKER_DATABASE_REPOSITORY = "https://github.com/VeilanceApp/Veila
 export const TRACKER_DATABASE_ARCHIVE = "https://codeload.github.com/VeilanceApp/Veilance-Tracker-DB/tar.gz/refs/heads/main";
 export const TRACKER_DATABASE_BUNDLE = "data/veilance-trackers.json";
 export const TRACKER_UPDATE_INTERVAL_MINUTES = 8 * 60;
+
+export const DETECTION_DATABASE_REPOSITORY = "https://github.com/VeilanceApp/Veilance-Detection-DB";
+export const DETECTION_DATABASE_ARCHIVE = "https://codeload.github.com/VeilanceApp/Veilance-Detection-DB/tar.gz/refs/heads/main";
+export const DETECTION_DATABASE_FOLDER = "veilance-json-detections";
+export const DETECTION_UPDATE_INTERVAL_MINUTES = 8 * 60;

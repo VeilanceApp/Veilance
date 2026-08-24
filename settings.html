@@ -105,6 +105,61 @@
 
     <div id="settingsPanelIndicators" class="settings-tab-panel" role="tabpanel" aria-labelledby="settingsTabIndicators" data-settings-panel="indicators" hidden>
       <section class="settings-card">
+        <header class="card-header">
+          <div>
+            <span class="eyebrow">Detection database</span>
+            <h2>Managed detection fingerprints</h2>
+            <p>Veilance downloads validated JSON detection rules from the public Detection DB. Automatic updates check every eight hours and downloaded rules cannot execute code.</p>
+          </div>
+          <div class="header-actions tracker-header-actions">
+            <span id="detectionDatabaseStatus" class="count-badge" role="status">Loading…</span>
+            <button id="checkDetectionUpdatesButton" class="primary-button" type="button">Check now</button>
+          </div>
+        </header>
+        <div class="tracker-control-grid">
+          <div class="tracker-control-row">
+            <div>
+              <strong>Enable managed detections</strong>
+              <p>Evaluate downloaded detection fingerprints against the privacy signals collected during each visit.</p>
+            </div>
+            <label class="switch" title="Enable or disable downloaded detection matching">
+              <input id="detectionDatabaseEnabled" type="checkbox" aria-label="Enable managed detection matching">
+              <span aria-hidden="true"></span>
+            </label>
+          </div>
+          <div class="tracker-control-row">
+            <div>
+              <strong>Automatic updates</strong>
+              <p>Check the Detection DB every eight hours. Existing validated rules remain active if an update fails.</p>
+            </div>
+            <label class="switch" title="Enable or disable automatic detection updates">
+              <input id="detectionAutoUpdateEnabled" type="checkbox" aria-label="Enable automatic detection updates">
+              <span aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+        <div class="tracker-stats">
+          <div><span>Active detections</span><strong id="detectionCount">0</strong></div>
+          <div><span>Update schedule</span><strong id="detectionSchedule">Every 8 hours</strong></div>
+          <div><span>Last checked</span><strong id="detectionLastChecked">Not checked yet</strong></div>
+          <div><span>Source revision</span><strong id="detectionRevision">Not downloaded</strong></div>
+        </div>
+        <div id="detectionUpdateError" class="notice error" hidden></div>
+        <div class="tracker-source-row">
+          <span>Source</span>
+          <a id="detectionRepositoryLink" href="https://github.com/VeilanceApp/Veilance-Detection-DB" target="_blank" rel="noreferrer">VeilanceApp/Veilance-Detection-DB</a>
+        </div>
+        <div class="tracker-log-section">
+          <div class="tracker-log-heading">
+            <div><strong>Detection update log</strong><span>Most recent 50 checks</span></div>
+          </div>
+          <div id="detectionUpdateLog" class="tracker-update-log">
+            <div class="empty-state">No detection update checks recorded yet.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-card">
       <header class="card-header">
         <div>
           <span class="eyebrow">Detection</span>

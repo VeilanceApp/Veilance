@@ -118,9 +118,13 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(settings.trackerDatabase.databaseEnabled, true);
   assert.equal(settings.trackerDatabase.autoUpdateEnabled, true);
   assert.equal(settings.trackerDatabase.updateLog[0].status, "installed");
+  assert.equal(settings.detectionDatabase.detectionCount, 0);
+  assert.equal(settings.detectionDatabase.databaseEnabled, true);
+  assert.equal(settings.detectionDatabase.autoUpdateEnabled, true);
   assert.equal(settings.snapshotUpload.available, false);
   assert.equal(settings.database.snapshotCount, 0);
   assert.equal(alarms.get("veilanceTrackerDatabaseUpdateV1").periodInMinutes, 480);
+  assert.equal(alarms.get("veilanceDetectionDatabaseUpdateV1").periodInMinutes, 480);
   assert.ok(settings.wallet.publicKey.length >= 32);
   assert.equal("secretKeyBase64" in settings.wallet, false);
 
@@ -147,6 +151,14 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(updatesDisabled.ok, true);
   assert.equal(updatesDisabled.trackerDatabase.autoUpdateEnabled, false);
   assert.equal(alarms.has("veilanceTrackerDatabaseUpdateV1"), false);
+
+  const detectionUpdatesDisabled = await dispatch(
+    { type: "VEILANCE_SET_DETECTION_AUTO_UPDATE", enabled: false },
+    { url: "chrome-extension://veilance-test/settings.html" }
+  );
+  assert.equal(detectionUpdatesDisabled.ok, true);
+  assert.equal(detectionUpdatesDisabled.detectionDatabase.autoUpdateEnabled, false);
+  assert.equal(alarms.has("veilanceDetectionDatabaseUpdateV1"), false);
 
   chrome.webNavigation.onBeforeNavigate.listeners[0]({
     tabId: 7,

@@ -21,6 +21,17 @@ const elements = {
   trackerUpdateError: document.querySelector("#trackerUpdateError"),
   trackerRepositoryLink: document.querySelector("#trackerRepositoryLink"),
   trackerUpdateLog: document.querySelector("#trackerUpdateLog"),
+  detectionDatabaseStatus: document.querySelector("#detectionDatabaseStatus"),
+  detectionDatabaseEnabled: document.querySelector("#detectionDatabaseEnabled"),
+  detectionAutoUpdateEnabled: document.querySelector("#detectionAutoUpdateEnabled"),
+  checkDetectionUpdatesButton: document.querySelector("#checkDetectionUpdatesButton"),
+  detectionCount: document.querySelector("#detectionCount"),
+  detectionSchedule: document.querySelector("#detectionSchedule"),
+  detectionLastChecked: document.querySelector("#detectionLastChecked"),
+  detectionRevision: document.querySelector("#detectionRevision"),
+  detectionUpdateError: document.querySelector("#detectionUpdateError"),
+  detectionRepositoryLink: document.querySelector("#detectionRepositoryLink"),
+  detectionUpdateLog: document.querySelector("#detectionUpdateLog"),
   resetIndicatorsButton: document.querySelector("#resetIndicatorsButton"),
   chooseFolderButton: document.querySelector("#chooseFolderButton"),
   indicatorFolderInput: document.querySelector("#indicatorFolderInput"),
@@ -473,6 +484,51 @@ function renderTrackerDatabase() {
   }).join("");
 }
 
+function renderDetectionDatabase() {
+  const database = settingsData.detectionDatabase || {};
+  const detectionCount = Math.max(0, Number(database.detectionCount) || 0);
+  const intervalHours = Math.max(1, (Number(database.intervalMinutes) || 480) / 60);
+  const revision = String(database.sourceRevision || "");
+  elements.detectionDatabaseEnabled.checked = database.databaseEnabled !== false;
+  elements.detectionAutoUpdateEnabled.checked = database.autoUpdateEnabled !== false;
+  elements.detectionCount.textContent = detectionCount.toLocaleString();
+  elements.detectionSchedule.textContent = database.autoUpdateEnabled === false
+    ? "Disabled"
+    : `Every ${intervalHours.toLocaleString()} hours`;
+  elements.detectionLastChecked.textContent = formatTrackerDate(database.lastCheckAt);
+  elements.detectionRevision.textContent = revision ? revision.slice(0, 12) : "Not downloaded";
+  elements.detectionRevision.title = revision;
+  elements.detectionDatabaseStatus.textContent = database.databaseEnabled === false
+    ? `${detectionCount.toLocaleString()} downloaded · disabled`
+    : `${detectionCount.toLocaleString()} active`;
+  elements.detectionRepositoryLink.href = database.repository || elements.detectionRepositoryLink.href;
+  elements.detectionUpdateError.hidden = !database.lastError;
+  elements.detectionUpdateError.textContent = database.lastError || "";
+
+  const entries = Array.isArray(database.updateLog) ? database.updateLog : [];
+  if (!entries.length) {
+    elements.detectionUpdateLog.innerHTML = '<div class="empty-state">No detection update checks recorded yet.</div>';
+    return;
+  }
+  elements.detectionUpdateLog.innerHTML = entries.map((entry) => {
+    const status = ["installed", "updated", "up-to-date", "error"].includes(entry.status)
+      ? entry.status
+      : "unknown";
+    return `
+      <div class="tracker-log-entry">
+        <span class="tracker-log-status ${escapeHtml(status)}">${escapeHtml(status)}</span>
+        <div class="tracker-log-copy">
+          <strong>${escapeHtml(entry.message || "Detection database check completed.")}</strong>
+          <p>${escapeHtml((Number(entry.detectionCount) || 0).toLocaleString())} active detection${Number(entry.detectionCount) === 1 ? "" : "s"}</p>
+          <div class="tracker-log-meta">
+            ${trackerLogMeta(entry).map((value) => `<span>${escapeHtml(value)}</span>`).join("")}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
 function renderWallet() {
   const publicKey = settingsData.wallet?.publicKey || "";
   elements.walletAddress.textContent = publicKey || settingsData.walletError || "Wallet unavailable";
@@ -683,6 +739,7 @@ async function loadSettings() {
   renderBuiltInIndicators();
   renderCustomIndicators();
   renderTrackerDatabase();
+  renderDetectionDatabase();
   renderWallet();
   renderDatabase();
   renderSnapshotUpload();
@@ -840,6 +897,22 @@ async function saveTrackerToggle(input, messageType, enabledMessage, disabledMes
   }
 }
 
+async function saveDetectionToggle(input, messageType, enabledMessage, disabledMessage) {
+  const previous = !input.checked;
+  input.disabled = true;
+  try {
+    const response = await send({ type: messageType, enabled: input.checked });
+    settingsData.detectionDatabase = response.detectionDatabase;
+    renderDetectionDatabase();
+    showSaveStatus(input.checked ? enabledMessage : disabledMessage);
+  } catch (error) {
+    input.checked = previous;
+    showSaveStatus(error.message, true);
+  } finally {
+    input.disabled = false;
+  }
+}
+
 elements.trackerDatabaseEnabled.addEventListener("change", () => {
   void saveTrackerToggle(
     elements.trackerDatabaseEnabled,
@@ -872,6 +945,41 @@ elements.checkTrackerUpdatesButton.addEventListener("click", async () => {
   } finally {
     elements.checkTrackerUpdatesButton.disabled = false;
     elements.checkTrackerUpdatesButton.textContent = "Check now";
+  }
+});
+
+elements.detectionDatabaseEnabled.addEventListener("change", () => {
+  void saveDetectionToggle(
+    elements.detectionDatabaseEnabled,
+    "VEILANCE_SET_DETECTION_DATABASE_ENABLED",
+    "Managed detection matching enabled.",
+    "Managed detection matching disabled. Downloaded rules remain stored locally."
+  );
+});
+
+elements.detectionAutoUpdateEnabled.addEventListener("change", () => {
+  void saveDetectionToggle(
+    elements.detectionAutoUpdateEnabled,
+    "VEILANCE_SET_DETECTION_AUTO_UPDATE",
+    "Automatic detection updates enabled. Veilance will check every eight hours.",
+    "Automatic detection updates disabled. Manual checks remain available."
+  );
+});
+
+elements.checkDetectionUpdatesButton.addEventListener("click", async () => {
+  elements.checkDetectionUpdatesButton.disabled = true;
+  elements.checkDetectionUpdatesButton.textContent = "Checking…";
+  try {
+    const response = await send({ type: "VEILANCE_CHECK_DETECTION_UPDATES" });
+    settingsData.detectionDatabase = response.detectionDatabase;
+    renderDetectionDatabase();
+    showSaveStatus("Detection database check completed.");
+  } catch (error) {
+    await loadSettings().catch(() => {});
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.checkDetectionUpdatesButton.disabled = false;
+    elements.checkDetectionUpdatesButton.textContent = "Check now";
   }
 });
 
@@ -1037,6 +1145,10 @@ void loadSettings().catch((error) => {
   elements.trackerUpdateError.hidden = false;
   elements.trackerUpdateError.textContent = "Veilance settings could not be loaded. Reload this page or restart the extension.";
   elements.checkTrackerUpdatesButton.disabled = true;
+  elements.detectionDatabaseStatus.textContent = "Unavailable";
+  elements.detectionUpdateError.hidden = false;
+  elements.detectionUpdateError.textContent = "Veilance settings could not be loaded. Reload this page or restart the extension.";
+  elements.checkDetectionUpdatesButton.disabled = true;
   elements.clearSnapshotsButton.disabled = true;
   elements.clearHistoryButton.disabled = true;
   showSaveStatus(message, true);

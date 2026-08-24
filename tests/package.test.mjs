@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 
 import {
+  DETECTION_DATABASE_ARCHIVE,
+  DETECTION_DATABASE_FOLDER,
+  DETECTION_UPDATE_INTERVAL_MINUTES,
   PAYOUTS_ENABLED,
   TELEMETRY_UPLOAD_ENABLED,
   TELEMETRY_UPLOAD_ENDPOINT,
@@ -130,6 +133,16 @@ test("tracker updates use the official database three times per day", async () =
   assert.equal(bundle.schemaVersion, 1);
   assert.equal(bundle.records.length, 3330);
   assert.match(bundle.revision, /^[a-f0-9]{40}$/);
+});
+
+test("detection fingerprints update from the official database every eight hours", async () => {
+  assert.equal(DETECTION_UPDATE_INTERVAL_MINUTES, 480);
+  assert.equal(DETECTION_DATABASE_FOLDER, "veilance-json-detections");
+  assert.match(DETECTION_DATABASE_ARCHIVE, /^https:\/\/codeload\.github\.com\/VeilanceApp\/Veilance-Detection-DB\//);
+  const html = await readFile(new URL("../settings.html", import.meta.url), "utf8");
+  assert.match(html, /VeilanceApp\/Veilance-Detection-DB/);
+  assert.match(html, /id="detectionAutoUpdateEnabled"/);
+  assert.match(html, /id="checkDetectionUpdatesButton"/);
 });
 
 test("official SQLite runtime assets are bundled locally", async () => {
