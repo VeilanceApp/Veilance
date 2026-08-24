@@ -148,12 +148,42 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(updatesDisabled.trackerDatabase.autoUpdateEnabled, false);
   assert.equal(alarms.has("veilanceTrackerDatabaseUpdateV1"), false);
 
+  chrome.webNavigation.onBeforeNavigate.listeners[0]({
+    tabId: 7,
+    frameId: 0,
+    url: "https://example.com/private?q=secret",
+    timeStamp: Date.now()
+  });
+  await dispatch(
+    { type: "VEILANCE_GET_STATE", tabId: 7 },
+    { url: "chrome-extension://veilance-test/popup.html" }
+  );
+  const canvasEvent = await dispatch(
+    {
+      type: "VEILANCE_PAGE_EVENT",
+      pageSessionId: "page-session-1",
+      event: {
+        indicatorId: "canvas",
+        kind: "fingerprinting",
+        api: "Canvas",
+        action: "export"
+      }
+    },
+    {
+      tab: { id: 7, url: "https://example.com/private?q=secret" },
+      url: "https://example.com/private?q=secret",
+      documentId: "document-1"
+    }
+  );
+  assert.equal(canvasEvent.ok, true);
+
   const captured = await dispatch(
     { type: "VEILANCE_CREATE_TELEMETRY_SNAPSHOT", tabId: 7 },
     { url: "chrome-extension://veilance-test/popup.html" }
   );
   assert.equal(captured.ok, true);
   assert.equal(captured.snapshot.hostname, "example.com");
+  assert.equal(captured.snapshot.interest.score, 20);
 
   const snapshotList = await dispatch(
     { type: "VEILANCE_LIST_TELEMETRY_SNAPSHOTS" },
@@ -165,7 +195,9 @@ test("background starts SQLite, creates a wallet, and restricts private export t
     { url: "chrome-extension://veilance-test/settings.html" }
   );
   const snapshotText = JSON.stringify(snapshot.snapshot.payload);
-  assert.equal(snapshot.snapshot.payload.schemaVersion, "veilance.telemetry-snapshot.v1");
+  assert.equal(snapshot.snapshot.payload.schemaVersion, "veilance.telemetry-snapshot.v2");
+  assert.equal(snapshot.snapshot.payload.interest.score, 20);
+  assert.equal(snapshot.snapshot.payload.interest.eligible, true);
   assert.equal(snapshotText.includes("/private"), false);
   assert.equal(snapshotText.includes("q=secret"), false);
   assert.equal(snapshotText.includes("wallet"), false);

@@ -6,7 +6,8 @@ the page is open. Observations describe behavior, not intent: a finding does not
 automatically mean a website is malicious.
 
 This release adds explicit local telemetry snapshots. A user can capture the
-current public website from the popup, review the resulting evidence and inert
+current public website from the popup once its observed behavior reaches the
+20/100 interest threshold, then review the resulting evidence and inert
 redacted HTML in Settings, download it, or delete it. Snapshot uploads have a
 complete queue and API path but remain disabled by the build gate. Payouts also
 remain disabled.
@@ -16,6 +17,9 @@ remain disabled.
 * User-triggered snapshots combine host-level network observations, tracker
   matches, browser API names/actions and counts, page/security counts, and an
   inert structural HTML representation
+* A deterministic 0–100 interest score prevents routine activity from being
+  snapshotted: high findings add 40 points, medium findings add 20, low findings
+  add 5, and repeated allowed API activity can add 5–10 points
 * HTML redaction removes all page text, form values, URL paths and searches,
   event handlers, arbitrary attributes, inline script source, comments, styles,
   private network origins, and other value-bearing content
@@ -34,8 +38,9 @@ remain disabled.
   fields by dispatching a lookalike event
 * The SQLite snapshot vault is separate from visit history and retains the 20
   newest snapshots
-* Settings provides snapshot review, redacted-HTML inspection, JSON/text
-  download, deletion, queue status, retry errors, and clear-all controls
+* Settings is divided into Trackers, Indicators, Snapshots, Wallet & payouts,
+  and Local data tabs; the snapshot tab provides review, redacted-HTML
+  inspection, downloads, deletion, queue status, retry errors, and clear-all controls
 * Future uploads use a random 256-bit contributor id that is never the Solana
   wallet address; precise local capture time and upload state are excluded from
   the transmitted payload
@@ -118,7 +123,7 @@ remain disabled.
 * Full history detail for requests, hosts, API signals, page counts, findings,
   and response security headers
 * Live and History tabs in the popup
-* A dedicated Settings page
+* A tabbed Settings page
 * Individual enable/disable controls for every built-in indicator
 * A bundled, automatically updated tracker database enabled by default
 * Declarative custom indicator rules loaded from a user-selected folder
@@ -191,8 +196,11 @@ Do not select the ZIP itself. Chromium needs the extracted directory.
 ### Live
 
 The Live tab shows the active website, current status, request and signal
-counts, findings, and the generated wallet address. Open **Complete visit
+counts, findings, and the live snapshot interest score. Open **Complete visit
 details** to see the full local record while the visit is active.
+
+The compact **Wallet & payout settings** button opens the dedicated Settings
+tab containing the Solana address, backup controls, and payout status.
 
 ### History
 
@@ -213,9 +221,11 @@ sensitive data.
 
 ### Take a telemetry snapshot
 
-While viewing a public HTTP(S) website, select **Take snapshot** in the popup.
-The capture is intentional and one-time; ordinary browsing does not retain page
-HTML. Open **Settings → Snapshot vault** to:
+While viewing a public HTTP(S) website, Veilance scores observed actions from 0
+to 100. **Take snapshot** becomes available at 20/100. Visits below that
+threshold are treated as routine and cannot be snapshotted. The capture is
+intentional and one-time; ordinary browsing does not retain page HTML. Open
+**Settings → Snapshots** to:
 
 * Review the raw telemetry fields and the redacted HTML as inert text
 * Inspect third-party resource origins, inline-script capability hints, and
@@ -386,7 +396,8 @@ service-worker restarts do not lose history.
 
 The `visits` table stores one row per visit and prunes itself to the most recent
 20 rows. The separate `telemetry_snapshots` table stores no more than 20
-user-triggered snapshots, their local queue state, and the redacted payload.
+interest-qualified, user-triggered snapshots, their local queue state, and the
+redacted payload.
 Derived summary columns keep both lists inexpensive while the complete local
 records remain available for review.
 
@@ -404,8 +415,9 @@ export const TELEMETRY_UPLOAD_ENDPOINT = "https://api.veilance.com/v1/telemetry/
 
 After the HTTPS endpoint exists, set `TELEMETRY_UPLOAD_ENABLED` to `true` and
 package a new build. The user must then enable **Allow pseudonymous snapshot
-uploads** in Settings and explicitly queue local snapshots. Enabling the build
-gate alone never uploads existing or future snapshots.
+uploads** in Settings and explicitly queue interest-qualified local snapshots.
+Unscored legacy records and visits below 20/100 cannot be queued. Enabling the
+build gate alone never uploads existing or future snapshots.
 
 The extension posts gzip-compressed JSON when the runtime supports
 `CompressionStream`:
@@ -417,7 +429,7 @@ The extension posts gzip-compressed JSON when the runtime supports
   "contributorId": "random-256-bit-id-unrelated-to-the-wallet",
   "observations": [
     {
-      "schemaVersion": "veilance.telemetry-snapshot.v1",
+      "schemaVersion": "veilance.telemetry-snapshot.v2",
       "eventId": "idempotent-event-id",
       "site": { "hostname": "example.com", "https": true },
       "observation": { "durationSeconds": 42, "totalRequests": 137 },
@@ -426,6 +438,13 @@ The extension posts gzip-compressed JSON when the runtime supports
       "signals": [],
       "page": {},
       "security": {},
+      "interest": {
+        "score": 40,
+        "level": "high",
+        "minimumScore": 20,
+        "eligible": true,
+        "reasons": [{ "id": "geolocation", "severity": "high", "points": 40 }]
+      },
       "redactedDocument": {}
     }
   ]

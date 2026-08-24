@@ -74,15 +74,27 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--cyan); ou
 .nav-count { display: inline-grid; min-width: 18px; height: 18px; margin-left: 4px; place-items: center; border-radius: 999px; color: #7edff4; background: #102b41; font: 9px ui-monospace, monospace; }
 
 main { min-height: 500px; padding: 14px; }
-.site-card, .panel, .details-panel, .snapshot-card, .wallet-card, .history-heading, .visit-card, .detail-section {
+.site-card, .panel, .details-panel, .snapshot-card, .history-heading, .visit-card, .detail-section {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
 }
 
 .snapshot-card { margin-top: 9px; padding: 13px; }
-.snapshot-card > div > strong { display: block; margin-top: 5px; color: #e8f4ff; font-size: 12px; }
-.snapshot-card > div > p { margin: 6px 0 0; color: #7990a8; font-size: 9px; line-height: 1.55; }
+.snapshot-card-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; }
+.snapshot-card-heading > div:first-child > strong { display: block; margin-top: 5px; color: #e8f4ff; font-size: 12px; }
+.snapshot-card-heading > div:first-child > p { margin: 6px 0 0; color: #7990a8; font-size: 9px; line-height: 1.55; }
+.interest-meter { min-width: 80px; padding: 8px 9px; border: 1px solid #2a3d52; border-radius: 9px; background: #09121c; text-align: right; }
+.interest-meter > span { display: block; color: #61778f; font: 7px ui-monospace, monospace; letter-spacing: .12em; }
+.interest-meter strong { display: block; margin-top: 3px; color: #8fa4b9; font: 9px ui-monospace, monospace; }
+.interest-meter strong b { font-size: 17px; }
+.interest-meter small { display: block; margin-top: 2px; color: #5d7289; font: 7px ui-monospace, monospace; }
+.interest-meter.interesting { border-color: #2e6582; background: #0d2534; }
+.interest-meter.interesting strong { color: #70daf3; }
+.interest-meter.high { border-color: #73562b; background: #241a0f; }
+.interest-meter.high strong { color: #ffd18c; }
+.interest-meter.critical { border-color: #783541; background: #271319; }
+.interest-meter.critical strong { color: #ff9aa4; }
 .snapshot-button { width: 100%; margin-top: 10px; padding: 10px; border: 1px solid #2f6b8d; border-radius: 8px; color: #dff8ff; background: linear-gradient(135deg, #174a78, #12677a); font-size: 10px; font-weight: 800; cursor: pointer; }
 .snapshot-button:hover { filter: brightness(1.08); }
 .snapshot-button:disabled { cursor: not-allowed; opacity: .5; }
@@ -154,13 +166,12 @@ h3 { margin: 0; font-size: 13px; }
 .data-row-head span { flex: 0 0 auto; color: #74cde7; font: 9px ui-monospace, monospace; }
 .data-row p { margin: 5px 0 0; color: #6f849b; font: 9px/1.45 ui-monospace, monospace; overflow-wrap: anywhere; }
 
-.wallet-card { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 9px; padding: 14px 15px; }
-.wallet-copy { min-width: 0; }
-.wallet-copy strong { display: block; margin-top: 6px; overflow: hidden; color: #dce9f7; font: 10px ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.wallet-copy small { display: block; margin-top: 6px; color: #687e96; font-size: 9px; line-height: 1.4; }
-.copy-button { align-self: start; padding: 7px 9px; border: 1px solid #294764; border-radius: 7px; color: #a4c8e8; background: #0b1926; font-size: 9px; cursor: pointer; }
-.copy-button:disabled { cursor: not-allowed; opacity: .45; }
-.payout-button { grid-column: 1 / -1; padding: 10px; border: 1px solid #2d3948; border-radius: 8px; color: #68798b; background: #151c25; font-size: 10px; font-weight: 800; cursor: not-allowed; }
+.payout-settings-button { width: 100%; margin-top: 9px; padding: 11px 13px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid #263d55; border-radius: 10px; color: #d5e4f2; background: #0b141f; text-align: left; cursor: pointer; }
+.payout-settings-button:hover { border-color: #3b678e; background: #0e1a28; }
+.payout-settings-button span:first-child { min-width: 0; }
+.payout-settings-button small { display: block; color: #5fcfe9; font: 7px ui-monospace, monospace; letter-spacing: .12em; }
+.payout-settings-button strong { display: block; margin-top: 3px; font-size: 10px; }
+.payout-settings-action { flex: 0 0 auto; color: #7d9bb8; font-size: 9px; }
 .clear-button { width: 100%; margin-top: 9px; padding: 10px; border: 1px solid #2a3d52; border-radius: 8px; color: #93a8bd; background: #0c141e; font-size: 10px; font-weight: 750; cursor: pointer; }
 .clear-button:hover { color: white; border-color: #3a5e84; }
 

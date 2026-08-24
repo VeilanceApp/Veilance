@@ -12,6 +12,7 @@ import {
   isPublicTelemetryHostname,
   markVisitLoaded,
   safePageIdentity,
+  scoreTelemetryInterest,
   summarizeState,
   validateTelemetrySnapshot
 } from "./lib/core.js";
@@ -313,7 +314,11 @@ async function installBundledTrackerDatabase() {
 
 function summaryFor(state) {
   const findings = findingsFor(state);
-  return { findings, summary: summarizeState(state, findings) };
+  return {
+    findings,
+    summary: summarizeState(state, findings),
+    interest: scoreTelemetryInterest(state, findings)
+  };
 }
 
 function enabledIndicatorIds() {
@@ -989,8 +994,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const tabId = Number(message.tabId);
         await waitForTab(tabId);
         const state = states.get(tabId) || null;
-        const { findings, summary } = summaryFor(state);
-        return { ok: true, state, findings, summary };
+        const { findings, summary, interest } = summaryFor(state);
+        return { ok: true, state, findings, summary, interest };
       }
 
       case "VEILANCE_GET_PAYLOAD": {
@@ -1015,16 +1020,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!page || !isPublicTelemetryHostname(page.hostname)) {
           throw new Error("Snapshots are limited to public HTTP(S) websites; private and internal hosts are excluded");
         }
-        const captured = await chrome.tabs.sendMessage(tabId, {
-          type: "VEILANCE_CAPTURE_REDACTED_DOCUMENT"
-        });
-        if (!captured?.ok || !captured.document) {
-          throw new Error(captured?.error || "The page did not return a redacted document");
-        }
         return queueTab(tabId, async () => {
           let state = states.get(tabId);
           if (!state || state.origin !== page.origin) {
             state = await beginVisit(tabId, tab.url, { now: Date.now(), navigationId: newId() });
+          }
+          const initialFindings = findingsFor(state);
+          const initialInterest = scoreTelemetryInterest(state, initialFindings);
+          if (!initialInterest.eligible) {
+            throw new Error(
+              `Nothing notable enough to snapshot yet (${initialInterest.score}/100 interest; ` +
+              `${initialInterest.minimumScore}/100 required).`
+            );
+          }
+          const captured = await chrome.tabs.sendMessage(tabId, {
+            type: "VEILANCE_CAPTURE_REDACTED_DOCUMENT"
+          });
+          if (!captured?.ok || !captured.document) {
+            throw new Error(captured?.error || "The page did not return a redacted document");
           }
           const createdAt = Date.now();
           const latestPageSnapshot = snapshotForEnabledIndicators(captured.pageSnapshot);
@@ -1040,7 +1053,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             createdAt,
             {
               eventId: snapshotId,
-              trackers: trackerObservationsFor(state)
+              trackers: trackerObservationsFor(state),
+              findings: findingsFor(state)
             }
           );
           if (!validateTelemetrySnapshot(payload)) {
@@ -1089,8 +1103,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "VEILANCE_GET_VISIT": {
         await flushHistory();
         const state = await historyStore.get(message.visitId);
-        const { findings, summary } = summaryFor(state);
-        return { ok: true, state, findings, summary };
+        const { findings, summary, interest } = summaryFor(state);
+        return { ok: true, state, findings, summary, interest };
       }
 
       case "VEILANCE_DELETE_VISIT": {
@@ -1169,6 +1183,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const snapshot = await historyStore.getSnapshot(message.snapshotId);
         if (!snapshot) throw new Error("Telemetry snapshot was not found");
         if (snapshot.upload?.status === "uploaded") return { ok: true, snapshot };
+        if (!validateTelemetrySnapshot(snapshot.payload)) {
+          throw new Error("Only safety-validated snapshots that meet the interest threshold can be queued");
+        }
         const nextAttemptAt = Date.now() + randomSnapshotDelay();
         await historyStore.updateSnapshotUpload(snapshot.snapshotId, {
           status: "queued",

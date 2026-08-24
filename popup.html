@@ -62,24 +62,26 @@
       </details>
 
       <section class="snapshot-card">
-        <div>
-          <span class="label">LOCAL TELEMETRY SNAPSHOT</span>
-          <strong>Capture review evidence</strong>
-          <p>Save current host, request and API counts, tracker matches, and inert redacted HTML. Page text, form data, values, URL paths, and secrets are removed.</p>
+        <div class="snapshot-card-heading">
+          <div>
+            <span class="label">LOCAL TELEMETRY SNAPSHOT</span>
+            <strong>Capture review evidence</strong>
+            <p>Only notable activity can be saved as counts and inert redacted HTML. Page text, form data, values, URL paths, and secrets are removed.</p>
+          </div>
+          <div id="snapshotInterest" class="interest-meter routine">
+            <span>INTEREST</span>
+            <strong><b id="snapshotInterestScore">0</b>/100</strong>
+            <small id="snapshotInterestLabel">20 required</small>
+          </div>
         </div>
         <button id="snapshotButton" class="snapshot-button" type="button">Take snapshot</button>
         <p id="snapshotStatus" class="snapshot-status" role="status" aria-live="polite"></p>
       </section>
 
-      <section class="wallet-card">
-        <div class="wallet-copy">
-          <span class="label">SOLANA WALLET</span>
-          <strong id="walletAddress">Creating locally…</strong>
-          <small>Generated in this browser. Open Settings to back up the private key.</small>
-        </div>
-        <button id="copyWalletButton" class="copy-button" type="button" disabled>Copy address</button>
-        <button id="payoutButton" class="payout-button" type="button" disabled aria-disabled="true">Payouts coming soon</button>
-      </section>
+      <button id="payoutSettingsButton" class="payout-settings-button" type="button">
+        <span><small>SOLANA</small><strong>Wallet &amp; payout settings</strong></span>
+        <span class="payout-settings-action">Open →</span>
+      </button>
 
       <button id="clearButton" class="clear-button" type="button">Clear current visit</button>
     </section>

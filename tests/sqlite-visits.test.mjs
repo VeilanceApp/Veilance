@@ -108,9 +108,16 @@ test("SQLite snapshot vault stores payloads separately, prunes old rows, and per
       hostname: `site-${number}.example`,
       createdAt: 1000 + number,
       payload: {
-        schemaVersion: "veilance.telemetry-snapshot.v1",
+        schemaVersion: "veilance.telemetry-snapshot.v2",
         eventId: `event-${number}`,
         site: { hostname: `site-${number}.example`, https: true },
+        interest: {
+          score: 20,
+          level: "interesting",
+          minimumScore: 20,
+          eligible: true,
+          reasons: [{ id: "canvas-readback", severity: "medium", points: 20 }]
+        },
         redactedDocument: {
           format: "veilance.redacted-html.v1",
           html: "<!doctype html>\n<html><body>[REDACTED TEXT]</body></html>"
@@ -121,6 +128,8 @@ test("SQLite snapshot vault stores payloads separately, prunes old rows, and per
 
   const summaries = await store.listSnapshotSummaries();
   assert.deepEqual(summaries.map((item) => item.snapshotId), ["snapshot-4", "snapshot-3", "snapshot-2"]);
+  assert.equal(summaries[0].interest.score, 20);
+  assert.equal(summaries[0].interest.eligible, true);
   assert.equal(await store.getSnapshot("snapshot-1"), null);
   assert.equal((await store.getSnapshot("snapshot-4")).payload.eventId, "event-4");
 
@@ -131,6 +140,25 @@ test("SQLite snapshot vault stores payloads separately, prunes old rows, and per
   const due = await store.listDueSnapshotUploads(2000, 20);
   assert.equal(due.length, 1);
   assert.equal(due[0].snapshotId, "snapshot-4");
+
+  await store.upsertSnapshot({
+    snapshotId: "legacy-snapshot",
+    hostname: "legacy.example",
+    createdAt: 2000,
+    payload: {
+      schemaVersion: "veilance.telemetry-snapshot.v1",
+      eventId: "legacy-event",
+      site: { hostname: "legacy.example", https: true },
+      redactedDocument: {
+        format: "veilance.redacted-html.v1",
+        html: "<!doctype html>\n<html><body>[REDACTED TEXT]</body></html>"
+      }
+    }
+  });
+  assert.equal(await store.queueAllSnapshots(3000), 1);
+  const afterQueueAll = await store.listSnapshotSummaries();
+  assert.equal(afterQueueAll.find((item) => item.snapshotId === "legacy-snapshot").upload.status, "local");
+  assert.equal(afterQueueAll.find((item) => item.snapshotId === "snapshot-3").upload.status, "queued");
   assert.equal((await store.info()).snapshotCount, 3);
   await store.close();
 });

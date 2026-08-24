@@ -24,7 +24,16 @@
       <p>Choose what Veilance watches, inspect what is stored, and back up the wallet generated for this browser. Veilance observes enabled signals; it does not block, spoof, or change a website's fingerprint.</p>
     </section>
 
-    <section class="settings-card">
+    <nav class="settings-tabs" role="tablist" aria-label="Settings sections">
+      <button id="settingsTabTrackers" class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settingsPanelTrackers" data-settings-tab="trackers">Trackers</button>
+      <button id="settingsTabIndicators" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelIndicators" data-settings-tab="indicators" tabindex="-1">Indicators</button>
+      <button id="settingsTabSnapshots" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelSnapshots" data-settings-tab="snapshots" tabindex="-1">Snapshots</button>
+      <button id="settingsTabWallet" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelWallet" data-settings-tab="wallet" tabindex="-1">Wallet &amp; payouts</button>
+      <button id="settingsTabData" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelData" data-settings-tab="data" tabindex="-1">Local data</button>
+    </nav>
+
+    <div id="settingsPanelTrackers" class="settings-tab-panel" role="tabpanel" aria-labelledby="settingsTabTrackers" data-settings-panel="trackers">
+      <section class="settings-card">
       <header class="card-header">
         <div>
           <span class="eyebrow">VEILANCE TRACKER DATABASE</span>
@@ -77,9 +86,11 @@
           <div class="empty-state">No tracker update checks recorded yet.</div>
         </div>
       </div>
-    </section>
+      </section>
+    </div>
 
-    <section class="settings-card">
+    <div id="settingsPanelIndicators" class="settings-tab-panel" role="tabpanel" aria-labelledby="settingsTabIndicators" data-settings-panel="indicators" hidden>
+      <section class="settings-card">
       <header class="card-header">
         <div>
           <span class="eyebrow">OBSERVATION</span>
@@ -171,17 +182,24 @@
           <p>The <code>format</code> field is recommended but optional when <code>domains</code> or <code>filters</code> is present. The rule name is required. <code>organization</code> becomes the default rule id, and <code>description</code>, <code>severity</code>, and <code>defaultEnabled</code> remain optional. Keep the built-in <code>network-requests</code> indicator enabled so tracker rules have request hosts to evaluate.</p>
         </div>
       </details>
-    </section>
+      </section>
+    </div>
 
-    <section class="settings-card snapshot-section">
+    <div id="settingsPanelSnapshots" class="settings-tab-panel" role="tabpanel" aria-labelledby="settingsTabSnapshots" data-settings-panel="snapshots" hidden>
+      <section class="settings-card snapshot-section">
       <header class="card-header">
         <div>
           <span class="eyebrow">LOCAL TELEMETRY SNAPSHOTS</span>
           <h2>Snapshot vault</h2>
-          <p>Use <strong>Take snapshot</strong> in the popup while viewing a public website. Veilance stores up to 20 snapshots locally with raw observation counts and an inert redacted copy of the document structure.</p>
+          <p>Use <strong>Take snapshot</strong> in the popup while viewing a public website. Veilance stores up to 20 snapshots locally, but only when observed actions reach the interest threshold.</p>
         </div>
         <span id="snapshotCount" class="count-badge">0 / 20</span>
       </header>
+
+      <div class="snapshot-interest-policy">
+        <div><span>CAPTURE THRESHOLD</span><strong>20 / 100</strong></div>
+        <p>High-risk actions add 40 points, medium findings add 20, and low findings add 5. Repeated allowed API activity can add 5–10 points. Routine visits below 20 are never snapshotted.</p>
+      </div>
 
       <div class="snapshot-privacy-grid">
         <div>
@@ -197,7 +215,7 @@
       <div class="snapshot-upload-control">
         <div>
           <strong>Allow pseudonymous snapshot uploads</strong>
-          <p id="snapshotUploadDescription">Uploads are disabled in this build. Local capture, review, download, and deletion remain available.</p>
+          <p id="snapshotUploadDescription">Uploads are disabled in this build. Interest-qualified local capture, review, download, and deletion remain available.</p>
           <small>A random contributor ID is kept separate from the Solana wallet. Each snapshot must still be explicitly queued.</small>
         </div>
         <label class="switch" title="Allow or pause pseudonymous snapshot uploads">
@@ -212,16 +230,18 @@
         <button id="clearSnapshotsButton" class="danger-outline-button" type="button">Clear snapshots</button>
       </div>
       <div id="snapshotList" class="snapshot-list">
-        <div class="empty-state">No telemetry snapshots stored. Open a public website and use Take snapshot in the popup.</div>
+        <div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 20/100 interest.</div>
       </div>
-    </section>
+      </section>
+    </div>
 
-    <section class="settings-card wallet-section">
+    <div id="settingsPanelWallet" class="settings-tab-panel" role="tabpanel" aria-labelledby="settingsTabWallet" data-settings-panel="wallet" hidden>
+      <section class="settings-card wallet-section">
       <header class="card-header">
         <div>
-          <span class="eyebrow">LOCAL SOLANA WALLET</span>
-          <h2>Your Veilance wallet</h2>
-          <p>This keypair was generated locally with browser cryptography. It is not uploaded or synced by Veilance.</p>
+          <span class="eyebrow">SOLANA WALLET &amp; PAYOUTS</span>
+          <h2>Wallet and payout controls</h2>
+          <p>Your wallet backup and future telemetry reward controls live here. The keypair was generated locally and is not uploaded or synced by Veilance.</p>
         </div>
         <span class="network-badge">SOLANA</span>
       </header>
@@ -238,11 +258,13 @@
       </div>
       <div class="wallet-actions">
         <button id="exportWalletButton" class="danger-outline-button" type="button" disabled>Export private key</button>
-        <button id="settingsPayoutButton" class="disabled-button" type="button" disabled aria-disabled="true">Payouts coming soon</button>
+        <button id="settingsPayoutButton" class="disabled-button" type="button" disabled aria-disabled="true">Payout dashboard coming soon</button>
       </div>
-    </section>
+      </section>
+    </div>
 
-    <section class="settings-card">
+    <div id="settingsPanelData" class="settings-tab-panel" role="tabpanel" aria-labelledby="settingsTabData" data-settings-panel="data" hidden>
+      <section class="settings-card">
       <header class="card-header">
         <div>
           <span class="eyebrow">LOCAL DATA</span>
@@ -257,7 +279,8 @@
         <div><span>Data location</span><strong>This browser only</strong></div>
       </div>
       <button id="clearHistoryButton" class="danger-outline-button full-width" type="button">Clear visit history</button>
-    </section>
+      </section>
+    </div>
 
     <p id="saveStatus" class="save-status" role="status" aria-live="polite"></p>
   </main>
