@@ -1,5 +1,3 @@
-import { PAYOUTS_ENABLED } from "./config.js";
-
 const elements = {
   liveState: document.querySelector("#liveState"),
   hostname: document.querySelector("#hostname"),
@@ -15,9 +13,10 @@ const elements = {
   liveDetails: document.querySelector("#liveDetails"),
   snapshotButton: document.querySelector("#snapshotButton"),
   snapshotStatus: document.querySelector("#snapshotStatus"),
-  walletAddress: document.querySelector("#walletAddress"),
-  copyWalletButton: document.querySelector("#copyWalletButton"),
-  payoutButton: document.querySelector("#payoutButton"),
+  snapshotInterest: document.querySelector("#snapshotInterest"),
+  snapshotInterestScore: document.querySelector("#snapshotInterestScore"),
+  snapshotInterestLabel: document.querySelector("#snapshotInterestLabel"),
+  payoutSettingsButton: document.querySelector("#payoutSettingsButton"),
   clearButton: document.querySelector("#clearButton"),
   refreshButton: document.querySelector("#refreshButton"),
   settingsButton: document.querySelector("#settingsButton"),
@@ -37,7 +36,7 @@ let activeTabId = null;
 let activeView = "live";
 let currentLiveState = null;
 let currentLiveFindings = [];
-let walletPublicKey = "";
+let currentLiveInterest = { score: 0, level: "routine", minimumScore: 20, eligible: false, reasons: [] };
 let snapshotCaptureBusy = false;
 
 async function send(message) {
@@ -125,6 +124,29 @@ function renderFindings(container, findings, emptyText) {
     return;
   }
   container.innerHTML = findings.map(findingMarkup).join("");
+}
+
+function renderSnapshotInterest(value) {
+  const score = Math.max(0, Math.min(100, Math.floor(Number(value?.score) || 0)));
+  const minimumScore = Math.max(1, Math.min(100, Math.floor(Number(value?.minimumScore) || 20)));
+  const level = ["routine", "interesting", "high", "critical"].includes(value?.level)
+    ? value.level
+    : "routine";
+  currentLiveInterest = {
+    score,
+    minimumScore,
+    level,
+    eligible: value?.eligible === true && score >= minimumScore,
+    reasons: Array.isArray(value?.reasons) ? value.reasons : []
+  };
+  elements.snapshotInterest.className = `interest-meter ${level}`;
+  elements.snapshotInterestScore.textContent = String(score);
+  elements.snapshotInterestLabel.textContent = currentLiveInterest.eligible
+    ? `${level} · ready`
+    : `${minimumScore - score} more needed`;
+  elements.snapshotInterest.title = currentLiveInterest.reasons.length
+    ? currentLiveInterest.reasons.map((reason) => `${reason.id}: +${reason.points}`).join("\n")
+    : "No notable activity has contributed to the score yet.";
 }
 
 function keyGridMarkup(values) {
@@ -218,6 +240,7 @@ function telemetryDetailsMarkup(state) {
 function renderUnsupported(tab) {
   currentLiveState = null;
   currentLiveFindings = [];
+  renderSnapshotInterest(null);
   elements.hostname.textContent = tab?.url?.startsWith("chrome://") ? "Chrome internal page" : "Unsupported page";
   elements.statusPill.className = "status unsupported";
   elements.statusPill.textContent = "Veilance cannot inspect this page";
@@ -249,6 +272,7 @@ async function loadState() {
   const findings = response.findings || [];
   currentLiveState = state;
   currentLiveFindings = findings;
+  renderSnapshotInterest(response.interest);
 
   elements.hostname.textContent = state?.hostname || new URL(tab.url).hostname;
   elements.statusPill.className = `status ${summary?.status || "quiet"}`;
@@ -263,7 +287,10 @@ async function loadState() {
     ? `${state.active === false ? "Completed" : "Active"} · started ${formatDateTime(state.startedAt)} · ${formatDuration(state.startedAt, state.endedAt)}`
     : "Waiting for this page to begin reporting.";
   elements.clearButton.disabled = !state;
-  elements.snapshotButton.disabled = !state || snapshotCaptureBusy;
+  elements.snapshotButton.disabled = !state || snapshotCaptureBusy || !currentLiveInterest.eligible;
+  elements.snapshotButton.title = currentLiveInterest.eligible
+    ? `Capture this ${currentLiveInterest.score}/100 interest visit`
+    : `Snapshots require ${currentLiveInterest.minimumScore}/100 interest`;
   renderFindings(
     elements.findings,
     findings,
@@ -363,26 +390,6 @@ function showHistoryList() {
   elements.historyDetail.innerHTML = "";
 }
 
-async function loadWallet() {
-  try {
-    const response = await send({ type: "VEILANCE_GET_WALLET" });
-    walletPublicKey = response.wallet?.publicKey || "";
-    elements.walletAddress.textContent = walletPublicKey || response.walletError || "Wallet unavailable";
-    elements.copyWalletButton.disabled = !walletPublicKey;
-  } catch (error) {
-    elements.walletAddress.textContent = error.message;
-    elements.copyWalletButton.disabled = true;
-  }
-}
-
-async function copyWalletAddress() {
-  if (!walletPublicKey) return;
-  await navigator.clipboard.writeText(walletPublicKey);
-  const original = elements.copyWalletButton.textContent;
-  elements.copyWalletButton.textContent = "Copied";
-  setTimeout(() => { elements.copyWalletButton.textContent = original; }, 1200);
-}
-
 async function clearCurrentVisit() {
   if (!Number.isInteger(activeTabId)) return;
   await send({ type: "VEILANCE_CLEAR_STATE", tabId: activeTabId });
@@ -390,7 +397,7 @@ async function clearCurrentVisit() {
 }
 
 async function takeTelemetrySnapshot() {
-  if (!Number.isInteger(activeTabId) || snapshotCaptureBusy) return;
+  if (!Number.isInteger(activeTabId) || snapshotCaptureBusy || !currentLiveInterest.eligible) return;
   snapshotCaptureBusy = true;
   elements.snapshotButton.disabled = true;
   elements.snapshotButton.textContent = "Redacting…";
@@ -402,14 +409,15 @@ async function takeTelemetrySnapshot() {
       tabId: activeTabId
     });
     const host = response.snapshot?.hostname || currentLiveState?.hostname || "this site";
-    elements.snapshotStatus.textContent = `Saved ${host} locally. Review or download it in Settings.`;
+    const score = response.snapshot?.interest?.score ?? currentLiveInterest.score;
+    elements.snapshotStatus.textContent = `Saved ${host} locally at ${score}/100 interest. Review it in Settings.`;
   } catch (error) {
     elements.snapshotStatus.classList.add("error");
     elements.snapshotStatus.textContent = error.message;
   } finally {
     snapshotCaptureBusy = false;
     elements.snapshotButton.textContent = "Take snapshot";
-    elements.snapshotButton.disabled = !currentLiveState;
+    elements.snapshotButton.disabled = !currentLiveState || !currentLiveInterest.eligible;
   }
 }
 
@@ -428,6 +436,15 @@ async function switchView(view) {
   }
 }
 
+async function openSettingsSection(section) {
+  const url = chrome.runtime.getURL(`settings.html#${section}`);
+  if (typeof chrome.tabs?.create === "function") {
+    await chrome.tabs.create({ url });
+    return;
+  }
+  await chrome.runtime.openOptionsPage();
+}
+
 for (const button of document.querySelectorAll(".nav-button[data-view]")) {
   button.addEventListener("click", () => void switchView(button.dataset.view));
 }
@@ -437,15 +454,14 @@ elements.historyRefreshButton.addEventListener("click", () => void loadHistory()
 elements.historyBackButton.addEventListener("click", showHistoryList);
 elements.clearButton.addEventListener("click", () => void clearCurrentVisit());
 elements.snapshotButton.addEventListener("click", () => void takeTelemetrySnapshot());
-elements.copyWalletButton.addEventListener("click", () => void copyWalletAddress());
+elements.payoutSettingsButton.addEventListener("click", () => void openSettingsSection("wallet"));
 elements.liveDetailPanel.addEventListener("toggle", () => {
   if (elements.liveDetailPanel.open) elements.liveDetails.innerHTML = telemetryDetailsMarkup(currentLiveState);
 });
 
-elements.payoutButton.disabled = !PAYOUTS_ENABLED;
 elements.version.textContent = `v${chrome.runtime.getManifest().version}`;
 
-void Promise.all([loadState(), loadWallet(), loadHistory()]).catch((error) => {
+void Promise.all([loadState(), loadHistory()]).catch((error) => {
   console.error("Veilance popup failed to initialize", error);
 });
 const refreshTimer = setInterval(() => {

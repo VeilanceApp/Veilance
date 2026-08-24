@@ -64,6 +64,43 @@ let statusTimer = null;
 let snapshotSummaries = [];
 let selectedSnapshot = null;
 
+const settingsTabs = [...document.querySelectorAll("[data-settings-tab]")];
+const settingsPanels = [...document.querySelectorAll("[data-settings-panel]")];
+
+function activateSettingsTab(requestedTab, options = {}) {
+  const tabName = settingsTabs.some((button) => button.dataset.settingsTab === requestedTab)
+    ? requestedTab
+    : "trackers";
+  for (const button of settingsTabs) {
+    const active = button.dataset.settingsTab === tabName;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+    if (active && options.focus) button.focus();
+  }
+  for (const panel of settingsPanels) panel.hidden = panel.dataset.settingsPanel !== tabName;
+  if (options.updateHash !== false && location.hash !== `#${tabName}`) {
+    history.replaceState(null, "", `#${tabName}`);
+  }
+}
+
+for (const [index, button] of settingsTabs.entries()) {
+  button.addEventListener("click", () => activateSettingsTab(button.dataset.settingsTab, { updateHash: true }));
+  button.addEventListener("keydown", (event) => {
+    let nextIndex = null;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % settingsTabs.length;
+    if (event.key === "ArrowLeft") nextIndex = (index - 1 + settingsTabs.length) % settingsTabs.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = settingsTabs.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    activateSettingsTab(settingsTabs[nextIndex].dataset.settingsTab, { focus: true, updateHash: true });
+  });
+}
+
+addEventListener("hashchange", () => activateSettingsTab(location.hash.slice(1), { updateHash: false }));
+activateSettingsTab(location.hash.slice(1), { updateHash: false });
+
 const NON_SIGNAL_INDICATOR_IDS = new Set([
   "network-requests",
   "known-trackers",
@@ -431,6 +468,9 @@ function canQueueSnapshot(snapshot) {
   return Boolean(
     upload.available &&
     upload.consent &&
+    snapshot?.interest?.eligible === true &&
+    Number(snapshot.interest.score) >= Number(snapshot.interest.minimumScore) &&
+    Number(snapshot.interest.minimumScore) > 0 &&
     ["local", "failed"].includes(snapshot?.upload?.status)
   );
 }
@@ -440,16 +480,23 @@ function renderSnapshotUpload() {
   elements.snapshotUploadConsent.disabled = !upload.available;
   elements.snapshotUploadConsent.checked = Boolean(upload.available && upload.consent);
   if (!upload.available) {
-    elements.snapshotUploadDescription.textContent = "Uploads are disabled in this build. Local capture, review, download, and deletion remain available.";
+    elements.snapshotUploadDescription.textContent = "Uploads are disabled in this build. Interest-qualified local capture, review, download, and deletion remain available.";
   } else if (!upload.consent) {
-    elements.snapshotUploadDescription.textContent = `Uploads are available through ${upload.endpointHost}. Enable this control to opt in; nothing is queued automatically.`;
+    elements.snapshotUploadDescription.textContent = `Uploads are available through ${upload.endpointHost}. Enable this control to opt in; only interest-qualified snapshots can be queued.`;
   } else {
-    elements.snapshotUploadDescription.textContent = `Uploads are allowed through ${upload.endpointHost}. Only snapshots you explicitly queue are batched after a randomized 5–15 minute delay.`;
+    elements.snapshotUploadDescription.textContent = `Uploads are allowed through ${upload.endpointHost}. Only interest-qualified snapshots you explicitly queue are batched after a randomized 5–15 minute delay.`;
   }
 }
 
 function snapshotRowMarkup(snapshot) {
   const status = String(snapshot.upload?.status || "local");
+  const interest = snapshot.interest;
+  const interestLevel = ["interesting", "high", "critical"].includes(interest?.level)
+    ? interest.level
+    : "legacy";
+  const interestText = interest
+    ? `${Math.max(0, Number(interest.score) || 0)}/100 ${interest.level}`
+    : "unscored legacy";
   const queueDisabled = canQueueSnapshot(snapshot) ? "" : "disabled";
   const error = snapshot.upload?.lastError
     ? `<p class="snapshot-row-error">${escapeHtml(snapshot.upload.lastError)}</p>`
@@ -459,6 +506,7 @@ function snapshotRowMarkup(snapshot) {
       <div class="snapshot-row-copy">
         <div class="snapshot-row-title">
           <strong>${escapeHtml(snapshot.hostname || "Unknown website")}</strong>
+          <span class="snapshot-interest-badge ${escapeHtml(interestLevel)}">${escapeHtml(interestText)}</span>
           <span class="snapshot-upload-status ${escapeHtml(status)}">${escapeHtml(status)}</span>
         </div>
         <div class="snapshot-row-meta">
@@ -490,10 +538,10 @@ async function loadSnapshots() {
   elements.queueAllSnapshotsButton.disabled = !(
     settingsData?.snapshotUpload?.available &&
     settingsData?.snapshotUpload?.consent &&
-    snapshotSummaries.some((snapshot) => ["local", "failed"].includes(snapshot.upload?.status))
+    snapshotSummaries.some((snapshot) => canQueueSnapshot(snapshot))
   );
   if (!snapshotSummaries.length) {
-    elements.snapshotList.innerHTML = '<div class="empty-state">No telemetry snapshots stored. Open a public website and use Take snapshot in the popup.</div>';
+    elements.snapshotList.innerHTML = '<div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 20/100 interest.</div>';
     return;
   }
   elements.snapshotList.innerHTML = snapshotSummaries.map(snapshotRowMarkup).join("");
@@ -871,7 +919,7 @@ elements.queueAllSnapshotsButton.addEventListener("click", async () => {
     elements.queueAllSnapshotsButton.disabled = !(
       settingsData?.snapshotUpload?.available &&
       settingsData?.snapshotUpload?.consent &&
-      snapshotSummaries.some((snapshot) => ["local", "failed"].includes(snapshot.upload?.status))
+      snapshotSummaries.some((snapshot) => canQueueSnapshot(snapshot))
     );
   }
 });

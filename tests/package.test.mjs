@@ -16,11 +16,13 @@ test("telemetry uploading remains disabled until a server is configured", () => 
   assert.equal(PAYOUTS_ENABLED, false);
 });
 
-test("popup removes telemetry JSON export and visibly disables payouts", async () => {
+test("popup keeps snapshots local and links to compact payout settings", async () => {
   const html = await readFile(new URL("../popup.html", import.meta.url), "utf8");
   assert.doesNotMatch(html, /Export JSON/i);
   assert.doesNotMatch(html, /id="exportButton"/);
-  assert.match(html, /id="payoutButton"[^>]*disabled/);
+  assert.doesNotMatch(html, /class="wallet-card"/);
+  assert.match(html, /id="payoutSettingsButton"/);
+  assert.match(html, /id="snapshotInterestScore"/);
   assert.match(html, /Last 20 visits/);
   assert.match(html, /id="snapshotButton"/);
   assert.match(html, /redacted HTML/i);
@@ -28,6 +30,10 @@ test("popup removes telemetry JSON export and visibly disables payouts", async (
 
 test("settings exposes indicator folders, wallet export, and disabled payouts", async () => {
   const html = await readFile(new URL("../settings.html", import.meta.url), "utf8");
+  assert.match(html, /role="tablist"/);
+  assert.match(html, /data-settings-tab="snapshots"/);
+  assert.match(html, /data-settings-tab="wallet"/);
+  assert.match(html, /Routine visits below 20 are never snapshotted/i);
   assert.match(html, /webkitdirectory/);
   assert.match(html, /id="downloadStarterButton"/);
   assert.match(html, /id="copySignalTemplateButton"/);

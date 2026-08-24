@@ -18,6 +18,8 @@ import {
   registrableDomain,
   safePageIdentity,
   sanitizeEventDetail,
+  scoreTelemetryInterest,
+  SNAPSHOT_INTEREST_MINIMUM,
   summarizeState,
   validateTelemetrySnapshot
 } from "../lib/core.js";
@@ -206,6 +208,27 @@ test("telemetry eligibility blocks browser-local and private network hosts", () 
   assert.equal(isPublicTelemetryHostname("::ffff:192.168.1.50"), false);
 });
 
+test("snapshot interest keeps routine visits below the capture threshold", () => {
+  const state = createEmptyState(10, "https://quiet.example", 1000);
+  const interest = scoreTelemetryInterest(state);
+  assert.equal(interest.score, 0);
+  assert.equal(interest.level, "routine");
+  assert.equal(interest.minimumScore, SNAPSHOT_INTEREST_MINIMUM);
+  assert.equal(interest.eligible, false);
+  assert.throws(() => buildTelemetrySnapshot(state, {
+    format: "veilance.redacted-html.v1",
+    hostname: "quiet.example",
+    https: true,
+    html: "<!doctype html>\n<html><body>[REDACTED TEXT]</body></html>",
+    truncated: false,
+    originalElementCount: 2,
+    redaction: { textNodesRedacted: 1 },
+    resourceHosts: [],
+    inlineScriptHints: {},
+    domMarkers: {}
+  }, "0.6.0", 1200, { eventId: "quiet-event-1" }), /routine activity \(0\/100 interest\)/i);
+});
+
 test("local snapshot adds only safety-validated redacted HTML and evidence counters", () => {
   const state = createEmptyState(3, "https://example.com/private?q=secret", 1000);
   addNetworkRequest(state, { url: "https://tracker.example/pixel?id=secret", type: "image" }, 1050);
@@ -233,8 +256,12 @@ test("local snapshot adds only safety-validated redacted HTML and evidence count
     eventId: "snapshot-event-1",
     trackers: [{ id: "example-tracker", category: "advertising", requests: 1 }]
   });
-  assert.equal(snapshot.schemaVersion, "veilance.telemetry-snapshot.v1");
+  assert.equal(snapshot.schemaVersion, "veilance.telemetry-snapshot.v2");
   assert.equal(snapshot.eventId, "snapshot-event-1");
+  assert.equal(snapshot.interest.score, 20);
+  assert.equal(snapshot.interest.level, "interesting");
+  assert.equal(snapshot.interest.eligible, true);
+  assert.equal(snapshot.interest.reasons[0].id, "canvas-readback");
   assert.equal(snapshot.trackers[0].id, "example-tracker");
   assert.equal(snapshot.redactedDocument.evidence.inlineScriptHints.canvas, 1);
   assert.equal(validateTelemetrySnapshot(snapshot), true);
@@ -248,6 +275,10 @@ test("local snapshot adds only safety-validated redacted HTML and evidence count
       action: "secret-value",
       count: 1
     }]
+  }), false);
+  assert.equal(validateTelemetrySnapshot({
+    ...snapshot,
+    interest: { ...snapshot.interest, score: 21 }
   }), false);
 });
 
