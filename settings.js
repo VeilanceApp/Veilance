@@ -1,4 +1,9 @@
 import { PAYOUTS_ENABLED } from "./config.js";
+import {
+  initializeTheme,
+  setThemePreference,
+  subscribeToTheme
+} from "./lib/theme.js";
 
 const elements = {
   version: document.querySelector("#version"),
@@ -66,6 +71,23 @@ let selectedSnapshot = null;
 
 const settingsTabs = [...document.querySelectorAll("[data-settings-tab]")];
 const settingsPanels = [...document.querySelectorAll("[data-settings-panel]")];
+const themeButtons = [...document.querySelectorAll("[data-theme-option]")];
+
+subscribeToTheme(({ preference }) => {
+  for (const button of themeButtons) {
+    const active = button.dataset.themeOption === preference;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+});
+
+for (const button of themeButtons) {
+  button.addEventListener("click", () => void setThemePreference(button.dataset.themeOption).catch((error) => {
+    showSaveStatus(error.message, true);
+  }));
+}
+
+void initializeTheme();
 
 function activateSettingsTab(requestedTab, options = {}) {
   const tabName = settingsTabs.some((button) => button.dataset.settingsTab === requestedTab)
@@ -227,8 +249,11 @@ function escapeHtml(value) {
 function showSaveStatus(message, isError = false) {
   clearTimeout(statusTimer);
   elements.saveStatus.textContent = message;
-  elements.saveStatus.style.color = isError ? "#e69aa4" : "#69cfe9";
-  statusTimer = setTimeout(() => { elements.saveStatus.textContent = ""; }, 3000);
+  elements.saveStatus.classList.toggle("error", isError);
+  statusTimer = setTimeout(() => {
+    elements.saveStatus.textContent = "";
+    elements.saveStatus.classList.remove("error");
+  }, 3500);
 }
 
 function showImportStatus(message, isError = false) {
@@ -240,7 +265,7 @@ function showImportStatus(message, isError = false) {
 function indicatorToggleMarkup(indicator, enabled) {
   return `
     <label class="switch" title="${enabled ? "Disable" : "Enable"} ${escapeHtml(indicator.name)}">
-      <input type="checkbox" data-indicator-id="${escapeHtml(indicator.id)}" ${enabled ? "checked" : ""}>
+      <input type="checkbox" data-indicator-id="${escapeHtml(indicator.id)}" aria-label="${enabled ? "Disable" : "Enable"} ${escapeHtml(indicator.name)}" ${enabled ? "checked" : ""}>
       <span aria-hidden="true"></span>
     </label>
   `;
@@ -257,6 +282,9 @@ function bindIndicatorToggles(root) {
   for (const input of root.querySelectorAll("[data-indicator-id]")) {
     input.addEventListener("change", async () => {
       const id = input.dataset.indicatorId;
+      const indicator = [...settingsData.builtInIndicators, ...settingsData.customIndicators]
+        .find((item) => item.id === id);
+      const indicatorName = indicator?.name || id;
       const previous = !input.checked;
       input.disabled = true;
       try {
@@ -267,12 +295,15 @@ function bindIndicatorToggles(root) {
         });
         settingsData.indicatorSettings = response.indicatorSettings;
         updateEnabledCount();
-        showSaveStatus(`${input.checked ? "Enabled" : "Disabled"} ${id}. New visits use this setting immediately.`);
+        showSaveStatus(`${indicatorName} is now ${input.checked ? "enabled" : "disabled"}. New activity uses this setting immediately.`);
       } catch (error) {
         input.checked = previous;
         showSaveStatus(error.message, true);
       } finally {
         input.disabled = false;
+        const action = input.checked ? "Disable" : "Enable";
+        input.setAttribute("aria-label", `${action} ${indicatorName}`);
+        input.closest("label")?.setAttribute("title", `${action} ${indicatorName}`);
       }
     });
   }
@@ -475,16 +506,29 @@ function canQueueSnapshot(snapshot) {
   );
 }
 
+function snapshotQueueTitle(snapshot) {
+  const upload = settingsData?.snapshotUpload || {};
+  if (!upload.available) return "Uploads are disabled in this build.";
+  if (!upload.consent) return "Allow pseudonymous uploads above before queueing a snapshot.";
+  if (snapshot?.interest?.eligible !== true) return "This snapshot does not meet the upload interest threshold.";
+  if (snapshot?.upload?.status === "uploaded") return "This snapshot has already been uploaded.";
+  if (["queued", "uploading"].includes(snapshot?.upload?.status)) return "This snapshot is already queued.";
+  return "Queue this snapshot for a privacy-delayed upload batch.";
+}
+
 function renderSnapshotUpload() {
   const upload = settingsData?.snapshotUpload || {};
   elements.snapshotUploadConsent.disabled = !upload.available;
   elements.snapshotUploadConsent.checked = Boolean(upload.available && upload.consent);
   if (!upload.available) {
     elements.snapshotUploadDescription.textContent = "Uploads are disabled in this build. Interest-qualified local capture, review, download, and deletion remain available.";
+    elements.queueAllSnapshotsButton.title = "Uploads are disabled in this build.";
   } else if (!upload.consent) {
     elements.snapshotUploadDescription.textContent = `Uploads are available through ${upload.endpointHost}. Enable this control to opt in; only interest-qualified snapshots can be queued.`;
+    elements.queueAllSnapshotsButton.title = "Allow pseudonymous uploads before queueing snapshots.";
   } else {
     elements.snapshotUploadDescription.textContent = `Uploads are allowed through ${upload.endpointHost}. Only interest-qualified snapshots you explicitly queue are batched after a randomized 5–15 minute delay.`;
+    elements.queueAllSnapshotsButton.title = "Queue every eligible local snapshot.";
   }
 }
 
@@ -522,7 +566,7 @@ function snapshotRowMarkup(snapshot) {
       <div class="snapshot-row-actions">
         <button class="secondary-button" type="button" data-preview-snapshot="${escapeHtml(snapshot.snapshotId)}">Review</button>
         <button class="secondary-button" type="button" data-download-snapshot="${escapeHtml(snapshot.snapshotId)}">Download</button>
-        <button class="primary-button" type="button" data-queue-snapshot="${escapeHtml(snapshot.snapshotId)}" ${queueDisabled}>Queue</button>
+        <button class="primary-button" type="button" data-queue-snapshot="${escapeHtml(snapshot.snapshotId)}" title="${escapeHtml(snapshotQueueTitle(snapshot))}" ${queueDisabled}>Queue</button>
         <button class="danger-outline-button" type="button" data-delete-snapshot="${escapeHtml(snapshot.snapshotId)}">Delete</button>
       </div>
     </article>
@@ -643,7 +687,15 @@ async function loadSettings() {
   renderDatabase();
   renderSnapshotUpload();
   updateEnabledCount();
-  await loadSnapshots();
+  try {
+    await loadSnapshots();
+  } catch (error) {
+    elements.snapshotCount.textContent = "Unavailable";
+    elements.snapshotList.innerHTML = `<div class="empty-state">Saved snapshots could not be loaded. ${escapeHtml(error?.message || "Try refreshing this section.")}</div>`;
+    elements.queueAllSnapshotsButton.disabled = true;
+    elements.clearSnapshotsButton.disabled = true;
+    showSaveStatus("Settings loaded, but saved snapshots are temporarily unavailable.", true);
+  }
 }
 
 async function importFolder(files) {
@@ -687,7 +739,7 @@ async function importFolder(files) {
     showImportStatus(error.message, true);
   } finally {
     elements.chooseFolderButton.disabled = false;
-    elements.chooseFolderButton.textContent = "Choose indicator folder";
+    elements.chooseFolderButton.textContent = "Choose folder";
     elements.indicatorFolderInput.value = "";
   }
 }
@@ -833,21 +885,21 @@ elements.copySignalTemplateButton.addEventListener("click", () => {
   void copyText(
     JSON.stringify(SIGNAL_TEMPLATE, null, 2),
     elements.copySignalTemplateButton,
-    "Signal template copied"
+    "Signal example copied"
   );
 });
 elements.copyHostTemplateButton.addEventListener("click", () => {
   void copyText(
     JSON.stringify(HOST_TEMPLATE, null, 2),
     elements.copyHostTemplateButton,
-    "Host template copied"
+    "Host example copied"
   );
 });
 elements.copyVeilanceTemplateButton.addEventListener("click", () => {
   void copyText(
     JSON.stringify(VEILANCE_TEMPLATE, null, 2),
     elements.copyVeilanceTemplateButton,
-    "Veilance JSON copied"
+    "Tracker example copied"
   );
 });
 
@@ -979,6 +1031,13 @@ elements.clearHistoryButton.addEventListener("click", async () => {
 elements.settingsPayoutButton.disabled = !PAYOUTS_ENABLED;
 elements.version.textContent = `v${chrome.runtime.getManifest().version}`;
 void loadSettings().catch((error) => {
-  elements.builtInIndicators.innerHTML = `<div class="loading">${escapeHtml(error.message)}</div>`;
-  showSaveStatus(error.message, true);
+  const message = error?.message || "Veilance settings could not be loaded.";
+  elements.builtInIndicators.innerHTML = `<div class="loading">${escapeHtml(message)}</div>`;
+  elements.trackerDatabaseStatus.textContent = "Unavailable";
+  elements.trackerUpdateError.hidden = false;
+  elements.trackerUpdateError.textContent = "Veilance settings could not be loaded. Reload this page or restart the extension.";
+  elements.checkTrackerUpdatesButton.disabled = true;
+  elements.clearSnapshotsButton.disabled = true;
+  elements.clearHistoryButton.disabled = true;
+  showSaveStatus(message, true);
 });

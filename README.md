@@ -38,9 +38,11 @@ remain disabled.
   fields by dispatching a lookalike event
 * The SQLite snapshot vault is separate from visit history and retains the 20
   newest snapshots
-* Settings is divided into Trackers, Indicators, Snapshots, Wallet & payouts,
-  and Local data tabs; the snapshot tab provides review, redacted-HTML
+* Settings is divided into Tracker database, Detection, Snapshots, Wallet, and
+  Local data tabs; the snapshot tab provides review, redacted-HTML
   inspection, downloads, deletion, queue status, retry errors, and clear-all controls
+* System, light, and dark appearance preferences are shared by the popup and
+  Settings and saved in extension-local storage
 * Future uploads use a random 256-bit contributor id that is never the Solana
   wallet address; precise local capture time and upload state are excluded from
   the transmitted payload
@@ -122,7 +124,7 @@ remain disabled.
 * SQLite-backed history for the latest 20 visits
 * Full history detail for requests, hosts, API signals, page counts, findings,
   and response security headers
-* Live and History tabs in the popup
+* Overview and History tabs in the popup
 * A tabbed Settings page
 * Individual enable/disable controls for every built-in indicator
 * A bundled, automatically updated tracker database enabled by default
@@ -193,14 +195,17 @@ Do not select the ZIP itself. Chromium needs the extracted directory.
 
 ## Use the popup
 
-### Live
+### Overview
 
-The Live tab shows the active website, current status, request and signal
-counts, findings, and the live snapshot interest score. Open **Complete visit
+The Overview tab shows the active website, current status, request and signal
+counts, findings, and the live snapshot interest score. Open **Technical
 details** to see the full local record while the visit is active.
 
-The compact **Wallet & payout settings** button opens the dedicated Settings
+The compact **Wallet & payouts** button opens the dedicated Settings
 tab containing the Solana address, backup controls, and payout status.
+
+Use the appearance button in the popup to switch directly between light and
+dark mode. Settings also provides **System**, **Light**, and **Dark** options.
 
 ### History
 
@@ -219,10 +224,10 @@ The History tab shows the latest 20 visits. Select a visit to review:
 does not include page content, form values, exact URLs, or other excluded
 sensitive data.
 
-### Take a telemetry snapshot
+### Save a telemetry snapshot
 
 While viewing a public HTTP(S) website, Veilance scores observed actions from 0
-to 100. **Take snapshot** becomes available at 20/100. Visits below that
+to 100. **Save snapshot** becomes available at 20/100. Visits below that
 threshold are treated as routine and cannot be snapshotted. The capture is
 intentional and one-time; ordinary browsing does not retain page HTML. Open
 **Settings → Snapshots** to:
@@ -251,7 +256,7 @@ fingerprints or website behavior.
 ## Tracker database updates
 
 Settings shows the managed tracker database separately from user-imported
-custom rules. **Use downloaded trackers** controls matching without deleting the
+custom rules. **Enable tracker matching** controls matching without deleting the
 local database. **Automatic updates** controls the eight-hour alarm. **Check
 now** always remains available for a manual refresh.
 
@@ -262,7 +267,7 @@ updates are declarative JSON and cannot execute code.
 
 ## Load indicators from a folder
 
-Select **Choose indicator folder** in Settings, then choose a directory that
+Select **Choose folder** in Settings, then choose a directory that
 contains JSON files. The browser grants one-time read access to the selected
 files. Veilance does not retain a directory handle and does not scan folders in
 the background.
@@ -273,15 +278,15 @@ JavaScript. A file may contain one object, an array, or an object with an
 
 For the easiest start:
 
-1. Select **Download starter rules** in Settings.
+1. Select **Download starter file** in Settings.
 2. Put the downloaded JSON file in its own folder.
 3. Edit the examples or add another `.json` file.
-4. Select **Choose indicator folder** and choose that folder.
+4. Select **Choose folder** and choose that folder.
 
 Use `indicatorId` to match every retained event from a built-in source. Source
 ids are shown next to each event-based indicator in Settings. Keep that built-in
 indicator enabled. For a narrower rule, use the exact case-sensitive `api` and
-`action` strings shown in a visit's **Complete visit details**.
+`action` strings shown in a visit's **Technical details**.
 
 Signal example:
 
@@ -505,8 +510,8 @@ resetting the visit.
 
 Keeps active visit state, indicator settings, the serialized SQLite database,
 custom indicator definitions, managed tracker definitions, the tracker update
-log, local snapshot consent, the pseudonymous random contributor id, and local wallet
-material.
+log, local snapshot consent, the pseudonymous random contributor id, the shared
+appearance preference, and local wallet material.
 
 ### `unlimitedStorage`
 

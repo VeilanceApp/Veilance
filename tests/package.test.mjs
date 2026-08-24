@@ -64,6 +64,47 @@ test("popup and Settings scripts reference elements that exist in their pages", 
   }
 });
 
+test("popup and Settings expose one persistent light and dark appearance preference", async () => {
+  const [popup, settings] = await Promise.all([
+    readFile(new URL("../popup.html", import.meta.url), "utf8"),
+    readFile(new URL("../settings.html", import.meta.url), "utf8")
+  ]);
+  assert.match(popup, /id="themeToggle"/);
+  assert.match(settings, /data-theme-option="system"/);
+  assert.match(settings, /data-theme-option="light"/);
+  assert.match(settings, /data-theme-option="dark"/);
+
+  const originalChrome = globalThis.chrome;
+  const originalDocument = globalThis.document;
+  const stored = { veilanceUiTheme: "dark" };
+  globalThis.document = { documentElement: { dataset: {}, style: {} } };
+  globalThis.chrome = {
+    storage: {
+      local: {
+        get: async (key) => ({ [key]: stored[key] }),
+        set: async (values) => Object.assign(stored, values)
+      },
+      onChanged: { addListener() {} }
+    }
+  };
+
+  try {
+    const moduleUrl = new URL(`../lib/theme.js?test=${Date.now()}`, import.meta.url);
+    const theme = await import(moduleUrl.href);
+    const initial = await theme.initializeTheme();
+    assert.deepEqual(initial, { preference: "dark", resolved: "dark" });
+    assert.equal(globalThis.document.documentElement.dataset.theme, "dark");
+    await theme.setThemePreference("light");
+    assert.equal(stored.veilanceUiTheme, "light");
+    assert.equal(globalThis.document.documentElement.dataset.theme, "light");
+  } finally {
+    if (originalChrome === undefined) delete globalThis.chrome;
+    else globalThis.chrome = originalChrome;
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+  }
+});
+
 test("manifest enables visit lifecycle observation and local SQLite WASM", async () => {
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);

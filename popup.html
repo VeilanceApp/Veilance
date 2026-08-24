@@ -3,20 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>Veilance</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <img src="assets/icon-48.png" alt="">
-      <div><strong>VEILANCE</strong><span>LOCAL PRIVACY OBSERVABILITY</span></div>
+      <img src="assets/icon-48.png" alt="Veilance">
+      <div><strong>Veilance</strong><span>Privacy activity monitor</span></div>
     </div>
-    <span id="liveState" class="live"><i></i> LOCAL</span>
+    <div class="topbar-actions">
+      <button id="themeToggle" class="header-icon-button theme-toggle" type="button" title="Switch appearance" aria-label="Switch appearance">
+        <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.5"></circle>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path>
+        </svg>
+        <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M20.2 15.2A8.5 8.5 0 0 1 8.8 3.8a8.5 8.5 0 1 0 11.4 11.4Z"></path>
+        </svg>
+      </button>
+      <span id="liveState" class="live"><i></i><span>Monitoring</span></span>
+    </div>
   </header>
 
   <nav class="navigation" aria-label="Veilance sections">
-    <button class="nav-button active" type="button" data-view="live">Live</button>
+    <button class="nav-button active" type="button" data-view="live">Overview</button>
     <button class="nav-button" type="button" data-view="history">
       History <span id="historyBadge" class="nav-count">0</span>
     </button>
@@ -30,13 +42,16 @@
       <section class="site-card">
         <div class="site-line">
           <div>
-            <span class="label">CURRENT VISIT</span>
-            <h1 id="hostname">Loading...</h1>
+            <span class="label">Current site</span>
+            <h1 id="hostname">Checking active tab…</h1>
           </div>
-          <button id="refreshButton" class="icon-button" type="button" title="Refresh live data" aria-label="Refresh live data">↻</button>
+          <button id="refreshButton" class="icon-button" type="button" title="Refresh current site" aria-label="Refresh current site">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"></path></svg>
+          </button>
         </div>
         <div id="statusPill" class="status quiet">Waiting for page activity</div>
-        <p id="visitTiming" class="visit-timing">Preparing local observation…</p>
+        <p id="visitTiming" class="visit-timing">Preparing on-device monitoring…</p>
+        <p id="liveMessage" class="inline-message" role="status" aria-live="polite"></p>
       </section>
 
       <section class="metrics" aria-label="Live visit summary">
@@ -48,8 +63,8 @@
 
       <section class="panel">
         <div class="panel-head">
-          <div><span class="label">FINDINGS</span><h2>What happened</h2></div>
-          <span id="findingCount" class="count">0</span>
+          <div><span class="label">Visit assessment</span><h2>Notable activity</h2></div>
+          <span id="findingCount" class="count" aria-label="Finding count">0</span>
         </div>
         <div id="findings" class="findings">
           <div class="empty">No privacy-relevant activity has been observed yet.</div>
@@ -57,44 +72,46 @@
       </section>
 
       <details id="liveDetailPanel" class="details-panel">
-        <summary>Complete visit details <span>Network, APIs, page data, and headers</span></summary>
+        <summary>Technical details <span>Network requests, browser APIs, page structure, and response headers</span></summary>
         <div id="liveDetails" class="telemetry-details"></div>
       </details>
 
       <section class="snapshot-card">
         <div class="snapshot-card-heading">
           <div>
-            <span class="label">LOCAL TELEMETRY SNAPSHOT</span>
-            <strong>Capture review evidence</strong>
-            <p>Only notable activity can be saved as counts and inert redacted HTML. Page text, form data, values, URL paths, and secrets are removed.</p>
+            <span class="label">Evidence snapshot</span>
+            <strong>Save a redacted copy</strong>
+            <p>Eligible visits are saved on this device as counts and inert redacted HTML. Text, form values, URL paths, and secrets are removed.</p>
           </div>
           <div id="snapshotInterest" class="interest-meter routine">
-            <span>INTEREST</span>
+            <span>Interest score</span>
             <strong><b id="snapshotInterestScore">0</b>/100</strong>
             <small id="snapshotInterestLabel">20 required</small>
           </div>
         </div>
-        <button id="snapshotButton" class="snapshot-button" type="button">Take snapshot</button>
+        <button id="snapshotButton" class="snapshot-button" type="button">Save snapshot</button>
         <p id="snapshotStatus" class="snapshot-status" role="status" aria-live="polite"></p>
       </section>
 
       <button id="payoutSettingsButton" class="payout-settings-button" type="button">
-        <span><small>SOLANA</small><strong>Wallet &amp; payout settings</strong></span>
-        <span class="payout-settings-action">Open →</span>
+        <span><small>Solana</small><strong>Wallet &amp; payouts</strong></span>
+        <span class="payout-settings-action">Manage <span aria-hidden="true">→</span></span>
       </button>
 
-      <button id="clearButton" class="clear-button" type="button">Clear current visit</button>
+      <button id="clearButton" class="clear-button" type="button" title="Discard the current visit data and begin monitoring again">Reset current visit</button>
     </section>
 
     <section id="historyView" class="view" hidden>
       <div id="historyListView">
         <section class="history-heading">
           <div>
-            <span class="label">LOCAL SQLITE HISTORY</span>
+            <span class="label">On-device history</span>
             <h1>Last 20 visits</h1>
-            <p>Each visit is kept as one complete session from navigation start until you leave or close the page.</p>
+            <p>A visit runs from navigation until you leave or close the page. History never leaves this browser unless you explicitly export it.</p>
           </div>
-          <button id="historyRefreshButton" class="icon-button" type="button" title="Refresh history" aria-label="Refresh history">↻</button>
+          <button id="historyRefreshButton" class="icon-button" type="button" title="Refresh history" aria-label="Refresh history">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"></path></svg>
+          </button>
         </section>
         <div id="historyList" class="history-list">
           <div class="empty panel-empty">No visits have been recorded yet.</div>
@@ -102,13 +119,13 @@
       </div>
 
       <div id="historyDetailView" hidden>
-        <button id="historyBackButton" class="back-button" type="button">← Back to history</button>
+        <button id="historyBackButton" class="back-button" type="button"><span aria-hidden="true">←</span> All visits</button>
         <div id="historyDetail" class="history-detail"></div>
       </div>
     </section>
   </main>
 
-  <footer><span>Snapshots stay local unless you explicitly queue one after uploads are enabled.</span><span id="version"></span></footer>
+  <footer><span>Visits and snapshots stay on this device unless you explicitly queue an upload.</span><span id="version"></span></footer>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

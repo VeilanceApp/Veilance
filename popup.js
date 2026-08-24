@@ -1,8 +1,16 @@
+import {
+  initializeTheme,
+  subscribeToTheme,
+  toggleResolvedTheme
+} from "./lib/theme.js";
+
 const elements = {
+  themeToggle: document.querySelector("#themeToggle"),
   liveState: document.querySelector("#liveState"),
   hostname: document.querySelector("#hostname"),
   statusPill: document.querySelector("#statusPill"),
   visitTiming: document.querySelector("#visitTiming"),
+  liveMessage: document.querySelector("#liveMessage"),
   thirdPartyHosts: document.querySelector("#thirdPartyHosts"),
   requestCount: document.querySelector("#requestCount"),
   signalCount: document.querySelector("#signalCount"),
@@ -140,6 +148,7 @@ function renderSnapshotInterest(value) {
     reasons: Array.isArray(value?.reasons) ? value.reasons : []
   };
   elements.snapshotInterest.className = `interest-meter ${level}`;
+  elements.snapshotInterest.style.setProperty("--interest-progress", `${score}%`);
   elements.snapshotInterestScore.textContent = String(score);
   elements.snapshotInterestLabel.textContent = currentLiveInterest.eligible
     ? `${level} · ready`
@@ -203,7 +212,7 @@ function telemetryDetailsMarkup(state) {
 
   return `
     <section class="detail-block">
-      <div class="detail-block-head"><h3>Visit timeline</h3><span>${state.active === false ? "COMPLETE" : "ACTIVE"}</span></div>
+      <div class="detail-block-head"><h3>Visit timeline</h3><span>${state.active === false ? "Complete" : "Active"}</span></div>
       ${keyGridMarkup([
         ["Started", formatDateTime(state.startedAt)],
         ["Page load completed", formatDateTime(state.loadCompletedAt)],
@@ -212,7 +221,7 @@ function telemetryDetailsMarkup(state) {
       ])}
     </section>
     <section class="detail-block">
-      <div class="detail-block-head"><h3>Network contacts</h3><span>${hosts.length} HOSTS</span></div>
+      <div class="detail-block-head"><h3>Network contacts</h3><span>${hosts.length} host${hosts.length === 1 ? "" : "s"}</span></div>
       ${keyGridMarkup([
         ["Total requests", state.network?.totalRequests || 0],
         ["First-party", state.network?.firstPartyRequests || 0],
@@ -223,15 +232,15 @@ function telemetryDetailsMarkup(state) {
       ${dataRowsMarkup(hosts, "No network hosts were observed for this visit.")}
     </section>
     <section class="detail-block">
-      <div class="detail-block-head"><h3>Browser API signals</h3><span>${signals.length} TYPES</span></div>
+      <div class="detail-block-head"><h3>Browser API signals</h3><span>${signals.length} type${signals.length === 1 ? "" : "s"}</span></div>
       ${dataRowsMarkup(signals, "No enabled API indicators fired during this visit.")}
     </section>
     <section class="detail-block">
-      <div class="detail-block-head"><h3>Page snapshot</h3><span>COUNTS ONLY</span></div>
+      <div class="detail-block-head"><h3>Page snapshot</h3><span>Counts only</span></div>
       ${keyGridMarkup(pageEntries)}
     </section>
     <section class="detail-block">
-      <div class="detail-block-head"><h3>Response security</h3><span>STATUS ${escapeHtml(displayValue(state.security?.statusCode))}</span></div>
+      <div class="detail-block-head"><h3>Response security</h3><span>Status ${escapeHtml(displayValue(state.security?.statusCode))}</span></div>
       ${keyGridMarkup(headerEntries)}
     </section>
   `;
@@ -245,7 +254,9 @@ function renderUnsupported(tab) {
   elements.statusPill.className = "status unsupported";
   elements.statusPill.textContent = "Veilance cannot inspect this page";
   elements.visitTiming.textContent = "Browser-internal and extension pages are outside the observation boundary.";
-  elements.liveState.textContent = "UNAVAILABLE";
+  elements.liveMessage.textContent = "";
+  elements.liveState.classList.add("unavailable");
+  elements.liveState.innerHTML = "<i></i><span>Unavailable</span>";
   elements.thirdPartyHosts.textContent = "0";
   elements.requestCount.textContent = "0";
   elements.signalCount.textContent = "0";
@@ -275,9 +286,11 @@ async function loadState() {
   renderSnapshotInterest(response.interest);
 
   elements.hostname.textContent = state?.hostname || new URL(tab.url).hostname;
+  elements.liveMessage.textContent = "";
   elements.statusPill.className = `status ${summary?.status || "quiet"}`;
   elements.statusPill.textContent = summary?.label || "Observing locally";
-  elements.liveState.innerHTML = "<i></i> LOCAL";
+  elements.liveState.classList.remove("unavailable");
+  elements.liveState.innerHTML = "<i></i><span>Monitoring</span>";
   elements.thirdPartyHosts.textContent = String(summary?.thirdPartyHostCount || 0);
   elements.requestCount.textContent = String(state?.network?.totalRequests || 0);
   elements.signalCount.textContent = String(summary?.signalCount || 0);
@@ -299,6 +312,58 @@ async function loadState() {
   if (elements.liveDetailPanel.open) elements.liveDetails.innerHTML = telemetryDetailsMarkup(state);
 }
 
+function renderLiveError(error) {
+  currentLiveState = null;
+  currentLiveFindings = [];
+  renderSnapshotInterest(null);
+  elements.hostname.textContent = "Unable to load site data";
+  elements.statusPill.className = "status unsupported";
+  elements.statusPill.textContent = "Veilance did not respond";
+  elements.visitTiming.textContent = "Monitoring has not changed the page. Try refreshing this view or reloading the extension.";
+  elements.liveMessage.textContent = error?.message || "An unexpected extension error occurred.";
+  elements.liveState.classList.add("unavailable");
+  elements.liveState.innerHTML = "<i></i><span>Unavailable</span>";
+  elements.thirdPartyHosts.textContent = "0";
+  elements.requestCount.textContent = "0";
+  elements.signalCount.textContent = "0";
+  elements.storageCount.textContent = "0";
+  elements.findingCount.textContent = "0";
+  renderFindings(elements.findings, [], "Visit findings are unavailable until Veilance reconnects.");
+  elements.liveDetails.innerHTML = '<div class="empty">Technical details are unavailable.</div>';
+  elements.clearButton.disabled = true;
+  elements.snapshotButton.disabled = true;
+}
+
+function renderHistoryError(error) {
+  elements.historyList.innerHTML = `<div class="empty panel-empty">Visit history could not be loaded. ${escapeHtml(error?.message || "Try again in a moment.")}</div>`;
+}
+
+async function refreshLive() {
+  elements.refreshButton.disabled = true;
+  elements.refreshButton.classList.add("is-loading");
+  try {
+    await loadState();
+  } catch (error) {
+    renderLiveError(error);
+  } finally {
+    elements.refreshButton.disabled = false;
+    elements.refreshButton.classList.remove("is-loading");
+  }
+}
+
+async function refreshHistory() {
+  elements.historyRefreshButton.disabled = true;
+  elements.historyRefreshButton.classList.add("is-loading");
+  try {
+    await loadHistory();
+  } catch (error) {
+    renderHistoryError(error);
+  } finally {
+    elements.historyRefreshButton.disabled = false;
+    elements.historyRefreshButton.classList.remove("is-loading");
+  }
+}
+
 function historyCardMarkup(visit) {
   const endedAt = visit.endedAt || visit.updatedAt;
   return `
@@ -310,7 +375,7 @@ function historyCardMarkup(visit) {
         </div>
         <div class="visit-meta">
           <span>${escapeHtml(formatListDate(visit.startedAt))}</span>
-          <span class="${visit.active ? "active-tag" : ""}">${visit.active ? "ACTIVE" : escapeHtml(formatDuration(visit.startedAt, endedAt))}</span>
+          <span class="${visit.active ? "active-tag" : ""}">${visit.active ? "Active" : escapeHtml(formatDuration(visit.startedAt, endedAt))}</span>
         </div>
         <div class="visit-metrics">
           <span>${visit.requestCount} requests</span>
@@ -348,7 +413,7 @@ async function openHistoryVisit(visitId) {
     if (!state) throw new Error("This visit is no longer in history");
     elements.historyDetail.innerHTML = `
       <section class="detail-hero">
-        <span class="label">COMPLETE VISIT</span>
+        <span class="label">Complete visit</span>
         <h1>${escapeHtml(state.hostname || state.origin || "Unknown site")}</h1>
         <div class="status ${escapeHtml(summary.status)}">${escapeHtml(summary.label)}</div>
         <p>${escapeHtml(formatDateTime(state.startedAt))} · ${escapeHtml(formatDuration(state.startedAt, state.endedAt))} · ${state.active === false ? "Visit complete" : "Visit still active"}</p>
@@ -392,6 +457,7 @@ function showHistoryList() {
 
 async function clearCurrentVisit() {
   if (!Number.isInteger(activeTabId)) return;
+  if (!confirm("Reset the current visit? Veilance will discard its live data and immediately begin monitoring the page again.")) return;
   await send({ type: "VEILANCE_CLEAR_STATE", tabId: activeTabId });
   await Promise.all([loadState(), loadHistory()]);
 }
@@ -416,7 +482,7 @@ async function takeTelemetrySnapshot() {
     elements.snapshotStatus.textContent = error.message;
   } finally {
     snapshotCaptureBusy = false;
-    elements.snapshotButton.textContent = "Take snapshot";
+    elements.snapshotButton.textContent = "Save snapshot";
     elements.snapshotButton.disabled = !currentLiveState || !currentLiveInterest.eligible;
   }
 }
@@ -430,9 +496,9 @@ async function switchView(view) {
   }
   if (view === "history") {
     showHistoryList();
-    await loadHistory();
+    await refreshHistory();
   } else {
-    await loadState();
+    await refreshLive();
   }
 }
 
@@ -449,10 +515,15 @@ for (const button of document.querySelectorAll(".nav-button[data-view]")) {
   button.addEventListener("click", () => void switchView(button.dataset.view));
 }
 elements.settingsButton.addEventListener("click", () => void chrome.runtime.openOptionsPage());
-elements.refreshButton.addEventListener("click", () => void loadState());
-elements.historyRefreshButton.addEventListener("click", () => void loadHistory());
+elements.themeToggle.addEventListener("click", () => void toggleResolvedTheme().catch((error) => {
+  console.error("Veilance could not save the theme preference", error);
+}));
+elements.refreshButton.addEventListener("click", () => void refreshLive());
+elements.historyRefreshButton.addEventListener("click", () => void refreshHistory());
 elements.historyBackButton.addEventListener("click", showHistoryList);
-elements.clearButton.addEventListener("click", () => void clearCurrentVisit());
+elements.clearButton.addEventListener("click", () => void clearCurrentVisit().catch((error) => {
+  elements.liveMessage.textContent = error?.message || "The current visit could not be reset.";
+}));
 elements.snapshotButton.addEventListener("click", () => void takeTelemetrySnapshot());
 elements.payoutSettingsButton.addEventListener("click", () => void openSettingsSection("wallet"));
 elements.liveDetailPanel.addEventListener("toggle", () => {
@@ -461,9 +532,15 @@ elements.liveDetailPanel.addEventListener("toggle", () => {
 
 elements.version.textContent = `v${chrome.runtime.getManifest().version}`;
 
-void Promise.all([loadState(), loadHistory()]).catch((error) => {
-  console.error("Veilance popup failed to initialize", error);
+subscribeToTheme(({ resolved }) => {
+  const nextTheme = resolved === "dark" ? "light" : "dark";
+  elements.themeToggle.title = `Use ${nextTheme} mode`;
+  elements.themeToggle.setAttribute("aria-label", `Use ${nextTheme} mode`);
 });
+void initializeTheme();
+
+void loadState().catch(renderLiveError);
+void loadHistory().catch(renderHistoryError);
 const refreshTimer = setInterval(() => {
   if (activeView === "live") void loadState().catch(() => {});
 }, 1500);
