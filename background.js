@@ -11,8 +11,10 @@ import {
   createEmptyState,
   isPublicTelemetryHostname,
   markVisitLoaded,
+  normalizeHostname,
   safePageIdentity,
   scoreTelemetryInterest,
+  SNAPSHOT_INTEREST_MINIMUM,
   summarizeState,
   validateTelemetrySnapshot
 } from "./lib/core.js";
@@ -40,6 +42,8 @@ import {
   TELEMETRY_UPLOAD_BATCH_LIMIT,
   TELEMETRY_UPLOAD_ENABLED,
   TELEMETRY_UPLOAD_ENDPOINT,
+  TELEMETRY_UPLOAD_ALLOW_INSECURE_HTTP,
+  TELEMETRY_IP_ADDRESS_ENDPOINT,
   TELEMETRY_UPLOAD_MAX_BATCH_BYTES
 } from "./config.js";
 import { diffTrackerSets, fetchJsonDatabaseArchive, fetchTrackerArchive } from "./lib/tracker-updater.js";
@@ -48,6 +52,11 @@ import {
   LEGACY_TELEMETRY_CONTRIBUTOR_ID_STORAGE_KEY,
   TELEMETRY_CLIENT_ID_STORAGE_KEY
 } from "./lib/telemetry-client-id.js";
+import {
+  buildTelemetryMultipartUpload,
+  fetchTelemetryIpAddress,
+  requireSuccessfulTelemetryUpload
+} from "./lib/telemetry-upload.js";
 import { exportSolanaWallet, generateSolanaWallet, publicWalletRecord } from "./lib/wallet.js";
 
 const SESSION_STORAGE_KEY = "veilanceTabStatesV2";
@@ -62,16 +71,21 @@ const TRACKER_UPDATE_ALARM = "veilanceTrackerDatabaseUpdateV1";
 const DETECTION_UPDATE_ALARM = "veilanceDetectionDatabaseUpdateV1";
 const SNAPSHOT_UPLOAD_ALARM = "veilanceTelemetrySnapshotUploadV1";
 const SNAPSHOT_UPLOAD_CONSENT_KEY = "veilanceTelemetrySnapshotConsentV1";
+const SNAPSHOT_AUTOMATIC_UPLOAD_KEY = "veilanceTelemetryAutomaticUploadV1";
+const SNAPSHOT_AUTOMATIC_CAPTURE_KEY = "veilanceTelemetryAutomaticCaptureV1";
 const MAX_TRACKER_UPDATE_LOG = 50;
 const MAX_DETECTION_UPDATE_LOG = 50;
 const HISTORY_FLUSH_DELAY_MS = 200;
 const SNAPSHOT_UPLOAD_DELAY_MIN_MS = 5 * 60 * 1000;
 const SNAPSHOT_UPLOAD_DELAY_MAX_MS = 15 * 60 * 1000;
 const SNAPSHOT_RETRY_DELAYS_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000, 4 * 60 * 60 * 1000];
+const AUTOMATIC_SNAPSHOT_CAPTURE_DELAY_MS = 300;
+const AUTOMATIC_SNAPSHOT_CAPTURE_RETRY_DELAYS_MS = [1500, 5000];
 
 const states = new Map();
 const pendingHistory = new Map();
 const tabQueues = new Map();
+const automaticSnapshotTimers = new Map();
 let sessionPersistTimer = null;
 let historyFlushTimer = null;
 let customIndicators = [];
@@ -86,6 +100,8 @@ let wallet = null;
 let walletError = null;
 let historyStore = null;
 let snapshotUploadConsent = false;
+let snapshotAutomaticUpload = false;
+let snapshotAutomaticCapture = false;
 let telemetryClientId = null;
 let snapshotUploadPromise = null;
 let snapshotUploadAbortController = null;
@@ -108,28 +124,51 @@ function randomSnapshotDelay() {
   );
 }
 
-function telemetryEndpoint() {
+function configuredTelemetryEndpoint(value) {
   if (!TELEMETRY_UPLOAD_ENABLED) return null;
   try {
-    const parsed = new URL(TELEMETRY_UPLOAD_ENDPOINT);
-    return parsed.protocol === "https:" ? parsed : null;
+    const parsed = new URL(value);
+    if (parsed.username || parsed.password || parsed.hash) return null;
+    if (parsed.protocol === "https:") return parsed;
+    if (TELEMETRY_UPLOAD_ALLOW_INSECURE_HTTP && parsed.protocol === "http:") return parsed;
+    return null;
   } catch {
     return null;
   }
 }
 
+function telemetryEndpoint() {
+  return configuredTelemetryEndpoint(TELEMETRY_UPLOAD_ENDPOINT);
+}
+
+function telemetryIpEndpoint() {
+  const uploadEndpoint = telemetryEndpoint();
+  const ipEndpoint = configuredTelemetryEndpoint(TELEMETRY_IP_ADDRESS_ENDPOINT);
+  if (!uploadEndpoint || !ipEndpoint || uploadEndpoint.origin !== ipEndpoint.origin) return null;
+  return ipEndpoint;
+}
+
 function snapshotUploadingAvailable() {
-  return Boolean(telemetryEndpoint());
+  return Boolean(telemetryEndpoint() && telemetryIpEndpoint());
 }
 
 function publicSnapshotUploadState() {
   const endpoint = telemetryEndpoint();
+  const available = Boolean(endpoint && telemetryIpEndpoint());
   return {
-    available: Boolean(endpoint),
-    consent: Boolean(endpoint && snapshotUploadConsent),
+    available,
+    consent: Boolean(available && snapshotUploadConsent),
     endpointHost: endpoint?.hostname || null,
+    automatic: Boolean(snapshotAutomaticUpload),
     clientIdPresent: Boolean(telemetryClientId),
     contributorIdPresent: Boolean(telemetryClientId)
+  };
+}
+
+function publicSnapshotCaptureState() {
+  return {
+    automatic: Boolean(snapshotAutomaticCapture),
+    minimumScore: SNAPSHOT_INTEREST_MINIMUM
   };
 }
 
@@ -223,6 +262,39 @@ function normalizeRestoredState(tabId, state) {
   state.loadCompletedAt ??= null;
   state.endedAt ??= null;
   state.active = state.active !== false && !Number.isFinite(state.endedAt);
+  const automaticSnapshot = state.automaticSnapshot;
+  if (
+    automaticSnapshot?.status === "captured" &&
+    typeof automaticSnapshot.snapshotId === "string" &&
+    automaticSnapshot.snapshotId
+  ) {
+    state.automaticSnapshot = {
+      status: "captured",
+      source: automaticSnapshot.source === "manual" ? "manual" : "automatic",
+      snapshotId: automaticSnapshot.snapshotId.slice(0, 100),
+      capturedAt: Number.isFinite(automaticSnapshot.capturedAt) ? automaticSnapshot.capturedAt : null,
+      attempts: Math.max(0, Math.min(3, Number(automaticSnapshot.attempts) || 0)),
+      lastError: null
+    };
+  } else if (automaticSnapshot?.status === "blocked") {
+    state.automaticSnapshot = {
+      status: "blocked",
+      source: null,
+      snapshotId: null,
+      capturedAt: null,
+      attempts: 0,
+      lastError: String(automaticSnapshot.lastError || "Automatic capture is unavailable for this visit").slice(0, 300)
+    };
+  } else {
+    state.automaticSnapshot = {
+      status: "idle",
+      source: null,
+      snapshotId: null,
+      capturedAt: null,
+      attempts: Math.max(0, Math.min(3, Number(automaticSnapshot?.attempts) || 0)),
+      lastError: null
+    };
+  }
   return state;
 }
 
@@ -435,6 +507,225 @@ function snapshotForEnabledIndicators(snapshot) {
   return filtered;
 }
 
+function cancelAutomaticSnapshotTimer(visitId) {
+  const timer = automaticSnapshotTimers.get(visitId);
+  if (timer) clearTimeout(timer);
+  automaticSnapshotTimers.delete(visitId);
+}
+
+function cancelAllAutomaticSnapshotTimers() {
+  for (const timer of automaticSnapshotTimers.values()) clearTimeout(timer);
+  automaticSnapshotTimers.clear();
+  for (const state of states.values()) {
+    if (state?.automaticSnapshot?.status === "scheduled") {
+      state.automaticSnapshot.status = "idle";
+    }
+  }
+  scheduleSessionPersist();
+}
+
+function maybeScheduleAutomaticSnapshot(tabId, state, delay = AUTOMATIC_SNAPSHOT_CAPTURE_DELAY_MS) {
+  if (
+    !snapshotAutomaticCapture ||
+    !Number.isInteger(tabId) ||
+    !state?.visitId ||
+    state.active === false ||
+    !isPublicTelemetryHostname(state.hostname)
+  ) return false;
+
+  const automaticSnapshot = state.automaticSnapshot || {};
+  if (
+    automaticSnapshot.status === "captured" ||
+    automaticSnapshot.status === "blocked" ||
+    automaticSnapshot.status === "scheduled" ||
+    automaticSnapshotTimers.has(state.visitId) ||
+    Number(automaticSnapshot.attempts || 0) >= 3
+  ) return false;
+
+  const interest = scoreTelemetryInterest(state, findingsFor(state));
+  if (!interest.eligible || interest.score < interest.minimumScore) return false;
+
+  const visitId = state.visitId;
+  state.automaticSnapshot = {
+    status: "scheduled",
+    source: null,
+    snapshotId: null,
+    capturedAt: null,
+    attempts: Math.max(0, Number(automaticSnapshot.attempts) || 0),
+    lastError: null
+  };
+  scheduleSessionPersist();
+
+  const timer = setTimeout(() => {
+    automaticSnapshotTimers.delete(visitId);
+    void queueTab(tabId, () => captureTelemetrySnapshotForTab(tabId, {
+      automatic: true,
+      expectedVisitId: visitId
+    })).then((result) => {
+      if (!result?.skipped) return;
+      return queueTab(tabId, async () => {
+        const current = states.get(tabId);
+        if (current?.visitId === visitId && current.automaticSnapshot?.status === "scheduled") {
+          current.automaticSnapshot.status = result.blocked ? "blocked" : "idle";
+          current.automaticSnapshot.lastError = result.reason || null;
+          scheduleSessionPersist();
+        }
+      });
+    })
+      .catch((error) => markAutomaticSnapshotFailure(tabId, visitId, error))
+      .catch((error) => console.error("Veilance could not update automatic snapshot state", error));
+  }, Math.max(0, Number(delay) || 0));
+  automaticSnapshotTimers.set(visitId, timer);
+  return true;
+}
+
+async function markAutomaticSnapshotFailure(tabId, visitId, error) {
+  await queueTab(tabId, async () => {
+    const state = states.get(tabId);
+    if (!state || state.visitId !== visitId || state.automaticSnapshot?.status === "captured") return;
+    const attempts = Math.max(0, Number(state.automaticSnapshot?.attempts) || 0) + 1;
+    state.automaticSnapshot = {
+      status: "failed",
+      source: null,
+      snapshotId: null,
+      capturedAt: null,
+      attempts,
+      lastError: String(error?.message || error).slice(0, 300)
+    };
+    scheduleSessionPersist();
+    if (snapshotAutomaticCapture && state.active !== false && attempts < 3) {
+      maybeScheduleAutomaticSnapshot(
+        tabId,
+        state,
+        AUTOMATIC_SNAPSHOT_CAPTURE_RETRY_DELAYS_MS[attempts - 1]
+      );
+    } else if (attempts >= 3) {
+      console.warn("Veilance could not create an automatic snapshot after three attempts", error);
+    }
+  });
+}
+
+async function captureTelemetrySnapshotForTab(tabId, options = {}) {
+  const automatic = options.automatic === true;
+  const expectedVisitId = typeof options.expectedVisitId === "string" ? options.expectedVisitId : null;
+  if (automatic && !snapshotAutomaticCapture) return { ok: true, skipped: true };
+
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch (error) {
+    if (automatic) return { ok: true, skipped: true };
+    throw error;
+  }
+  if (tab?.incognito) {
+    if (automatic) return {
+      ok: true,
+      skipped: true,
+      blocked: true,
+      reason: "Automatic snapshots are disabled in Incognito"
+    };
+    throw new Error("Telemetry snapshots are disabled in Incognito");
+  }
+  const page = safePageIdentity(tab?.url || "");
+  if (!page || !isPublicTelemetryHostname(page.hostname)) {
+    if (automatic) return {
+      ok: true,
+      skipped: true,
+      blocked: true,
+      reason: "Automatic snapshots are limited to public HTTP(S) websites"
+    };
+    throw new Error("Snapshots are limited to public HTTP(S) websites; private and internal hosts are excluded");
+  }
+
+  let state = states.get(tabId);
+  if (automatic) {
+    if (
+      !state ||
+      state.visitId !== expectedVisitId ||
+      state.active === false ||
+      state.origin !== page.origin ||
+      state.automaticSnapshot?.status === "captured"
+    ) return { ok: true, skipped: true };
+  } else if (!state || state.origin !== page.origin) {
+    state = await beginVisit(tabId, tab.url, { now: Date.now(), navigationId: newId() });
+  }
+
+  const initialFindings = findingsFor(state);
+  const initialInterest = scoreTelemetryInterest(state, initialFindings);
+  if (!initialInterest.eligible) {
+    if (automatic) return { ok: true, skipped: true };
+    throw new Error(
+      `Nothing notable enough to snapshot yet (${initialInterest.score}/100 interest; ` +
+      `${initialInterest.minimumScore}/100 required).`
+    );
+  }
+
+  const captured = await chrome.tabs.sendMessage(tabId, {
+    type: "VEILANCE_CAPTURE_REDACTED_DOCUMENT"
+  });
+  if (!captured?.ok || !captured.document) {
+    throw new Error(captured?.error || "The page did not return a redacted document");
+  }
+  if (
+    automatic &&
+    (!snapshotAutomaticCapture || states.get(tabId)?.visitId !== expectedVisitId)
+  ) return { ok: true, skipped: true };
+
+  const createdAt = Date.now();
+  const latestPageSnapshot = snapshotForEnabledIndicators(captured.pageSnapshot);
+  if (Object.keys(latestPageSnapshot).length) {
+    applyPageSnapshot(state, latestPageSnapshot, createdAt);
+    await saveState(tabId, state);
+  }
+  const snapshotId = newId();
+  const payload = buildTelemetrySnapshot(
+    state,
+    captured.document,
+    chrome.runtime.getManifest().version,
+    createdAt,
+    {
+      eventId: snapshotId,
+      trackers: trackerObservationsFor(state),
+      findings: findingsFor(state)
+    }
+  );
+  if (!validateTelemetrySnapshot(payload)) {
+    throw new Error("The snapshot failed Veilance's final safety validator");
+  }
+  if (
+    automatic &&
+    (!snapshotAutomaticCapture || states.get(tabId)?.visitId !== expectedVisitId)
+  ) return { ok: true, skipped: true };
+
+  await historyStore.upsertSnapshot({
+    snapshotId,
+    hostname: page.hostname,
+    createdAt,
+    payload
+  });
+  state.automaticSnapshot = {
+    status: "captured",
+    source: automatic ? "automatic" : "manual",
+    snapshotId,
+    capturedAt: createdAt,
+    attempts: automatic ? Math.max(0, Number(state.automaticSnapshot?.attempts) || 0) + 1 : 0,
+    lastError: null
+  };
+  cancelAutomaticSnapshotTimer(state.visitId);
+  scheduleSessionPersist();
+
+  if (snapshotAutomaticUpload && snapshotUploadConsent && snapshotUploadingAvailable()) {
+    await historyStore.updateSnapshotUpload(snapshotId, {
+      status: "queued",
+      nextAttemptAt: createdAt + randomSnapshotDelay(),
+      lastError: null
+    });
+    await configureSnapshotUploadAlarm();
+  }
+  const snapshot = await historyStore.getSnapshot(snapshotId);
+  return { ok: true, snapshot: snapshot || { snapshotId, hostname: page.hostname, createdAt } };
+}
+
 const ready = (async () => {
   const [sessionStored, localStored, store] = await Promise.all([
     chrome.storage.session.get(SESSION_STORAGE_KEY).catch(() => ({})),
@@ -447,6 +738,8 @@ const ready = (async () => {
       DETECTION_DATABASE_STATE_KEY,
       WALLET_STORAGE_KEY,
       SNAPSHOT_UPLOAD_CONSENT_KEY,
+      SNAPSHOT_AUTOMATIC_UPLOAD_KEY,
+      SNAPSHOT_AUTOMATIC_CAPTURE_KEY,
       TELEMETRY_CLIENT_ID_STORAGE_KEY,
       LEGACY_TELEMETRY_CONTRIBUTOR_ID_STORAGE_KEY
     ]),
@@ -455,6 +748,8 @@ const ready = (async () => {
 
   historyStore = store;
   snapshotUploadConsent = localStored?.[SNAPSHOT_UPLOAD_CONSENT_KEY] === true;
+  snapshotAutomaticUpload = localStored?.[SNAPSHOT_AUTOMATIC_UPLOAD_KEY] === true;
+  snapshotAutomaticCapture = localStored?.[SNAPSHOT_AUTOMATIC_CAPTURE_KEY] === true;
   await initializeTelemetryClientId(localStored);
   await historyStore.recoverInterruptedSnapshotUploads();
   const savedCustom = localStored?.[CUSTOM_INDICATORS_KEY];
@@ -534,6 +829,9 @@ const ready = (async () => {
   await configureTrackerAlarm();
   await configureDetectionAlarm();
   await configureSnapshotUploadAlarm();
+  if (snapshotAutomaticCapture) {
+    for (const [tabId, state] of states) maybeScheduleAutomaticSnapshot(tabId, state);
+  }
 })();
 
 async function configureTrackerAlarm() {
@@ -586,32 +884,22 @@ function retryAt(attempts, now = Date.now()) {
   return now + Math.floor(delay * jitter);
 }
 
-async function encodedSnapshotBatch(records) {
-  const envelope = {
-    schemaVersion: "veilance.telemetry-snapshot-batch.v1",
+async function encodedSnapshotBatch(records, ipAddress) {
+  return buildTelemetryMultipartUpload({
+    records,
+    clientId: telemetryClientId,
+    walletAddress: wallet?.publicKey,
     batchId: newId(),
-    contributorId: telemetryClientId,
-    observations: records.map((record) => record.payload)
-  };
-  const json = JSON.stringify(envelope);
-  if (typeof CompressionStream !== "function") {
-    return { body: json, headers: { "Content-Type": "application/json" } };
-  }
-  const compressed = new Blob([json], { type: "application/json" })
-    .stream()
-    .pipeThrough(new CompressionStream("gzip"));
-  return {
-    body: await new Response(compressed).arrayBuffer(),
-    headers: {
-      "Content-Type": "application/json",
-      "Content-Encoding": "gzip"
-    }
-  };
+    ipAddress
+  });
 }
 
 async function performSnapshotUploads(trigger = "scheduled") {
   const endpoint = telemetryEndpoint();
-  if (!endpoint || !snapshotUploadConsent || !telemetryClientId) return { uploaded: 0, trigger };
+  const ipEndpoint = telemetryIpEndpoint();
+  if (!endpoint || !ipEndpoint || !snapshotUploadConsent || !telemetryClientId) {
+    return { uploaded: 0, trigger };
+  }
   const candidates = await historyStore.listDueSnapshotUploads(Date.now(), TELEMETRY_UPLOAD_BATCH_LIMIT);
   const due = [];
   let uncompressedBytes = 0;
@@ -651,42 +939,76 @@ async function performSnapshotUploads(trigger = "scheduled") {
     return { uploaded: 0, trigger };
   }
 
+  const batchesByDomain = new Map();
+  for (const record of valid) {
+    const domainName = normalizeHostname(record.payload?.site?.hostname);
+    const batch = batchesByDomain.get(domainName) || [];
+    batch.push(record);
+    batchesByDomain.set(domainName, batch);
+  }
+
+  const controller = new AbortController();
+  snapshotUploadAbortController = controller;
+  let uploaded = 0;
+  let firstError = null;
   try {
-    const request = await encodedSnapshotBatch(valid);
-    const controller = new AbortController();
-    snapshotUploadAbortController = controller;
-    const response = await fetch(endpoint.href, {
-      method: "POST",
-      headers: request.headers,
-      body: request.body,
-      credentials: "omit",
-      cache: "no-store",
-      redirect: "error",
-      referrerPolicy: "no-referrer",
-      signal: controller.signal
-    });
-    if (!response.ok) throw new Error(`Snapshot API returned HTTP ${response.status}`);
-    const uploadedAt = Date.now();
-    for (const record of valid) {
-      await historyStore.updateSnapshotUpload(record.snapshotId, {
-        status: "uploaded",
-        nextAttemptAt: null,
-        uploadedAt,
-        lastError: null
+    let ipAddress;
+    try {
+      ipAddress = await fetchTelemetryIpAddress({
+        endpoint: ipEndpoint.href,
+        signal: controller.signal
       });
+    } catch (error) {
+      const message = String(error?.message || error).slice(0, 500);
+      const now = Date.now();
+      for (const record of valid) {
+        await historyStore.updateSnapshotUpload(record.snapshotId, {
+          status: "failed",
+          nextAttemptAt: retryAt(record.nextAttempts, now),
+          lastError: message
+        });
+      }
+      throw error;
     }
-    return { uploaded: valid.length, trigger };
-  } catch (error) {
-    const message = String(error?.message || error).slice(0, 500);
-    const now = Date.now();
-    for (const record of valid) {
-      await historyStore.updateSnapshotUpload(record.snapshotId, {
-        status: "failed",
-        nextAttemptAt: retryAt(record.nextAttempts, now),
-        lastError: message
-      });
+
+    for (const records of batchesByDomain.values()) {
+      try {
+        const request = await encodedSnapshotBatch(records, ipAddress);
+        const response = await fetch(endpoint.href, {
+          method: "POST",
+          body: request.body,
+          credentials: "omit",
+          cache: "no-store",
+          redirect: "error",
+          referrerPolicy: "no-referrer",
+          signal: controller.signal
+        });
+        await requireSuccessfulTelemetryUpload(response);
+        const uploadedAt = Date.now();
+        for (const record of records) {
+          await historyStore.updateSnapshotUpload(record.snapshotId, {
+            status: "uploaded",
+            nextAttemptAt: null,
+            uploadedAt,
+            lastError: null
+          });
+        }
+        uploaded += records.length;
+      } catch (error) {
+        firstError ||= error;
+        const message = String(error?.message || error).slice(0, 500);
+        const now = Date.now();
+        for (const record of records) {
+          await historyStore.updateSnapshotUpload(record.snapshotId, {
+            status: "failed",
+            nextAttemptAt: retryAt(record.nextAttempts, now),
+            lastError: message
+          });
+        }
+      }
     }
-    throw error;
+    if (firstError) throw firstError;
+    return { uploaded, trigger };
   } finally {
     snapshotUploadAbortController = null;
     await configureSnapshotUploadAlarm();
@@ -705,6 +1027,7 @@ async function refreshManagedFindings() {
   for (const [tabId, state] of states) {
     scheduleHistory(state);
     await updateBadge(tabId, state);
+    maybeScheduleAutomaticSnapshot(tabId, state);
   }
 }
 
@@ -981,11 +1304,13 @@ async function saveState(tabId, state, options = {}) {
     scheduleHistory(state);
   }
   await updateBadge(tabId, state);
+  maybeScheduleAutomaticSnapshot(tabId, state);
 }
 
 async function finalizeState(tabId, now = Date.now()) {
   const state = states.get(tabId);
   if (!state) return null;
+  cancelAutomaticSnapshotTimer(state.visitId);
   if (state.active !== false) completeVisit(state, now);
   await saveState(tabId, state, { immediateHistory: true });
   return state;
@@ -993,6 +1318,7 @@ async function finalizeState(tabId, now = Date.now()) {
 
 async function beginVisit(tabId, url, metadata = {}) {
   const existing = states.get(tabId);
+  if (existing?.visitId) cancelAutomaticSnapshotTimer(existing.visitId);
   if (existing?.active !== false) await finalizeState(tabId, metadata.now || Date.now());
   const state = createEmptyState(tabId, url, metadata.now || Date.now(), {
     visitId: newId(),
@@ -1233,61 +1559,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         const tabId = Number(message.tabId);
         if (!Number.isInteger(tabId) || tabId < 0) throw new Error("Choose a website tab before taking a snapshot");
-        const tab = await chrome.tabs.get(tabId);
-        if (tab?.incognito) throw new Error("Telemetry snapshots are disabled in Incognito");
-        const page = safePageIdentity(tab?.url || "");
-        if (!page || !isPublicTelemetryHostname(page.hostname)) {
-          throw new Error("Snapshots are limited to public HTTP(S) websites; private and internal hosts are excluded");
-        }
-        return queueTab(tabId, async () => {
-          let state = states.get(tabId);
-          if (!state || state.origin !== page.origin) {
-            state = await beginVisit(tabId, tab.url, { now: Date.now(), navigationId: newId() });
-          }
-          const initialFindings = findingsFor(state);
-          const initialInterest = scoreTelemetryInterest(state, initialFindings);
-          if (!initialInterest.eligible) {
-            throw new Error(
-              `Nothing notable enough to snapshot yet (${initialInterest.score}/100 interest; ` +
-              `${initialInterest.minimumScore}/100 required).`
-            );
-          }
-          const captured = await chrome.tabs.sendMessage(tabId, {
-            type: "VEILANCE_CAPTURE_REDACTED_DOCUMENT"
-          });
-          if (!captured?.ok || !captured.document) {
-            throw new Error(captured?.error || "The page did not return a redacted document");
-          }
-          const createdAt = Date.now();
-          const latestPageSnapshot = snapshotForEnabledIndicators(captured.pageSnapshot);
-          if (Object.keys(latestPageSnapshot).length) {
-            applyPageSnapshot(state, latestPageSnapshot, createdAt);
-            await saveState(tabId, state);
-          }
-          const snapshotId = newId();
-          const payload = buildTelemetrySnapshot(
-            state,
-            captured.document,
-            chrome.runtime.getManifest().version,
-            createdAt,
-            {
-              eventId: snapshotId,
-              trackers: trackerObservationsFor(state),
-              findings: findingsFor(state)
-            }
-          );
-          if (!validateTelemetrySnapshot(payload)) {
-            throw new Error("The snapshot failed Veilance's final safety validator");
-          }
-          await historyStore.upsertSnapshot({
-            snapshotId,
-            hostname: page.hostname,
-            createdAt,
-            payload
-          });
-          const snapshots = await historyStore.listSnapshotSummaries(1);
-          return { ok: true, snapshot: snapshots[0] || { snapshotId, hostname: page.hostname, createdAt } };
-        });
+        return queueTab(tabId, () => captureTelemetrySnapshotForTab(tabId));
       }
 
       case "VEILANCE_CLEAR_STATE": {
@@ -1302,6 +1574,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // Retain the last safe origin if the tab is already gone.
           }
           if (previous?.visitId) {
+            cancelAutomaticSnapshotTimer(previous.visitId);
             pendingHistory.delete(previous.visitId);
             await historyStore.delete(previous.visitId);
           }
@@ -1328,6 +1601,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case "VEILANCE_DELETE_VISIT": {
         const visitId = String(message.visitId || "");
+        cancelAutomaticSnapshotTimer(visitId);
         pendingHistory.delete(visitId);
         const matchingTabs = [...states.entries()]
           .filter(([, state]) => state.visitId === visitId)
@@ -1378,6 +1652,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await configureSnapshotUploadAlarm();
         return { ok: true };
 
+      case "VEILANCE_SET_AUTOMATIC_SNAPSHOT_CAPTURE": {
+        if (!isSettingsPage(sender)) throw new Error("Automatic snapshot capture is available only from Veilance Settings");
+        snapshotAutomaticCapture = Boolean(message.enabled);
+        await chrome.storage.local.set({ [SNAPSHOT_AUTOMATIC_CAPTURE_KEY]: snapshotAutomaticCapture });
+        let scheduled = 0;
+        if (snapshotAutomaticCapture) {
+          for (const [tabId, state] of states) {
+            if (maybeScheduleAutomaticSnapshot(tabId, state)) scheduled += 1;
+          }
+        } else {
+          cancelAllAutomaticSnapshotTimers();
+        }
+        return { ok: true, scheduled, snapshotCapture: publicSnapshotCaptureState() };
+      }
+
       case "VEILANCE_SET_SNAPSHOT_UPLOAD_CONSENT": {
         if (!isSettingsPage(sender)) throw new Error("Snapshot upload consent is available only from Veilance Settings");
         const enabled = Boolean(message.enabled);
@@ -1388,8 +1677,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!enabled) snapshotUploadAbortController?.abort();
         if (enabled && !telemetryClientId) await initializeTelemetryClientId();
         await chrome.storage.local.set({ [SNAPSHOT_UPLOAD_CONSENT_KEY]: snapshotUploadConsent });
+        if (enabled && snapshotAutomaticUpload) {
+          await historyStore.queueAllSnapshots(Date.now() + randomSnapshotDelay());
+        }
         await configureSnapshotUploadAlarm();
         return { ok: true, snapshotUpload: publicSnapshotUploadState() };
+      }
+
+      case "VEILANCE_SET_AUTOMATIC_SNAPSHOT_UPLOAD": {
+        if (!isSettingsPage(sender)) throw new Error("Automatic uploads are available only from Veilance Settings");
+        const enabled = Boolean(message.enabled);
+        if (enabled && !snapshotUploadingAvailable()) {
+          throw new Error("Telemetry uploading is disabled in this build");
+        }
+        if (enabled && !snapshotUploadConsent) {
+          throw new Error("Allow pseudonymous snapshot uploads before enabling automatic uploads");
+        }
+        snapshotAutomaticUpload = enabled;
+        await chrome.storage.local.set({ [SNAPSHOT_AUTOMATIC_UPLOAD_KEY]: snapshotAutomaticUpload });
+        const queued = enabled
+          ? await historyStore.queueAllSnapshots(Date.now() + randomSnapshotDelay())
+          : 0;
+        await configureSnapshotUploadAlarm();
+        return { ok: true, queued, snapshotUpload: publicSnapshotUploadState() };
       }
 
       case "VEILANCE_QUEUE_TELEMETRY_SNAPSHOT": {
@@ -1422,6 +1732,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return { ok: true, queued, nextAttemptAt };
       }
 
+      case "VEILANCE_UPLOAD_TELEMETRY_NOW": {
+        if (!isSettingsPage(sender)) throw new Error("Immediate uploads are available only from Veilance Settings");
+        if (!snapshotUploadingAvailable()) throw new Error("Telemetry uploading is disabled in this build");
+        if (!snapshotUploadConsent) throw new Error("Enable snapshot upload consent before uploading");
+        const queued = await historyStore.queueAllSnapshots(Date.now(), { includeQueued: true });
+        const result = await uploadDueSnapshots("manual");
+        return { ok: true, queued, uploaded: result?.uploaded || 0 };
+      }
+
       case "VEILANCE_GET_SETTINGS":
         return {
           ok: true,
@@ -1433,6 +1752,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           wallet: publicWalletRecord(wallet),
           walletError,
           database: await historyStore.info(),
+          snapshotCapture: publicSnapshotCaptureState(),
           snapshotUpload: publicSnapshotUploadState()
         };
 

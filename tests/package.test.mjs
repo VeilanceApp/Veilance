@@ -7,15 +7,39 @@ import {
   DETECTION_DATABASE_FOLDER,
   DETECTION_UPDATE_INTERVAL_MINUTES,
   PAYOUTS_ENABLED,
+  TELEMETRY_IP_ADDRESS_ENDPOINT,
+  TELEMETRY_UPLOAD_ALLOW_INSECURE_HTTP,
   TELEMETRY_UPLOAD_ENABLED,
   TELEMETRY_UPLOAD_ENDPOINT,
   TRACKER_DATABASE_ARCHIVE,
-  TRACKER_UPDATE_INTERVAL_MINUTES
+  TRACKER_UPDATE_INTERVAL_MINUTES,
+  VEILANCE_API_ORIGIN,
+  VEILANCE_DEVELOPMENT_API_ORIGIN,
+  VEILANCE_PRODUCTION_API_ORIGIN,
+  VEILANCE_USE_PRODUCTION_API,
+  veilanceApiEndpoint,
+  veilanceApiOrigin
 } from "../config.js";
 
-test("telemetry uploading remains disabled until a server is configured", () => {
-  assert.equal(TELEMETRY_UPLOAD_ENABLED, false);
-  assert.equal(TELEMETRY_UPLOAD_ENDPOINT, "https://api.veilance.com/v1/telemetry/snapshots");
+test("one production constant switches every Veilance telemetry endpoint", () => {
+  assert.equal(VEILANCE_USE_PRODUCTION_API, false);
+  assert.equal(VEILANCE_DEVELOPMENT_API_ORIGIN, "http://10.0.10.211:5132");
+  assert.equal(VEILANCE_PRODUCTION_API_ORIGIN, "https://api.veilance.org");
+  assert.equal(veilanceApiOrigin(false), VEILANCE_DEVELOPMENT_API_ORIGIN);
+  assert.equal(veilanceApiOrigin(true), VEILANCE_PRODUCTION_API_ORIGIN);
+  assert.equal(
+    veilanceApiEndpoint("/api/v1/telemetry/upload", true),
+    "https://api.veilance.org/api/v1/telemetry/upload"
+  );
+  assert.equal(
+    veilanceApiEndpoint("/api/v1/telemetry/ip", true),
+    "https://api.veilance.org/api/v1/telemetry/ip"
+  );
+  assert.equal(VEILANCE_API_ORIGIN, VEILANCE_DEVELOPMENT_API_ORIGIN);
+  assert.equal(TELEMETRY_UPLOAD_ENABLED, true);
+  assert.equal(TELEMETRY_UPLOAD_ENDPOINT, "http://10.0.10.211:5132/api/v1/telemetry/upload");
+  assert.equal(TELEMETRY_IP_ADDRESS_ENDPOINT, "http://10.0.10.211:5132/api/v1/telemetry/ip");
+  assert.equal(TELEMETRY_UPLOAD_ALLOW_INSECURE_HTTP, true);
   assert.equal(PAYOUTS_ENABLED, false);
 });
 
@@ -29,6 +53,8 @@ test("popup keeps snapshots local and links to compact payout settings", async (
   assert.match(html, /Last 20 visits/);
   assert.match(html, /id="snapshotButton"/);
   assert.match(html, /redacted HTML/i);
+  assert.match(html, /Veilance doesn’t support this page/i);
+  assert.match(html, /Nothing was collected from this page/i);
 });
 
 test("settings exposes indicator folders, wallet export, and disabled payouts", async () => {
@@ -50,6 +76,9 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /Export private key/);
   assert.match(html, /id="settingsPayoutButton"[^>]*disabled/);
   assert.match(html, /id="snapshotUploadConsent"[^>]*disabled/);
+  assert.match(html, /id="snapshotAutomaticCapture"[^>]*disabled/);
+  assert.match(html, /id="snapshotAutomaticUpload"[^>]*disabled/);
+  assert.match(html, /id="uploadNowButton"[^>]*disabled/);
   assert.match(html, /id="snapshotList"/);
   assert.match(html, /id="snapshotHtmlPreview"/);
   assert.match(html, /private\/internal hosts/i);
@@ -112,7 +141,7 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.6.4");
+  assert.equal(manifest.version, "0.6.10");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));
@@ -124,6 +153,7 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   assert.ok(manifest.content_scripts.some((entry) => entry.world === "MAIN"));
   assert.ok(manifest.content_scripts.some((entry) => entry.js?.includes("lib/redacted-html.js")));
   assert.equal(JSON.stringify(manifest).includes("http://localhost"), false);
+  assert.ok(manifest.host_permissions.includes("https://api.veilance.org/*"));
 });
 
 test("tracker updates use the official database three times per day", async () => {

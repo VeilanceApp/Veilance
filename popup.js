@@ -29,6 +29,12 @@ const elements = {
   refreshButton: document.querySelector("#refreshButton"),
   settingsButton: document.querySelector("#settingsButton"),
   liveView: document.querySelector("#liveView"),
+  liveDashboard: document.querySelector("#liveDashboard"),
+  unsupportedPage: document.querySelector("#unsupportedPage"),
+  unsupportedKind: document.querySelector("#unsupportedKind"),
+  unsupportedDescription: document.querySelector("#unsupportedDescription"),
+  unsupportedRetryButton: document.querySelector("#unsupportedRetryButton"),
+  unsupportedSettingsButton: document.querySelector("#unsupportedSettingsButton"),
   historyView: document.querySelector("#historyView"),
   historyBadge: document.querySelector("#historyBadge"),
   historyList: document.querySelector("#historyList"),
@@ -250,13 +256,29 @@ function renderUnsupported(tab) {
   currentLiveState = null;
   currentLiveFindings = [];
   renderSnapshotInterest(null);
+  elements.liveDashboard.hidden = true;
+  elements.unsupportedPage.hidden = false;
+  const url = String(tab?.url || "");
+  if (/^(?:chrome|edge|brave|about):/i.test(url)) {
+    elements.unsupportedKind.textContent = "Browser backstage";
+    elements.unsupportedDescription.textContent = "The browser keeps its internal pages behind the velvet rope, so the privacy detective is waiting outside.";
+  } else if (/^(?:chrome|moz)-extension:/i.test(url)) {
+    elements.unsupportedKind.textContent = "Friendly territory";
+    elements.unsupportedDescription.textContent = "Extension pages are fellow staff, not part of the audience. Veilance leaves its neighbors alone.";
+  } else if (/^file:/i.test(url)) {
+    elements.unsupportedKind.textContent = "Local files stay local";
+    elements.unsupportedDescription.textContent = "Veilance won’t rummage through files on your computer. Some boundaries deserve to stay delightfully boring.";
+  } else {
+    elements.unsupportedKind.textContent = "Outside the observation zone";
+    elements.unsupportedDescription.textContent = "This tab doesn’t use a standard web address, so Veilance has nowhere safe to begin its investigation.";
+  }
   elements.hostname.textContent = tab?.url?.startsWith("chrome://") ? "Chrome internal page" : "Unsupported page";
   elements.statusPill.className = "status unsupported";
   elements.statusPill.textContent = "Veilance cannot inspect this page";
   elements.visitTiming.textContent = "Browser-internal and extension pages are outside the observation boundary.";
   elements.liveMessage.textContent = "";
   elements.liveState.classList.add("unavailable");
-  elements.liveState.innerHTML = "<i></i><span>Unavailable</span>";
+  elements.liveState.innerHTML = "<i></i><span>Off duty</span>";
   elements.thirdPartyHosts.textContent = "0";
   elements.requestCount.textContent = "0";
   elements.signalCount.textContent = "0";
@@ -284,6 +306,8 @@ async function loadState() {
   currentLiveState = state;
   currentLiveFindings = findings;
   renderSnapshotInterest(response.interest);
+  elements.unsupportedPage.hidden = true;
+  elements.liveDashboard.hidden = false;
 
   elements.hostname.textContent = state?.hostname || new URL(tab.url).hostname;
   elements.liveMessage.textContent = "";
@@ -316,6 +340,8 @@ function renderLiveError(error) {
   currentLiveState = null;
   currentLiveFindings = [];
   renderSnapshotInterest(null);
+  elements.unsupportedPage.hidden = true;
+  elements.liveDashboard.hidden = false;
   elements.hostname.textContent = "Unable to load site data";
   elements.statusPill.className = "status unsupported";
   elements.statusPill.textContent = "Veilance did not respond";
@@ -515,6 +541,11 @@ for (const button of document.querySelectorAll(".nav-button[data-view]")) {
   button.addEventListener("click", () => void switchView(button.dataset.view));
 }
 elements.settingsButton.addEventListener("click", () => void chrome.runtime.openOptionsPage());
+elements.unsupportedSettingsButton.addEventListener("click", () => void chrome.runtime.openOptionsPage());
+elements.unsupportedRetryButton.addEventListener("click", () => {
+  elements.unsupportedRetryButton.disabled = true;
+  void refreshLive().finally(() => { elements.unsupportedRetryButton.disabled = false; });
+});
 elements.themeToggle.addEventListener("click", () => void toggleResolvedTheme().catch((error) => {
   console.error("Veilance could not save the theme preference", error);
 }));

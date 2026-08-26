@@ -277,15 +277,27 @@
         </div>
         <div>
           <strong>Always removed</strong>
-          <p>Page text, URL paths/searches, form values, cookies, storage contents, event-handler attributes, inline script source, device fingerprint values, private/internal hosts, authorization data, and wallet keys.</p>
+          <p>Page text, URL paths/searches, form values, cookies, storage contents, event-handler attributes, inline script source, device fingerprint values, private/internal hosts, authorization data, and the private wallet key.</p>
         </div>
       </div>
 
-      <div class="snapshot-upload-control">
+      <div class="snapshot-upload-control snapshot-automatic-capture-control">
+        <div>
+          <strong>Save eligible snapshots automatically</strong>
+          <p id="snapshotAutomaticCaptureDescription">Automatic capture is off. Eligible snapshots are saved only when you press Save snapshot.</p>
+          <small>When enabled, Veilance saves one local snapshot per public-site visit after it reaches 25/100 interest. This does not enable uploading.</small>
+        </div>
+        <label class="switch" title="Automatically save interest-qualified snapshots">
+          <input id="snapshotAutomaticCapture" type="checkbox" aria-label="Save eligible snapshots automatically" disabled>
+          <span aria-hidden="true"></span>
+        </label>
+      </div>
+
+      <div class="snapshot-upload-control snapshot-upload-consent-control">
         <div>
           <strong>Allow pseudonymous snapshot uploads</strong>
-          <p id="snapshotUploadDescription">Uploads are disabled in this build. Interest-qualified local capture, review, download, and deletion remain available.</p>
-          <small>A random contributor ID is kept separate from the Solana wallet. Each snapshot must still be explicitly queued.</small>
+          <p id="snapshotUploadDescription">Checking telemetry upload availability…</p>
+          <small>Each request sends the stable contributor ID as <code>client_id</code>, the generated public Solana address as <code>wallet_address</code>, and the exact website hostname—including subdomains—as <code>domain_name</code>. Paths, queries, fragments, and the private wallet key are never sent in these fields.</small>
         </div>
         <label class="switch" title="Allow or pause pseudonymous snapshot uploads">
           <input id="snapshotUploadConsent" type="checkbox" aria-label="Allow pseudonymous snapshot uploads" disabled>
@@ -293,8 +305,21 @@
         </label>
       </div>
 
+      <div class="snapshot-upload-control snapshot-automatic-upload-control">
+        <div>
+          <strong>Upload saved snapshots automatically</strong>
+          <p id="snapshotAutomaticUploadDescription">Allow pseudonymous uploads above to enable automatic queueing.</p>
+          <small>New interest-qualified snapshots use the existing randomized 5–15 minute privacy delay.</small>
+        </div>
+        <label class="switch" title="Automatically queue eligible snapshots">
+          <input id="snapshotAutomaticUpload" type="checkbox" aria-label="Upload eligible snapshots automatically" disabled>
+          <span aria-hidden="true"></span>
+        </label>
+      </div>
+
       <div class="snapshot-toolbar">
-        <button id="queueAllSnapshotsButton" class="primary-button" type="button" disabled>Queue local snapshots</button>
+        <button id="uploadNowButton" class="primary-button" type="button" disabled>Upload now</button>
+        <button id="queueAllSnapshotsButton" class="secondary-button" type="button" disabled>Queue for later</button>
         <button id="refreshSnapshotsButton" class="secondary-button" type="button">Refresh list</button>
         <button id="clearSnapshotsButton" class="danger-outline-button" type="button" disabled>Clear snapshots</button>
       </div>

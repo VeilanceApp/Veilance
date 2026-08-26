@@ -49,8 +49,13 @@ const elements = {
   databaseCount: document.querySelector("#databaseCount"),
   clearHistoryButton: document.querySelector("#clearHistoryButton"),
   snapshotCount: document.querySelector("#snapshotCount"),
+  snapshotAutomaticCapture: document.querySelector("#snapshotAutomaticCapture"),
+  snapshotAutomaticCaptureDescription: document.querySelector("#snapshotAutomaticCaptureDescription"),
   snapshotUploadConsent: document.querySelector("#snapshotUploadConsent"),
   snapshotUploadDescription: document.querySelector("#snapshotUploadDescription"),
+  snapshotAutomaticUpload: document.querySelector("#snapshotAutomaticUpload"),
+  snapshotAutomaticUploadDescription: document.querySelector("#snapshotAutomaticUploadDescription"),
+  uploadNowButton: document.querySelector("#uploadNowButton"),
   queueAllSnapshotsButton: document.querySelector("#queueAllSnapshotsButton"),
   refreshSnapshotsButton: document.querySelector("#refreshSnapshotsButton"),
   clearSnapshotsButton: document.querySelector("#clearSnapshotsButton"),
@@ -562,6 +567,18 @@ function canQueueSnapshot(snapshot) {
   );
 }
 
+function canUploadSnapshotNow(snapshot) {
+  const upload = settingsData?.snapshotUpload || {};
+  return Boolean(
+    upload.available &&
+    upload.consent &&
+    snapshot?.interest?.eligible === true &&
+    Number(snapshot.interest.score) >= Number(snapshot.interest.minimumScore) &&
+    Number(snapshot.interest.minimumScore) > 0 &&
+    ["local", "failed", "queued"].includes(snapshot?.upload?.status)
+  );
+}
+
 function snapshotQueueTitle(snapshot) {
   const upload = settingsData?.snapshotUpload || {};
   if (!upload.available) return "Uploads are disabled in this build.";
@@ -576,16 +593,36 @@ function renderSnapshotUpload() {
   const upload = settingsData?.snapshotUpload || {};
   elements.snapshotUploadConsent.disabled = !upload.available;
   elements.snapshotUploadConsent.checked = Boolean(upload.available && upload.consent);
+  elements.snapshotAutomaticUpload.checked = Boolean(upload.automatic);
+  elements.snapshotAutomaticUpload.disabled = !(upload.available && upload.consent);
   if (!upload.available) {
     elements.snapshotUploadDescription.textContent = "Uploads are disabled in this build. Interest-qualified local capture, review, download, and deletion remain available.";
     elements.queueAllSnapshotsButton.title = "Uploads are disabled in this build.";
+    elements.uploadNowButton.title = "Uploads are disabled in this build.";
+    elements.snapshotAutomaticUploadDescription.textContent = "Automatic uploads are unavailable in this build.";
   } else if (!upload.consent) {
     elements.snapshotUploadDescription.textContent = `Uploads are available through ${upload.endpointHost}. Enable this control to opt in; only interest-qualified snapshots can be queued.`;
     elements.queueAllSnapshotsButton.title = "Allow pseudonymous uploads before queueing snapshots.";
+    elements.uploadNowButton.title = "Allow pseudonymous uploads before uploading snapshots.";
+    elements.snapshotAutomaticUploadDescription.textContent = "Allow pseudonymous uploads above to enable automatic queueing.";
   } else {
-    elements.snapshotUploadDescription.textContent = `Uploads are allowed through ${upload.endpointHost}. Only interest-qualified snapshots you explicitly queue are batched after a randomized 5–15 minute delay.`;
-    elements.queueAllSnapshotsButton.title = "Queue every eligible local snapshot.";
+    elements.snapshotUploadDescription.textContent = `Uploads are allowed through ${upload.endpointHost}. Upload now sends immediately; Queue for later uses a randomized 5–15 minute delay.`;
+    elements.queueAllSnapshotsButton.title = "Queue every eligible local snapshot for a privacy-delayed upload.";
+    elements.uploadNowButton.title = "Queue eligible snapshots and begin uploading immediately.";
+    elements.snapshotAutomaticUploadDescription.textContent = upload.automatic
+      ? "Automatic uploads are on. New eligible snapshots are queued without another button press."
+      : "Automatic uploads are off. Enable this to queue new eligible snapshots automatically.";
   }
+}
+
+function renderSnapshotCapture() {
+  const capture = settingsData?.snapshotCapture || {};
+  const minimumScore = Math.max(1, Number(capture.minimumScore) || 25);
+  elements.snapshotAutomaticCapture.disabled = false;
+  elements.snapshotAutomaticCapture.checked = capture.automatic === true;
+  elements.snapshotAutomaticCaptureDescription.textContent = capture.automatic
+    ? `Automatic capture is on. Veilance saves one local snapshot per public-site visit after it reaches ${minimumScore}/100 interest.`
+    : `Automatic capture is off. Eligible snapshots are saved only when you press Save snapshot.`;
 }
 
 function snapshotRowMarkup(snapshot) {
@@ -640,6 +677,7 @@ async function loadSnapshots() {
     settingsData?.snapshotUpload?.consent &&
     snapshotSummaries.some((snapshot) => canQueueSnapshot(snapshot))
   );
+  elements.uploadNowButton.disabled = !snapshotSummaries.some((snapshot) => canUploadSnapshotNow(snapshot));
   if (!snapshotSummaries.length) {
     elements.snapshotList.innerHTML = '<div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 25/100 interest.</div>';
     return;
@@ -742,6 +780,7 @@ async function loadSettings() {
   renderDetectionDatabase();
   renderWallet();
   renderDatabase();
+  renderSnapshotCapture();
   renderSnapshotUpload();
   updateEnabledCount();
   try {
@@ -749,6 +788,7 @@ async function loadSettings() {
   } catch (error) {
     elements.snapshotCount.textContent = "Unavailable";
     elements.snapshotList.innerHTML = `<div class="empty-state">Saved snapshots could not be loaded. ${escapeHtml(error?.message || "Try refreshing this section.")}</div>`;
+    elements.uploadNowButton.disabled = true;
     elements.queueAllSnapshotsButton.disabled = true;
     elements.clearSnapshotsButton.disabled = true;
     showSaveStatus("Settings loaded, but saved snapshots are temporarily unavailable.", true);
@@ -1045,13 +1085,62 @@ elements.snapshotUploadConsent.addEventListener("change", async () => {
     renderSnapshotUpload();
     await loadSnapshots();
     showSaveStatus(elements.snapshotUploadConsent.checked
-      ? "Pseudonymous snapshot uploads allowed. Nothing is uploaded until you queue it."
+      ? (response.snapshotUpload.automatic
+          ? "Pseudonymous uploads allowed. Automatic upload is enabled."
+          : "Pseudonymous uploads allowed. Choose Upload now, Queue for later, or enable automatic uploads.")
       : "Snapshot uploads paused. Local snapshots remain available.");
   } catch (error) {
     elements.snapshotUploadConsent.checked = previous;
     showSaveStatus(error.message, true);
   } finally {
     elements.snapshotUploadConsent.disabled = !settingsData?.snapshotUpload?.available;
+  }
+});
+
+elements.snapshotAutomaticCapture.addEventListener("change", async () => {
+  const previous = !elements.snapshotAutomaticCapture.checked;
+  elements.snapshotAutomaticCapture.disabled = true;
+  try {
+    const response = await send({
+      type: "VEILANCE_SET_AUTOMATIC_SNAPSHOT_CAPTURE",
+      enabled: elements.snapshotAutomaticCapture.checked
+    });
+    settingsData.snapshotCapture = response.snapshotCapture;
+    renderSnapshotCapture();
+    showSaveStatus(elements.snapshotAutomaticCapture.checked
+      ? (response.scheduled
+          ? `Automatic capture enabled. ${response.scheduled} active eligible visit${response.scheduled === 1 ? " is" : "s are"} being snapshotted.`
+          : "Automatic capture enabled. Future eligible visits will be saved locally.")
+      : "Automatic capture disabled. Existing local snapshots are unchanged.");
+  } catch (error) {
+    elements.snapshotAutomaticCapture.checked = previous;
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.snapshotAutomaticCapture.disabled = false;
+  }
+});
+
+elements.snapshotAutomaticUpload.addEventListener("change", async () => {
+  const previous = !elements.snapshotAutomaticUpload.checked;
+  elements.snapshotAutomaticUpload.disabled = true;
+  try {
+    const response = await send({
+      type: "VEILANCE_SET_AUTOMATIC_SNAPSHOT_UPLOAD",
+      enabled: elements.snapshotAutomaticUpload.checked
+    });
+    settingsData.snapshotUpload = response.snapshotUpload;
+    renderSnapshotUpload();
+    await loadSnapshots();
+    showSaveStatus(elements.snapshotAutomaticUpload.checked
+      ? `Automatic uploads enabled. ${response.queued || 0} existing snapshot${response.queued === 1 ? " was" : "s were"} queued.`
+      : "Automatic uploads disabled. Snapshots already queued remain queued.");
+  } catch (error) {
+    elements.snapshotAutomaticUpload.checked = previous;
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.snapshotAutomaticUpload.disabled = !(
+      settingsData?.snapshotUpload?.available && settingsData?.snapshotUpload?.consent
+    );
   }
 });
 
@@ -1064,6 +1153,24 @@ elements.refreshSnapshotsButton.addEventListener("click", async () => {
     showSaveStatus(error.message, true);
   } finally {
     elements.refreshSnapshotsButton.disabled = false;
+  }
+});
+
+elements.uploadNowButton.addEventListener("click", async () => {
+  elements.uploadNowButton.disabled = true;
+  elements.uploadNowButton.textContent = "Uploading…";
+  try {
+    const response = await send({ type: "VEILANCE_UPLOAD_TELEMETRY_NOW" });
+    await loadSnapshots();
+    showSaveStatus(response.uploaded
+      ? `${response.uploaded} snapshot${response.uploaded === 1 ? "" : "s"} uploaded successfully.`
+      : "No eligible snapshots were ready to upload.");
+  } catch (error) {
+    await loadSnapshots().catch(() => {});
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.uploadNowButton.textContent = "Upload now";
+    elements.uploadNowButton.disabled = !snapshotSummaries.some((snapshot) => canUploadSnapshotNow(snapshot));
   }
 });
 

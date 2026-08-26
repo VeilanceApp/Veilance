@@ -159,6 +159,8 @@ test("SQLite snapshot vault stores payloads separately, prunes old rows, and per
   const afterQueueAll = await store.listSnapshotSummaries();
   assert.equal(afterQueueAll.find((item) => item.snapshotId === "legacy-snapshot").upload.status, "local");
   assert.equal(afterQueueAll.find((item) => item.snapshotId === "snapshot-3").upload.status, "queued");
+  assert.equal(await store.queueAllSnapshots(4000, { includeQueued: true }), 2);
+  assert.equal((await store.listDueSnapshotUploads(4000, 20)).length, 2);
   assert.equal((await store.info()).snapshotCount, 3);
   await store.close();
 });

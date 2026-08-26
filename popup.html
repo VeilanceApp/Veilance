@@ -39,6 +39,32 @@
 
   <main>
     <section id="liveView" class="view">
+      <section id="unsupportedPage" class="unsupported-page" aria-labelledby="unsupportedTitle" hidden>
+        <div class="unsupported-stage" aria-hidden="true">
+          <span class="unsupported-orbit"></span>
+          <span class="unsupported-spark spark-one"></span>
+          <span class="unsupported-spark spark-two"></span>
+          <div class="unsupported-logo"><img src="assets/icon-128.png" alt=""></div>
+          <div class="unsupported-door">
+            <span>BACKSTAGE</span>
+            <i></i>
+          </div>
+        </div>
+        <span id="unsupportedKind" class="unsupported-kicker">Browser backstage</span>
+        <h1 id="unsupportedTitle">Veilance doesn’t support this page</h1>
+        <p id="unsupportedDescription">The browser keeps this area behind the velvet rope, so the privacy detective is waiting outside.</p>
+        <div class="unsupported-reassurance">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5.5 5.7v5.5c0 4.2 2.7 7.7 6.5 9.8 3.8-2.1 6.5-5.6 6.5-9.8V5.7L12 3Z"></path><path d="m9 12 2 2 4-4"></path></svg>
+          <div><strong>Nothing was collected from this page.</strong><span>No snooping, no snapshot, no tiny trench coat required.</span></div>
+        </div>
+        <div class="unsupported-actions">
+          <button id="unsupportedRetryButton" class="unsupported-primary" type="button">Check again</button>
+          <button id="unsupportedSettingsButton" class="unsupported-secondary" type="button">Open settings</button>
+        </div>
+        <p class="unsupported-footnote">Veilance works on regular <code>http://</code> and <code>https://</code> pages.</p>
+      </section>
+
+      <div id="liveDashboard">
       <section class="site-card">
         <div class="site-line">
           <div>
@@ -99,6 +125,7 @@
       </button>
 
       <button id="clearButton" class="clear-button" type="button" title="Discard the current visit data and begin monitoring again">Reset current visit</button>
+      </div>
     </section>
 
     <section id="historyView" class="view" hidden>
@@ -125,7 +152,7 @@
     </section>
   </main>
 
-  <footer><span>Visits and snapshots stay on this device unless you explicitly queue an upload.</span><span id="version"></span></footer>
+  <footer><span>Visits stay local. Consented snapshots upload only through your chosen manual or automatic setting.</span><span id="version"></span></footer>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

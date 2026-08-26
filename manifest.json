@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Veilance",
-  "version": "0.6.4",
+  "version": "0.6.10",
   "description": "Observe privacy-relevant browser activity and create locally stored, redacted telemetry snapshots.",
   "minimum_chrome_version": "111",
   "permissions": [
@@ -14,7 +14,7 @@
   "host_permissions": [
     "http://*/*",
     "https://*/*",
-    "https://api.veilance.com/*"
+    "https://api.veilance.org/*"
   ],
   "background": {
     "service_worker": "background.js",
