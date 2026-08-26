@@ -1,4 +1,4 @@
-# Veilance Browser Extension v0.6.0
+# Veilance Browser Extension v0.6.4
 
 Veilance is a local-first browser privacy observability extension. It shows what
 a website requests from browser APIs and which network hosts it contacts while
@@ -7,7 +7,7 @@ automatically mean a website is malicious.
 
 This release adds explicit local telemetry snapshots. A user can capture the
 current public website from the popup once its observed behavior reaches the
-20/100 interest threshold, then review the resulting evidence and inert
+25/100 interest threshold, then review the resulting evidence and inert
 redacted HTML in Settings, download it, or delete it. Snapshot uploads have a
 complete queue and API path but remain disabled by the build gate. Payouts also
 remain disabled.
@@ -18,8 +18,8 @@ remain disabled.
   matches, browser API names/actions and counts, page/security counts, and an
   inert structural HTML representation
 * A deterministic 0–100 interest score prevents routine activity from being
-  snapshotted: high findings add 40 points, medium findings add 20, low findings
-  add 5, and repeated allowed API activity can add 5–10 points
+  snapshotted: high findings add 25 points, medium findings add 10, low findings
+  add 2, and repeated allowed API activity can add 5–10 points
 * HTML redaction removes all page text, form values, URL paths and searches,
   event handlers, arbitrary attributes, inline script source, comments, styles,
   private network origins, and other value-bearing content
@@ -43,9 +43,13 @@ remain disabled.
   inspection, downloads, deletion, queue status, retry errors, and clear-all controls
 * System, light, and dark appearance preferences are shared by the popup and
   Settings and saved in extension-local storage
-* Future uploads use a random 256-bit contributor id that is never the Solana
-  wallet address; precise local capture time and upload state are excluded from
-  the transmitted payload
+* A random 256-bit telemetry client id is created on first startup and retained
+  in extension-local storage independently of upload consent. It is never the
+  Solana wallet address and precise local capture time and upload state are
+  excluded from the transmitted payload
+* The client id survives browser restarts and extension updates. Veilance
+  rotates it when the detected browser family, operating system, or CPU
+  architecture changes; routine browser version updates do not rotate it
 * Uploads require both the compile-time build gate and separate user consent,
   plus an explicit queue action for each snapshot or group of snapshots
 * Queued snapshots batch after a randomized 5–15 minute delay and retry with
@@ -227,7 +231,7 @@ sensitive data.
 ### Save a telemetry snapshot
 
 While viewing a public HTTP(S) website, Veilance scores observed actions from 0
-to 100. **Save snapshot** becomes available at 20/100. Visits below that
+to 100. **Save snapshot** becomes available at 25/100. Visits below that
 threshold are treated as routine and cannot be snapshotted. The capture is
 intentional and one-time; ordinary browsing does not retain page HTML. Open
 **Settings → Snapshots** to:
@@ -421,7 +425,7 @@ export const TELEMETRY_UPLOAD_ENDPOINT = "https://api.veilance.com/v1/telemetry/
 After the HTTPS endpoint exists, set `TELEMETRY_UPLOAD_ENABLED` to `true` and
 package a new build. The user must then enable **Allow pseudonymous snapshot
 uploads** in Settings and explicitly queue interest-qualified local snapshots.
-Unscored legacy records and visits below 20/100 cannot be queued. Enabling the
+Unscored legacy records and visits below 25/100 cannot be queued. Enabling the
 build gate alone never uploads existing or future snapshots.
 
 The extension posts gzip-compressed JSON when the runtime supports
@@ -431,7 +435,7 @@ The extension posts gzip-compressed JSON when the runtime supports
 {
   "schemaVersion": "veilance.telemetry-snapshot-batch.v1",
   "batchId": "random-uuid",
-  "contributorId": "random-256-bit-id-unrelated-to-the-wallet",
+  "contributorId": "stable-random-256-bit-client-id",
   "observations": [
     {
       "schemaVersion": "veilance.telemetry-snapshot.v2",
@@ -444,11 +448,11 @@ The extension posts gzip-compressed JSON when the runtime supports
       "page": {},
       "security": {},
       "interest": {
-        "score": 40,
-        "level": "high",
-        "minimumScore": 20,
+        "score": 25,
+        "level": "interesting",
+        "minimumScore": 25,
         "eligible": true,
-        "reasons": [{ "id": "geolocation", "severity": "high", "points": 40 }]
+        "reasons": [{ "id": "geolocation", "severity": "high", "points": 25 }]
       },
       "redactedDocument": {}
     }
@@ -460,6 +464,24 @@ The API should deduplicate rewards and storage by each observation's `eventId`.
 Only the payload under `observations` is transmitted. Local `snapshotId`, exact
 capture time, queue state, retry errors, and wallet data stay in SQLite or
 extension-local settings.
+
+### Pseudonymous telemetry client identity
+
+Veilance creates the telemetry client id during background initialization, even
+when snapshot uploading is disabled. The id is 32 bytes from the browser's
+cryptographically secure random generator and is stored in
+`chrome.storage.local`, so the same browser profile keeps the same id across
+restarts and extension upgrades.
+
+The extension also stores a SHA-256 hash of a coarse local environment record:
+browser family, operating system, CPU architecture, and Native Client
+architecture. The raw environment fields and their hash are never added to an
+upload. If the hash changes, Veilance replaces the old id with a new unrelated
+random id. Browser version numbers, hardware serial numbers, fonts, screen
+properties, and other fingerprinting inputs are deliberately excluded. A new
+browser profile or reinstall creates a new id because extension-local storage
+does not carry over. Existing `veilanceTelemetryContributorIdV1` values are
+migrated without changing the user's current pseudonymous identity.
 
 ## Privacy boundary
 
@@ -510,8 +532,8 @@ resetting the visit.
 
 Keeps active visit state, indicator settings, the serialized SQLite database,
 custom indicator definitions, managed tracker definitions, the tracker update
-log, local snapshot consent, the pseudonymous random contributor id, the shared
-appearance preference, and local wallet material.
+log, local snapshot consent, the stable pseudonymous telemetry client identity,
+the shared appearance preference, and local wallet material.
 
 ### `unlimitedStorage`
 

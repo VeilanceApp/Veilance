@@ -43,6 +43,11 @@ import {
   TELEMETRY_UPLOAD_MAX_BATCH_BYTES
 } from "./config.js";
 import { diffTrackerSets, fetchJsonDatabaseArchive, fetchTrackerArchive } from "./lib/tracker-updater.js";
+import {
+  ensureTelemetryClientIdentity,
+  LEGACY_TELEMETRY_CONTRIBUTOR_ID_STORAGE_KEY,
+  TELEMETRY_CLIENT_ID_STORAGE_KEY
+} from "./lib/telemetry-client-id.js";
 import { exportSolanaWallet, generateSolanaWallet, publicWalletRecord } from "./lib/wallet.js";
 
 const SESSION_STORAGE_KEY = "veilanceTabStatesV2";
@@ -57,7 +62,6 @@ const TRACKER_UPDATE_ALARM = "veilanceTrackerDatabaseUpdateV1";
 const DETECTION_UPDATE_ALARM = "veilanceDetectionDatabaseUpdateV1";
 const SNAPSHOT_UPLOAD_ALARM = "veilanceTelemetrySnapshotUploadV1";
 const SNAPSHOT_UPLOAD_CONSENT_KEY = "veilanceTelemetrySnapshotConsentV1";
-const TELEMETRY_CONTRIBUTOR_ID_KEY = "veilanceTelemetryContributorIdV1";
 const MAX_TRACKER_UPDATE_LOG = 50;
 const MAX_DETECTION_UPDATE_LOG = 50;
 const HISTORY_FLUSH_DELAY_MS = 200;
@@ -82,7 +86,7 @@ let wallet = null;
 let walletError = null;
 let historyStore = null;
 let snapshotUploadConsent = false;
-let telemetryContributorId = null;
+let telemetryClientId = null;
 let snapshotUploadPromise = null;
 let snapshotUploadAbortController = null;
 
@@ -124,8 +128,21 @@ function publicSnapshotUploadState() {
     available: Boolean(endpoint),
     consent: Boolean(endpoint && snapshotUploadConsent),
     endpointHost: endpoint?.hostname || null,
-    contributorIdPresent: Boolean(telemetryContributorId)
+    clientIdPresent: Boolean(telemetryClientId),
+    contributorIdPresent: Boolean(telemetryClientId)
   };
+}
+
+async function initializeTelemetryClientId(storedValues = null) {
+  const identity = await ensureTelemetryClientIdentity({
+    storageArea: chrome.storage.local,
+    runtime: chrome.runtime,
+    navigatorObject: globalThis.navigator,
+    cryptoObject: globalThis.crypto,
+    storedValues
+  });
+  telemetryClientId = identity.clientId;
+  return identity;
 }
 
 function isExtensionPage(sender, filenames) {
@@ -430,20 +447,15 @@ const ready = (async () => {
       DETECTION_DATABASE_STATE_KEY,
       WALLET_STORAGE_KEY,
       SNAPSHOT_UPLOAD_CONSENT_KEY,
-      TELEMETRY_CONTRIBUTOR_ID_KEY
+      TELEMETRY_CLIENT_ID_STORAGE_KEY,
+      LEGACY_TELEMETRY_CONTRIBUTOR_ID_STORAGE_KEY
     ]),
     historyStoreReady
   ]);
 
   historyStore = store;
   snapshotUploadConsent = localStored?.[SNAPSHOT_UPLOAD_CONSENT_KEY] === true;
-  telemetryContributorId = typeof localStored?.[TELEMETRY_CONTRIBUTOR_ID_KEY] === "string"
-    ? localStored[TELEMETRY_CONTRIBUTOR_ID_KEY].slice(0, 128)
-    : null;
-  if (snapshotUploadConsent && snapshotUploadingAvailable() && !telemetryContributorId) {
-    telemetryContributorId = randomBytesHex(32);
-    await chrome.storage.local.set({ [TELEMETRY_CONTRIBUTOR_ID_KEY]: telemetryContributorId });
-  }
+  await initializeTelemetryClientId(localStored);
   await historyStore.recoverInterruptedSnapshotUploads();
   const savedCustom = localStored?.[CUSTOM_INDICATORS_KEY];
   customIndicators = Array.isArray(savedCustom) ? savedCustom.slice(0, 100) : [];
@@ -554,7 +566,7 @@ async function configureDetectionAlarm() {
 
 async function configureSnapshotUploadAlarm() {
   if (!chrome.alarms) return;
-  if (!snapshotUploadingAvailable() || !snapshotUploadConsent || !telemetryContributorId) {
+  if (!snapshotUploadingAvailable() || !snapshotUploadConsent || !telemetryClientId) {
     await chrome.alarms.clear(SNAPSHOT_UPLOAD_ALARM);
     return;
   }
@@ -578,7 +590,7 @@ async function encodedSnapshotBatch(records) {
   const envelope = {
     schemaVersion: "veilance.telemetry-snapshot-batch.v1",
     batchId: newId(),
-    contributorId: telemetryContributorId,
+    contributorId: telemetryClientId,
     observations: records.map((record) => record.payload)
   };
   const json = JSON.stringify(envelope);
@@ -599,7 +611,7 @@ async function encodedSnapshotBatch(records) {
 
 async function performSnapshotUploads(trigger = "scheduled") {
   const endpoint = telemetryEndpoint();
-  if (!endpoint || !snapshotUploadConsent || !telemetryContributorId) return { uploaded: 0, trigger };
+  if (!endpoint || !snapshotUploadConsent || !telemetryClientId) return { uploaded: 0, trigger };
   const candidates = await historyStore.listDueSnapshotUploads(Date.now(), TELEMETRY_UPLOAD_BATCH_LIMIT);
   const due = [];
   let uncompressedBytes = 0;
@@ -1374,11 +1386,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         snapshotUploadConsent = enabled;
         if (!enabled) snapshotUploadAbortController?.abort();
-        if (enabled && !telemetryContributorId) telemetryContributorId = randomBytesHex(32);
-        await chrome.storage.local.set({
-          [SNAPSHOT_UPLOAD_CONSENT_KEY]: snapshotUploadConsent,
-          ...(telemetryContributorId ? { [TELEMETRY_CONTRIBUTOR_ID_KEY]: telemetryContributorId } : {})
-        });
+        if (enabled && !telemetryClientId) await initializeTelemetryClientId();
+        await chrome.storage.local.set({ [SNAPSHOT_UPLOAD_CONSENT_KEY]: snapshotUploadConsent });
         await configureSnapshotUploadAlarm();
         return { ok: true, snapshotUpload: publicSnapshotUploadState() };
       }

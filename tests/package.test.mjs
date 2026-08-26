@@ -36,7 +36,7 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /role="tablist"/);
   assert.match(html, /data-settings-tab="snapshots"/);
   assert.match(html, /data-settings-tab="wallet"/);
-  assert.match(html, /Routine visits below 20 are never snapshotted/i);
+  assert.match(html, /Routine visits below 25 are never snapshotted/i);
   assert.match(html, /webkitdirectory/);
   assert.match(html, /id="downloadStarterButton"/);
   assert.match(html, /id="copySignalTemplateButton"/);
@@ -112,7 +112,7 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.6.0");
+  assert.equal(manifest.version, "0.6.4");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));

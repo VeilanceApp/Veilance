@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import {
+  LEGACY_TELEMETRY_CONTRIBUTOR_ID_STORAGE_KEY,
+  TELEMETRY_CLIENT_ID_STORAGE_KEY
+} from "../lib/telemetry-client-id.js";
 
 function storageArea(backing) {
   return {
@@ -97,6 +101,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
       onMessage,
       onInstalled: eventSlot(),
       getManifest: () => ({ version: "0.6.0" }),
+      getPlatformInfo: async () => ({ os: "linux", arch: "x86-64", nacl_arch: "x86-64" }),
       getURL: (path) => `chrome-extension://veilance-test/${path}`
     }
   };
@@ -122,6 +127,12 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(settings.detectionDatabase.databaseEnabled, true);
   assert.equal(settings.detectionDatabase.autoUpdateEnabled, true);
   assert.equal(settings.snapshotUpload.available, false);
+  assert.equal(settings.snapshotUpload.clientIdPresent, true);
+  assert.match(localBacking[TELEMETRY_CLIENT_ID_STORAGE_KEY].clientId, /^[a-f0-9]{64}$/);
+  assert.equal(
+    localBacking[LEGACY_TELEMETRY_CONTRIBUTOR_ID_STORAGE_KEY],
+    localBacking[TELEMETRY_CLIENT_ID_STORAGE_KEY].clientId
+  );
   assert.equal(settings.database.snapshotCount, 0);
   assert.equal(alarms.get("veilanceTrackerDatabaseUpdateV1").periodInMinutes, 480);
   assert.equal(alarms.get("veilanceDetectionDatabaseUpdateV1").periodInMinutes, 480);
@@ -189,13 +200,32 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   );
   assert.equal(canvasEvent.ok, true);
 
+  const geolocationEvent = await dispatch(
+    {
+      type: "VEILANCE_PAGE_EVENT",
+      pageSessionId: "page-session-1",
+      event: {
+        indicatorId: "geolocation",
+        kind: "permission",
+        api: "Geolocation",
+        action: "get-position"
+      }
+    },
+    {
+      tab: { id: 7, url: "https://example.com/private?q=secret" },
+      url: "https://example.com/private?q=secret",
+      documentId: "document-1"
+    }
+  );
+  assert.equal(geolocationEvent.ok, true);
+
   const captured = await dispatch(
     { type: "VEILANCE_CREATE_TELEMETRY_SNAPSHOT", tabId: 7 },
     { url: "chrome-extension://veilance-test/popup.html" }
   );
   assert.equal(captured.ok, true);
   assert.equal(captured.snapshot.hostname, "example.com");
-  assert.equal(captured.snapshot.interest.score, 20);
+  assert.equal(captured.snapshot.interest.score, 35);
 
   const snapshotList = await dispatch(
     { type: "VEILANCE_LIST_TELEMETRY_SNAPSHOTS" },
@@ -208,7 +238,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   );
   const snapshotText = JSON.stringify(snapshot.snapshot.payload);
   assert.equal(snapshot.snapshot.payload.schemaVersion, "veilance.telemetry-snapshot.v2");
-  assert.equal(snapshot.snapshot.payload.interest.score, 20);
+  assert.equal(snapshot.snapshot.payload.interest.score, 35);
   assert.equal(snapshot.snapshot.payload.interest.eligible, true);
   assert.equal(snapshotText.includes("/private"), false);
   assert.equal(snapshotText.includes("q=secret"), false);

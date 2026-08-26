@@ -44,7 +44,7 @@ let activeTabId = null;
 let activeView = "live";
 let currentLiveState = null;
 let currentLiveFindings = [];
-let currentLiveInterest = { score: 0, level: "routine", minimumScore: 20, eligible: false, reasons: [] };
+let currentLiveInterest = { score: 0, level: "routine", minimumScore: 25, eligible: false, reasons: [] };
 let snapshotCaptureBusy = false;
 
 async function send(message) {
@@ -136,7 +136,7 @@ function renderFindings(container, findings, emptyText) {
 
 function renderSnapshotInterest(value) {
   const score = Math.max(0, Math.min(100, Math.floor(Number(value?.score) || 0)));
-  const minimumScore = Math.max(1, Math.min(100, Math.floor(Number(value?.minimumScore) || 20)));
+  const minimumScore = Math.max(1, Math.min(100, Math.floor(Number(value?.minimumScore) || 25)));
   const level = ["routine", "interesting", "high", "critical"].includes(value?.level)
     ? value.level
     : "routine";

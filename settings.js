@@ -641,7 +641,7 @@ async function loadSnapshots() {
     snapshotSummaries.some((snapshot) => canQueueSnapshot(snapshot))
   );
   if (!snapshotSummaries.length) {
-    elements.snapshotList.innerHTML = '<div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 20/100 interest.</div>';
+    elements.snapshotList.innerHTML = '<div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 25/100 interest.</div>';
     return;
   }
   elements.snapshotList.innerHTML = snapshotSummaries.map(snapshotRowMarkup).join("");
