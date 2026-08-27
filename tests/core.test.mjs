@@ -239,6 +239,13 @@ test("local snapshot adds only safety-validated redacted HTML and evidence count
     action: "export",
     detail: { value: "secret" }
   }, 1100);
+  addPageSignal(state, {
+    indicatorId: "geolocation",
+    kind: "permission",
+    api: "Geolocation",
+    action: "get-position",
+    detail: { latitude: 12.34, longitude: 56.78 }
+  }, 1110);
   const documentCapture = {
     format: "veilance.redacted-html.v1",
     hostname: "example.com",
@@ -258,10 +265,11 @@ test("local snapshot adds only safety-validated redacted HTML and evidence count
   });
   assert.equal(snapshot.schemaVersion, "veilance.telemetry-snapshot.v2");
   assert.equal(snapshot.eventId, "snapshot-event-1");
-  assert.equal(snapshot.interest.score, 20);
+  assert.equal(snapshot.interest.score, 35);
   assert.equal(snapshot.interest.level, "interesting");
   assert.equal(snapshot.interest.eligible, true);
-  assert.equal(snapshot.interest.reasons[0].id, "canvas-readback");
+  assert.equal(snapshot.interest.reasons[0].id, "geolocation");
+  assert.ok(snapshot.interest.reasons.some((reason) => reason.id === "canvas-readback"));
   assert.equal(snapshot.trackers[0].id, "example-tracker");
   assert.equal(snapshot.redactedDocument.evidence.inlineScriptHints.canvas, 1);
   assert.equal(validateTelemetrySnapshot(snapshot), true);

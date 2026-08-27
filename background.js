@@ -11,8 +11,10 @@ import {
   createEmptyState,
   isPublicTelemetryHostname,
   markVisitLoaded,
+  normalizeHostname,
   safePageIdentity,
   scoreTelemetryInterest,
+  SNAPSHOT_INTEREST_MINIMUM,
   summarizeState,
   validateTelemetrySnapshot
 } from "./lib/core.js";
@@ -24,10 +26,15 @@ import {
   isIndicatorEnabled,
   mergeIndicatorSettings,
   parseIndicatorDocuments,
+  parseManagedDetectionDocuments,
   parseManagedTrackerDocuments,
   parseManagedTrackerRecords
 } from "./lib/indicators.js";
 import {
+  DETECTION_DATABASE_ARCHIVE,
+  DETECTION_DATABASE_FOLDER,
+  DETECTION_DATABASE_REPOSITORY,
+  DETECTION_UPDATE_INTERVAL_MINUTES,
   TRACKER_DATABASE_ARCHIVE,
   TRACKER_DATABASE_BUNDLE,
   TRACKER_DATABASE_REPOSITORY,
@@ -35,9 +42,21 @@ import {
   TELEMETRY_UPLOAD_BATCH_LIMIT,
   TELEMETRY_UPLOAD_ENABLED,
   TELEMETRY_UPLOAD_ENDPOINT,
+  TELEMETRY_UPLOAD_ALLOW_INSECURE_HTTP,
+  TELEMETRY_IP_ADDRESS_ENDPOINT,
   TELEMETRY_UPLOAD_MAX_BATCH_BYTES
 } from "./config.js";
-import { diffTrackerSets, fetchTrackerArchive } from "./lib/tracker-updater.js";
+import { diffTrackerSets, fetchJsonDatabaseArchive, fetchTrackerArchive } from "./lib/tracker-updater.js";
+import {
+  ensureTelemetryClientIdentity,
+  LEGACY_TELEMETRY_CONTRIBUTOR_ID_STORAGE_KEY,
+  TELEMETRY_CLIENT_ID_STORAGE_KEY
+} from "./lib/telemetry-client-id.js";
+import {
+  buildTelemetryMultipartUpload,
+  fetchTelemetryIpAddress,
+  requireSuccessfulTelemetryUpload
+} from "./lib/telemetry-upload.js";
 import { exportSolanaWallet, generateSolanaWallet, publicWalletRecord } from "./lib/wallet.js";
 
 const SESSION_STORAGE_KEY = "veilanceTabStatesV2";
@@ -45,32 +64,45 @@ const INDICATOR_SETTINGS_KEY = "veilanceIndicatorSettingsV1";
 const CUSTOM_INDICATORS_KEY = "veilanceCustomIndicatorsV1";
 const MANAGED_TRACKERS_KEY = "veilanceManagedTrackersV1";
 const TRACKER_DATABASE_STATE_KEY = "veilanceTrackerDatabaseStateV1";
+const MANAGED_DETECTIONS_KEY = "veilanceManagedDetectionsV1";
+const DETECTION_DATABASE_STATE_KEY = "veilanceDetectionDatabaseStateV1";
 const WALLET_STORAGE_KEY = "veilanceSolanaWalletV1";
 const TRACKER_UPDATE_ALARM = "veilanceTrackerDatabaseUpdateV1";
+const DETECTION_UPDATE_ALARM = "veilanceDetectionDatabaseUpdateV1";
 const SNAPSHOT_UPLOAD_ALARM = "veilanceTelemetrySnapshotUploadV1";
 const SNAPSHOT_UPLOAD_CONSENT_KEY = "veilanceTelemetrySnapshotConsentV1";
-const TELEMETRY_CONTRIBUTOR_ID_KEY = "veilanceTelemetryContributorIdV1";
+const SNAPSHOT_AUTOMATIC_UPLOAD_KEY = "veilanceTelemetryAutomaticUploadV1";
+const SNAPSHOT_AUTOMATIC_CAPTURE_KEY = "veilanceTelemetryAutomaticCaptureV1";
 const MAX_TRACKER_UPDATE_LOG = 50;
+const MAX_DETECTION_UPDATE_LOG = 50;
 const HISTORY_FLUSH_DELAY_MS = 200;
 const SNAPSHOT_UPLOAD_DELAY_MIN_MS = 5 * 60 * 1000;
 const SNAPSHOT_UPLOAD_DELAY_MAX_MS = 15 * 60 * 1000;
 const SNAPSHOT_RETRY_DELAYS_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000, 4 * 60 * 60 * 1000];
+const AUTOMATIC_SNAPSHOT_CAPTURE_DELAY_MS = 300;
+const AUTOMATIC_SNAPSHOT_CAPTURE_RETRY_DELAYS_MS = [1500, 5000];
 
 const states = new Map();
 const pendingHistory = new Map();
 const tabQueues = new Map();
+const automaticSnapshotTimers = new Map();
 let sessionPersistTimer = null;
 let historyFlushTimer = null;
 let customIndicators = [];
 let managedTrackers = [];
+let managedDetections = [];
 let indicatorSettings = mergeIndicatorSettings(null);
 let trackerDatabaseState = normalizeTrackerDatabaseState(null);
+let detectionDatabaseState = normalizeDetectionDatabaseState(null);
 let trackerSyncPromise = null;
+let detectionSyncPromise = null;
 let wallet = null;
 let walletError = null;
 let historyStore = null;
 let snapshotUploadConsent = false;
-let telemetryContributorId = null;
+let snapshotAutomaticUpload = false;
+let snapshotAutomaticCapture = false;
+let telemetryClientId = null;
 let snapshotUploadPromise = null;
 let snapshotUploadAbortController = null;
 
@@ -92,28 +124,64 @@ function randomSnapshotDelay() {
   );
 }
 
-function telemetryEndpoint() {
+function configuredTelemetryEndpoint(value) {
   if (!TELEMETRY_UPLOAD_ENABLED) return null;
   try {
-    const parsed = new URL(TELEMETRY_UPLOAD_ENDPOINT);
-    return parsed.protocol === "https:" ? parsed : null;
+    const parsed = new URL(value);
+    if (parsed.username || parsed.password || parsed.hash) return null;
+    if (parsed.protocol === "https:") return parsed;
+    if (TELEMETRY_UPLOAD_ALLOW_INSECURE_HTTP && parsed.protocol === "http:") return parsed;
+    return null;
   } catch {
     return null;
   }
 }
 
+function telemetryEndpoint() {
+  return configuredTelemetryEndpoint(TELEMETRY_UPLOAD_ENDPOINT);
+}
+
+function telemetryIpEndpoint() {
+  const uploadEndpoint = telemetryEndpoint();
+  const ipEndpoint = configuredTelemetryEndpoint(TELEMETRY_IP_ADDRESS_ENDPOINT);
+  if (!uploadEndpoint || !ipEndpoint || uploadEndpoint.origin !== ipEndpoint.origin) return null;
+  return ipEndpoint;
+}
+
 function snapshotUploadingAvailable() {
-  return Boolean(telemetryEndpoint());
+  return Boolean(telemetryEndpoint() && telemetryIpEndpoint());
 }
 
 function publicSnapshotUploadState() {
   const endpoint = telemetryEndpoint();
+  const available = Boolean(endpoint && telemetryIpEndpoint());
   return {
-    available: Boolean(endpoint),
-    consent: Boolean(endpoint && snapshotUploadConsent),
+    available,
+    consent: Boolean(available && snapshotUploadConsent),
     endpointHost: endpoint?.hostname || null,
-    contributorIdPresent: Boolean(telemetryContributorId)
+    automatic: Boolean(snapshotAutomaticUpload),
+    clientIdPresent: Boolean(telemetryClientId),
+    contributorIdPresent: Boolean(telemetryClientId)
   };
+}
+
+function publicSnapshotCaptureState() {
+  return {
+    automatic: Boolean(snapshotAutomaticCapture),
+    minimumScore: SNAPSHOT_INTEREST_MINIMUM
+  };
+}
+
+async function initializeTelemetryClientId(storedValues = null) {
+  const identity = await ensureTelemetryClientIdentity({
+    storageArea: chrome.storage.local,
+    runtime: chrome.runtime,
+    navigatorObject: globalThis.navigator,
+    cryptoObject: globalThis.crypto,
+    storedValues
+  });
+  telemetryClientId = identity.clientId;
+  return identity;
 }
 
 function isExtensionPage(sender, filenames) {
@@ -194,6 +262,39 @@ function normalizeRestoredState(tabId, state) {
   state.loadCompletedAt ??= null;
   state.endedAt ??= null;
   state.active = state.active !== false && !Number.isFinite(state.endedAt);
+  const automaticSnapshot = state.automaticSnapshot;
+  if (
+    automaticSnapshot?.status === "captured" &&
+    typeof automaticSnapshot.snapshotId === "string" &&
+    automaticSnapshot.snapshotId
+  ) {
+    state.automaticSnapshot = {
+      status: "captured",
+      source: automaticSnapshot.source === "manual" ? "manual" : "automatic",
+      snapshotId: automaticSnapshot.snapshotId.slice(0, 100),
+      capturedAt: Number.isFinite(automaticSnapshot.capturedAt) ? automaticSnapshot.capturedAt : null,
+      attempts: Math.max(0, Math.min(3, Number(automaticSnapshot.attempts) || 0)),
+      lastError: null
+    };
+  } else if (automaticSnapshot?.status === "blocked") {
+    state.automaticSnapshot = {
+      status: "blocked",
+      source: null,
+      snapshotId: null,
+      capturedAt: null,
+      attempts: 0,
+      lastError: String(automaticSnapshot.lastError || "Automatic capture is unavailable for this visit").slice(0, 300)
+    };
+  } else {
+    state.automaticSnapshot = {
+      status: "idle",
+      source: null,
+      snapshotId: null,
+      capturedAt: null,
+      attempts: Math.max(0, Math.min(3, Number(automaticSnapshot?.attempts) || 0)),
+      lastError: null
+    };
+  }
   return state;
 }
 
@@ -201,6 +302,9 @@ function findingsFor(state) {
   const combined = [
     ...buildFindings(state),
     ...evaluateCustomIndicators(state, customIndicators, indicatorSettings),
+    ...(detectionDatabaseState.databaseEnabled
+      ? evaluateCustomIndicators(state, managedDetections, null)
+      : []),
     ...(trackerDatabaseState.databaseEnabled
       ? evaluateCustomIndicators(state, managedTrackers, null)
       : [])
@@ -265,6 +369,60 @@ function publicTrackerDatabaseState() {
     repository: TRACKER_DATABASE_REPOSITORY,
     intervalMinutes: TRACKER_UPDATE_INTERVAL_MINUTES,
     updateInProgress: Boolean(trackerSyncPromise)
+  };
+}
+
+function cleanDetectionLogEntry(value) {
+  return {
+    timestamp: Number.isFinite(value?.timestamp) ? value.timestamp : Date.now(),
+    trigger: String(value?.trigger || "automatic").slice(0, 24),
+    status: String(value?.status || "unknown").slice(0, 24),
+    message: String(value?.message || "").slice(0, 500),
+    detectionCount: Math.max(0, Number(value?.detectionCount) || 0),
+    added: Math.max(0, Number(value?.added) || 0),
+    updated: Math.max(0, Number(value?.updated) || 0),
+    removed: Math.max(0, Number(value?.removed) || 0),
+    skipped: Math.max(0, Number(value?.skipped) || 0),
+    warnings: Math.max(0, Number(value?.warnings) || 0),
+    revision: String(value?.revision || "").slice(0, 128)
+  };
+}
+
+function normalizeDetectionDatabaseState(value, detectionCount = 0) {
+  const state = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    databaseEnabled: state.databaseEnabled !== false,
+    autoUpdateEnabled: state.autoUpdateEnabled !== false,
+    detectionCount: Math.max(0, Number(state.detectionCount) || detectionCount || 0),
+    sourceCount: Math.max(0, Number(state.sourceCount) || detectionCount || 0),
+    skippedCount: Math.max(0, Number(state.skippedCount) || 0),
+    warningCount: Math.max(0, Number(state.warningCount) || 0),
+    lastCheckAt: Number.isFinite(state.lastCheckAt) ? state.lastCheckAt : null,
+    lastSuccessAt: Number.isFinite(state.lastSuccessAt) ? state.lastSuccessAt : null,
+    lastStatus: String(state.lastStatus || "not-checked").slice(0, 32),
+    lastError: String(state.lastError || "").slice(0, 500),
+    sourceRevision: String(state.sourceRevision || "").slice(0, 128),
+    sourceEtag: String(state.sourceEtag || "").slice(0, 160),
+    archiveSha256: String(state.archiveSha256 || "").slice(0, 64),
+    updateLog: Array.isArray(state.updateLog)
+      ? state.updateLog.slice(0, MAX_DETECTION_UPDATE_LOG).map(cleanDetectionLogEntry)
+      : []
+  };
+}
+
+function addDetectionUpdateLog(entry) {
+  detectionDatabaseState.updateLog = [
+    cleanDetectionLogEntry(entry),
+    ...detectionDatabaseState.updateLog
+  ].slice(0, MAX_DETECTION_UPDATE_LOG);
+}
+
+function publicDetectionDatabaseState() {
+  return {
+    ...detectionDatabaseState,
+    repository: DETECTION_DATABASE_REPOSITORY,
+    intervalMinutes: DETECTION_UPDATE_INTERVAL_MINUTES,
+    updateInProgress: Boolean(detectionSyncPromise)
   };
 }
 
@@ -349,6 +507,226 @@ function snapshotForEnabledIndicators(snapshot) {
   return filtered;
 }
 
+function cancelAutomaticSnapshotTimer(visitId) {
+  const timer = automaticSnapshotTimers.get(visitId);
+  if (timer) clearTimeout(timer);
+  automaticSnapshotTimers.delete(visitId);
+}
+
+function cancelAllAutomaticSnapshotTimers() {
+  for (const timer of automaticSnapshotTimers.values()) clearTimeout(timer);
+  automaticSnapshotTimers.clear();
+  for (const state of states.values()) {
+    if (state?.automaticSnapshot?.status === "scheduled") {
+      state.automaticSnapshot.status = "idle";
+    }
+  }
+  scheduleSessionPersist();
+}
+
+function maybeScheduleAutomaticSnapshot(tabId, state, delay = AUTOMATIC_SNAPSHOT_CAPTURE_DELAY_MS) {
+  if (
+    !snapshotAutomaticCapture ||
+    !Number.isInteger(tabId) ||
+    !state?.visitId ||
+    state.active === false ||
+    !isPublicTelemetryHostname(state.hostname)
+  ) return false;
+
+  const automaticSnapshot = state.automaticSnapshot || {};
+  if (
+    automaticSnapshot.status === "captured" ||
+    automaticSnapshot.status === "blocked" ||
+    automaticSnapshot.status === "scheduled" ||
+    automaticSnapshotTimers.has(state.visitId) ||
+    Number(automaticSnapshot.attempts || 0) >= 3
+  ) return false;
+
+  const interest = scoreTelemetryInterest(state, findingsFor(state));
+  if (!interest.eligible || interest.score < interest.minimumScore) return false;
+
+  const visitId = state.visitId;
+  state.automaticSnapshot = {
+    status: "scheduled",
+    source: null,
+    snapshotId: null,
+    capturedAt: null,
+    attempts: Math.max(0, Number(automaticSnapshot.attempts) || 0),
+    lastError: null
+  };
+  scheduleSessionPersist();
+
+  const timer = setTimeout(() => {
+    automaticSnapshotTimers.delete(visitId);
+    void queueTab(tabId, () => captureTelemetrySnapshotForTab(tabId, {
+      automatic: true,
+      expectedVisitId: visitId
+    })).then((result) => {
+      if (!result?.skipped) return;
+      return queueTab(tabId, async () => {
+        const current = states.get(tabId);
+        if (current?.visitId === visitId && current.automaticSnapshot?.status === "scheduled") {
+          current.automaticSnapshot.status = result.blocked ? "blocked" : "idle";
+          current.automaticSnapshot.lastError = result.reason || null;
+          scheduleSessionPersist();
+        }
+      });
+    })
+      .catch((error) => markAutomaticSnapshotFailure(tabId, visitId, error))
+      .catch((error) => console.error("Veilance could not update automatic snapshot state", error));
+  }, Math.max(0, Number(delay) || 0));
+  automaticSnapshotTimers.set(visitId, timer);
+  return true;
+}
+
+async function markAutomaticSnapshotFailure(tabId, visitId, error) {
+  await queueTab(tabId, async () => {
+    const state = states.get(tabId);
+    if (!state || state.visitId !== visitId || state.automaticSnapshot?.status === "captured") return;
+    const attempts = Math.max(0, Number(state.automaticSnapshot?.attempts) || 0) + 1;
+    state.automaticSnapshot = {
+      status: "failed",
+      source: null,
+      snapshotId: null,
+      capturedAt: null,
+      attempts,
+      lastError: String(error?.message || error).slice(0, 300)
+    };
+    scheduleSessionPersist();
+    if (snapshotAutomaticCapture && state.active !== false && attempts < 3) {
+      maybeScheduleAutomaticSnapshot(
+        tabId,
+        state,
+        AUTOMATIC_SNAPSHOT_CAPTURE_RETRY_DELAYS_MS[attempts - 1]
+      );
+    } else if (attempts >= 3) {
+      console.warn("Veilance could not create an automatic snapshot after three attempts", error);
+    }
+  });
+}
+
+async function captureTelemetrySnapshotForTab(tabId, options = {}) {
+  const automatic = options.automatic === true;
+  const expectedVisitId = typeof options.expectedVisitId === "string" ? options.expectedVisitId : null;
+  if (automatic && !snapshotAutomaticCapture) return { ok: true, skipped: true };
+
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch (error) {
+    if (automatic) return { ok: true, skipped: true };
+    throw error;
+  }
+  if (tab?.incognito) {
+    if (automatic) return {
+      ok: true,
+      skipped: true,
+      blocked: true,
+      reason: "Automatic snapshots are disabled in Incognito"
+    };
+    throw new Error("Telemetry snapshots are disabled in Incognito");
+  }
+  const page = safePageIdentity(tab?.url || "");
+  if (!page || !isPublicTelemetryHostname(page.hostname)) {
+    if (automatic) return {
+      ok: true,
+      skipped: true,
+      blocked: true,
+      reason: "Automatic snapshots are limited to public HTTP(S) websites"
+    };
+    throw new Error("Snapshots are limited to public HTTP(S) websites; private and internal hosts are excluded");
+  }
+
+  let state = states.get(tabId);
+  if (automatic) {
+    if (
+      !state ||
+      state.visitId !== expectedVisitId ||
+      state.active === false ||
+      state.origin !== page.origin ||
+      state.automaticSnapshot?.status === "captured"
+    ) return { ok: true, skipped: true };
+  } else if (!state || state.origin !== page.origin) {
+    state = await beginVisit(tabId, tab.url, { now: Date.now(), navigationId: newId() });
+  }
+
+  const initialFindings = findingsFor(state);
+  const initialInterest = scoreTelemetryInterest(state, initialFindings);
+  if (!initialInterest.eligible) {
+    if (automatic) return { ok: true, skipped: true };
+    throw new Error(
+      `Nothing notable enough to snapshot yet (${initialInterest.score}/100 interest; ` +
+      `${initialInterest.minimumScore}/100 required).`
+    );
+  }
+
+  const captured = await chrome.tabs.sendMessage(tabId, {
+    type: "VEILANCE_CAPTURE_REDACTED_DOCUMENT"
+  });
+  if (!captured?.ok || !captured.document) {
+    throw new Error(captured?.error || "The page did not return a redacted document");
+  }
+  if (
+    automatic &&
+    (!snapshotAutomaticCapture || states.get(tabId)?.visitId !== expectedVisitId)
+  ) return { ok: true, skipped: true };
+
+  const createdAt = Date.now();
+  const latestPageSnapshot = snapshotForEnabledIndicators(captured.pageSnapshot);
+  if (Object.keys(latestPageSnapshot).length) {
+    applyPageSnapshot(state, latestPageSnapshot, createdAt);
+    await saveState(tabId, state);
+  }
+  const snapshotId = newId();
+  const payload = buildTelemetrySnapshot(
+    state,
+    captured.document,
+    chrome.runtime.getManifest().version,
+    createdAt,
+    {
+      eventId: snapshotId,
+      trackers: trackerObservationsFor(state),
+      findings: findingsFor(state)
+    }
+  );
+  if (!validateTelemetrySnapshot(payload)) {
+    throw new Error("The snapshot failed Veilance's final safety validator");
+  }
+  if (
+    automatic &&
+    (!snapshotAutomaticCapture || states.get(tabId)?.visitId !== expectedVisitId)
+  ) return { ok: true, skipped: true };
+
+  await historyStore.upsertSnapshot({
+    snapshotId,
+    hostname: page.hostname,
+    createdAt,
+    payload
+  });
+  state.automaticSnapshot = {
+    status: "captured",
+    source: automatic ? "automatic" : "manual",
+    snapshotId,
+    capturedAt: createdAt,
+    attempts: automatic ? Math.max(0, Number(state.automaticSnapshot?.attempts) || 0) + 1 : 0,
+    lastError: null
+  };
+  cancelAutomaticSnapshotTimer(state.visitId);
+  scheduleSessionPersist();
+
+  if (snapshotAutomaticUpload && snapshotUploadConsent && snapshotUploadingAvailable()) {
+    await historyStore.updateSnapshotUpload(snapshotId, {
+      status: "queued",
+      nextAttemptAt: createdAt + randomSnapshotDelay(),
+      lastError: null
+    });
+    await configureSnapshotUploadAlarm();
+  }
+  await flushSnapshotQueueAtCapacity();
+  const snapshot = await historyStore.getSnapshot(snapshotId);
+  return { ok: true, snapshot: snapshot || { snapshotId, hostname: page.hostname, createdAt } };
+}
+
 const ready = (async () => {
   const [sessionStored, localStored, store] = await Promise.all([
     chrome.storage.session.get(SESSION_STORAGE_KEY).catch(() => ({})),
@@ -357,22 +735,23 @@ const ready = (async () => {
       CUSTOM_INDICATORS_KEY,
       MANAGED_TRACKERS_KEY,
       TRACKER_DATABASE_STATE_KEY,
+      MANAGED_DETECTIONS_KEY,
+      DETECTION_DATABASE_STATE_KEY,
       WALLET_STORAGE_KEY,
       SNAPSHOT_UPLOAD_CONSENT_KEY,
-      TELEMETRY_CONTRIBUTOR_ID_KEY
+      SNAPSHOT_AUTOMATIC_UPLOAD_KEY,
+      SNAPSHOT_AUTOMATIC_CAPTURE_KEY,
+      TELEMETRY_CLIENT_ID_STORAGE_KEY,
+      LEGACY_TELEMETRY_CONTRIBUTOR_ID_STORAGE_KEY
     ]),
     historyStoreReady
   ]);
 
   historyStore = store;
   snapshotUploadConsent = localStored?.[SNAPSHOT_UPLOAD_CONSENT_KEY] === true;
-  telemetryContributorId = typeof localStored?.[TELEMETRY_CONTRIBUTOR_ID_KEY] === "string"
-    ? localStored[TELEMETRY_CONTRIBUTOR_ID_KEY].slice(0, 128)
-    : null;
-  if (snapshotUploadConsent && snapshotUploadingAvailable() && !telemetryContributorId) {
-    telemetryContributorId = randomBytesHex(32);
-    await chrome.storage.local.set({ [TELEMETRY_CONTRIBUTOR_ID_KEY]: telemetryContributorId });
-  }
+  snapshotAutomaticUpload = localStored?.[SNAPSHOT_AUTOMATIC_UPLOAD_KEY] === true;
+  snapshotAutomaticCapture = localStored?.[SNAPSHOT_AUTOMATIC_CAPTURE_KEY] === true;
+  await initializeTelemetryClientId(localStored);
   await historyStore.recoverInterruptedSnapshotUploads();
   const savedCustom = localStored?.[CUSTOM_INDICATORS_KEY];
   customIndicators = Array.isArray(savedCustom) ? savedCustom.slice(0, 100) : [];
@@ -408,6 +787,17 @@ const ready = (async () => {
     await chrome.storage.local.set({ [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState });
   }
 
+  const savedManagedDetections = localStored?.[MANAGED_DETECTIONS_KEY];
+  managedDetections = Array.isArray(savedManagedDetections) ? savedManagedDetections.slice(0, 5000) : [];
+  detectionDatabaseState = normalizeDetectionDatabaseState(
+    localStored?.[DETECTION_DATABASE_STATE_KEY],
+    managedDetections.length
+  );
+  if (detectionDatabaseState.detectionCount !== managedDetections.length) {
+    detectionDatabaseState.detectionCount = managedDetections.length;
+    await chrome.storage.local.set({ [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState });
+  }
+
   const sessionValue = sessionStored?.[SESSION_STORAGE_KEY];
   if (sessionValue && typeof sessionValue === "object") {
     for (const [tabId, savedState] of Object.entries(sessionValue)) {
@@ -438,7 +828,11 @@ const ready = (async () => {
 
   if (pendingHistory.size) await flushHistory();
   await configureTrackerAlarm();
+  await configureDetectionAlarm();
   await configureSnapshotUploadAlarm();
+  if (snapshotAutomaticCapture) {
+    for (const [tabId, state] of states) maybeScheduleAutomaticSnapshot(tabId, state);
+  }
 })();
 
 async function configureTrackerAlarm() {
@@ -455,9 +849,23 @@ async function configureTrackerAlarm() {
   });
 }
 
+async function configureDetectionAlarm() {
+  if (!chrome.alarms) return;
+  if (!detectionDatabaseState.autoUpdateEnabled) {
+    await chrome.alarms.clear(DETECTION_UPDATE_ALARM);
+    return;
+  }
+  const existing = await chrome.alarms.get(DETECTION_UPDATE_ALARM);
+  if (existing?.periodInMinutes === DETECTION_UPDATE_INTERVAL_MINUTES) return;
+  chrome.alarms.create(DETECTION_UPDATE_ALARM, {
+    delayInMinutes: existing ? DETECTION_UPDATE_INTERVAL_MINUTES : 5,
+    periodInMinutes: DETECTION_UPDATE_INTERVAL_MINUTES
+  });
+}
+
 async function configureSnapshotUploadAlarm() {
   if (!chrome.alarms) return;
-  if (!snapshotUploadingAvailable() || !snapshotUploadConsent || !telemetryContributorId) {
+  if (!snapshotUploadingAvailable() || !snapshotUploadConsent || !telemetryClientId) {
     await chrome.alarms.clear(SNAPSHOT_UPLOAD_ALARM);
     return;
   }
@@ -477,32 +885,22 @@ function retryAt(attempts, now = Date.now()) {
   return now + Math.floor(delay * jitter);
 }
 
-async function encodedSnapshotBatch(records) {
-  const envelope = {
-    schemaVersion: "veilance.telemetry-snapshot-batch.v1",
+async function encodedSnapshotBatch(records, ipAddress) {
+  return buildTelemetryMultipartUpload({
+    records,
+    clientId: telemetryClientId,
+    walletAddress: wallet?.publicKey,
     batchId: newId(),
-    contributorId: telemetryContributorId,
-    observations: records.map((record) => record.payload)
-  };
-  const json = JSON.stringify(envelope);
-  if (typeof CompressionStream !== "function") {
-    return { body: json, headers: { "Content-Type": "application/json" } };
-  }
-  const compressed = new Blob([json], { type: "application/json" })
-    .stream()
-    .pipeThrough(new CompressionStream("gzip"));
-  return {
-    body: await new Response(compressed).arrayBuffer(),
-    headers: {
-      "Content-Type": "application/json",
-      "Content-Encoding": "gzip"
-    }
-  };
+    ipAddress
+  });
 }
 
 async function performSnapshotUploads(trigger = "scheduled") {
   const endpoint = telemetryEndpoint();
-  if (!endpoint || !snapshotUploadConsent || !telemetryContributorId) return { uploaded: 0, trigger };
+  const ipEndpoint = telemetryIpEndpoint();
+  if (!endpoint || !ipEndpoint || !snapshotUploadConsent || !telemetryClientId) {
+    return { uploaded: 0, trigger };
+  }
   const candidates = await historyStore.listDueSnapshotUploads(Date.now(), TELEMETRY_UPLOAD_BATCH_LIMIT);
   const due = [];
   let uncompressedBytes = 0;
@@ -542,42 +940,76 @@ async function performSnapshotUploads(trigger = "scheduled") {
     return { uploaded: 0, trigger };
   }
 
+  const batchesByDomain = new Map();
+  for (const record of valid) {
+    const domainName = normalizeHostname(record.payload?.site?.hostname);
+    const batch = batchesByDomain.get(domainName) || [];
+    batch.push(record);
+    batchesByDomain.set(domainName, batch);
+  }
+
+  const controller = new AbortController();
+  snapshotUploadAbortController = controller;
+  let uploaded = 0;
+  let firstError = null;
   try {
-    const request = await encodedSnapshotBatch(valid);
-    const controller = new AbortController();
-    snapshotUploadAbortController = controller;
-    const response = await fetch(endpoint.href, {
-      method: "POST",
-      headers: request.headers,
-      body: request.body,
-      credentials: "omit",
-      cache: "no-store",
-      redirect: "error",
-      referrerPolicy: "no-referrer",
-      signal: controller.signal
-    });
-    if (!response.ok) throw new Error(`Snapshot API returned HTTP ${response.status}`);
-    const uploadedAt = Date.now();
-    for (const record of valid) {
-      await historyStore.updateSnapshotUpload(record.snapshotId, {
-        status: "uploaded",
-        nextAttemptAt: null,
-        uploadedAt,
-        lastError: null
+    let ipAddress;
+    try {
+      ipAddress = await fetchTelemetryIpAddress({
+        endpoint: ipEndpoint.href,
+        signal: controller.signal
       });
+    } catch (error) {
+      const message = String(error?.message || error).slice(0, 500);
+      const now = Date.now();
+      for (const record of valid) {
+        await historyStore.updateSnapshotUpload(record.snapshotId, {
+          status: "failed",
+          nextAttemptAt: retryAt(record.nextAttempts, now),
+          lastError: message
+        });
+      }
+      throw error;
     }
-    return { uploaded: valid.length, trigger };
-  } catch (error) {
-    const message = String(error?.message || error).slice(0, 500);
-    const now = Date.now();
-    for (const record of valid) {
-      await historyStore.updateSnapshotUpload(record.snapshotId, {
-        status: "failed",
-        nextAttemptAt: retryAt(record.nextAttempts, now),
-        lastError: message
-      });
+
+    for (const records of batchesByDomain.values()) {
+      try {
+        const request = await encodedSnapshotBatch(records, ipAddress);
+        const response = await fetch(endpoint.href, {
+          method: "POST",
+          body: request.body,
+          credentials: "omit",
+          cache: "no-store",
+          redirect: "error",
+          referrerPolicy: "no-referrer",
+          signal: controller.signal
+        });
+        await requireSuccessfulTelemetryUpload(response);
+        const uploadedAt = Date.now();
+        for (const record of records) {
+          await historyStore.updateSnapshotUpload(record.snapshotId, {
+            status: "uploaded",
+            nextAttemptAt: null,
+            uploadedAt,
+            lastError: null
+          });
+        }
+        uploaded += records.length;
+      } catch (error) {
+        firstError ||= error;
+        const message = String(error?.message || error).slice(0, 500);
+        const now = Date.now();
+        for (const record of records) {
+          await historyStore.updateSnapshotUpload(record.snapshotId, {
+            status: "failed",
+            nextAttemptAt: retryAt(record.nextAttempts, now),
+            lastError: message
+          });
+        }
+      }
     }
-    throw error;
+    if (firstError) throw firstError;
+    return { uploaded, trigger };
   } finally {
     snapshotUploadAbortController = null;
     await configureSnapshotUploadAlarm();
@@ -592,10 +1024,28 @@ function uploadDueSnapshots(trigger = "scheduled") {
   return snapshotUploadPromise;
 }
 
-async function refreshTrackerFindings() {
+async function flushSnapshotQueueAtCapacity() {
+  if (!snapshotUploadingAvailable() || !snapshotUploadConsent) return;
+  const { snapshotCount, maximumSnapshots } = await historyStore.info();
+  if (snapshotCount <= maximumSnapshots) return;
+
+  const expedited = await historyStore.expediteQueuedSnapshotUploads(Date.now());
+  if (!expedited) return;
+
+  try {
+    await uploadDueSnapshots("capacity");
+  } catch (error) {
+    console.warn("Veilance capacity-triggered snapshot upload failed", error);
+  } finally {
+    await historyStore.pruneSnapshots();
+  }
+}
+
+async function refreshManagedFindings() {
   for (const [tabId, state] of states) {
     scheduleHistory(state);
     await updateBadge(tabId, state);
+    maybeScheduleAutomaticSnapshot(tabId, state);
   }
 }
 
@@ -670,7 +1120,7 @@ async function performTrackerSync(trigger) {
       [MANAGED_TRACKERS_KEY]: managedTrackers,
       [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState
     });
-    await refreshTrackerFindings();
+    await refreshManagedFindings();
     return publicTrackerDatabaseState();
   } catch (error) {
     trackerDatabaseState.lastCheckAt = checkedAt;
@@ -697,6 +1147,110 @@ function syncTrackerDatabase(trigger = "automatic") {
     trackerSyncPromise = null;
   });
   return trackerSyncPromise;
+}
+
+function detectionUpdateMessage(parsed, changes) {
+  const changeText = `${changes.added} added, ${changes.updated} updated, ${changes.removed} removed`;
+  const validationText = parsed.skippedCount || parsed.warningCount
+    ? ` ${parsed.skippedCount} skipped; ${parsed.warningCount} warnings.`
+    : "";
+  return `${parsed.indicators.length.toLocaleString()} detections active (${changeText}).${validationText}`;
+}
+
+async function performDetectionSync(trigger) {
+  const checkedAt = Date.now();
+  try {
+    const downloaded = await fetchJsonDatabaseArchive(
+      DETECTION_DATABASE_ARCHIVE,
+      DETECTION_DATABASE_FOLDER
+    );
+    if (downloaded.archiveSha256 === detectionDatabaseState.archiveSha256) {
+      detectionDatabaseState.lastCheckAt = checkedAt;
+      detectionDatabaseState.lastSuccessAt = checkedAt;
+      detectionDatabaseState.lastStatus = "up-to-date";
+      detectionDatabaseState.lastError = "";
+      addDetectionUpdateLog({
+        timestamp: checkedAt,
+        trigger,
+        status: "up-to-date",
+        message: `${managedDetections.length.toLocaleString()} detections are already current.`,
+        detectionCount: managedDetections.length,
+        skipped: detectionDatabaseState.skippedCount,
+        warnings: detectionDatabaseState.warningCount,
+        revision: detectionDatabaseState.sourceRevision
+      });
+      await chrome.storage.local.set({ [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState });
+      return publicDetectionDatabaseState();
+    }
+
+    const parsed = parseManagedDetectionDocuments(downloaded.documents);
+    if (!parsed.indicators.length) throw new Error("The detection update contained no usable detection records");
+    if (parsed.errorCount > Math.max(10, Math.floor(parsed.sourceCount * 0.05))) {
+      throw new Error(`Detection update rejected because ${parsed.errorCount} records failed validation`);
+    }
+    if (managedDetections.length >= 20 && parsed.indicators.length < managedDetections.length / 2) {
+      throw new Error("Detection update rejected because it would remove more than half of the active database");
+    }
+
+    const changes = diffTrackerSets(managedDetections, parsed.indicators);
+    managedDetections = parsed.indicators;
+    const changed = changes.added > 0 || changes.updated > 0 || changes.removed > 0;
+    detectionDatabaseState = normalizeDetectionDatabaseState({
+      ...detectionDatabaseState,
+      detectionCount: managedDetections.length,
+      sourceCount: parsed.sourceCount,
+      skippedCount: parsed.skippedCount,
+      warningCount: parsed.warningCount,
+      lastCheckAt: checkedAt,
+      lastSuccessAt: checkedAt,
+      lastStatus: changed ? "updated" : "up-to-date",
+      lastError: "",
+      sourceRevision: downloaded.archiveSha256,
+      sourceEtag: downloaded.etag,
+      archiveSha256: downloaded.archiveSha256
+    }, managedDetections.length);
+    addDetectionUpdateLog({
+      timestamp: checkedAt,
+      trigger,
+      status: changed ? "updated" : "up-to-date",
+      message: detectionUpdateMessage(parsed, changes),
+      detectionCount: managedDetections.length,
+      ...changes,
+      skipped: parsed.skippedCount,
+      warnings: parsed.warningCount,
+      revision: downloaded.archiveSha256
+    });
+    await chrome.storage.local.set({
+      [MANAGED_DETECTIONS_KEY]: managedDetections,
+      [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState
+    });
+    await refreshManagedFindings();
+    return publicDetectionDatabaseState();
+  } catch (error) {
+    detectionDatabaseState.lastCheckAt = checkedAt;
+    detectionDatabaseState.lastStatus = "error";
+    detectionDatabaseState.lastError = String(error?.message || error).slice(0, 500);
+    addDetectionUpdateLog({
+      timestamp: checkedAt,
+      trigger,
+      status: "error",
+      message: detectionDatabaseState.lastError,
+      detectionCount: managedDetections.length,
+      skipped: detectionDatabaseState.skippedCount,
+      warnings: detectionDatabaseState.warningCount,
+      revision: detectionDatabaseState.sourceRevision
+    });
+    await chrome.storage.local.set({ [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState });
+    throw error;
+  }
+}
+
+function syncDetectionDatabase(trigger = "automatic") {
+  if (detectionSyncPromise) return detectionSyncPromise;
+  detectionSyncPromise = performDetectionSync(trigger).finally(() => {
+    detectionSyncPromise = null;
+  });
+  return detectionSyncPromise;
 }
 
 function scheduleSessionPersist() {
@@ -768,11 +1322,13 @@ async function saveState(tabId, state, options = {}) {
     scheduleHistory(state);
   }
   await updateBadge(tabId, state);
+  maybeScheduleAutomaticSnapshot(tabId, state);
 }
 
 async function finalizeState(tabId, now = Date.now()) {
   const state = states.get(tabId);
   if (!state) return null;
+  cancelAutomaticSnapshotTimer(state.visitId);
   if (state.active !== false) completeVisit(state, now);
   await saveState(tabId, state, { immediateHistory: true });
   return state;
@@ -780,6 +1336,7 @@ async function finalizeState(tabId, now = Date.now()) {
 
 async function beginVisit(tabId, url, metadata = {}) {
   const existing = states.get(tabId);
+  if (existing?.visitId) cancelAutomaticSnapshotTimer(existing.visitId);
   if (existing?.active !== false) await finalizeState(tabId, metadata.now || Date.now());
   const state = createEmptyState(tabId, url, metadata.now || Date.now(), {
     visitId: newId(),
@@ -850,6 +1407,12 @@ if (chrome.alarms?.onAlarm) {
       void ready
         .then(() => trackerDatabaseState.autoUpdateEnabled && syncTrackerDatabase("scheduled"))
         .catch((error) => console.error("Veilance tracker update failed", error));
+      return;
+    }
+    if (alarm?.name === DETECTION_UPDATE_ALARM) {
+      void ready
+        .then(() => detectionDatabaseState.autoUpdateEnabled && syncDetectionDatabase("scheduled"))
+        .catch((error) => console.error("Veilance detection update failed", error));
       return;
     }
     if (alarm?.name === SNAPSHOT_UPLOAD_ALARM) {
@@ -995,7 +1558,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await waitForTab(tabId);
         const state = states.get(tabId) || null;
         const { findings, summary, interest } = summaryFor(state);
-        return { ok: true, state, findings, summary, interest };
+        return {
+          ok: true,
+          state,
+          findings,
+          summary,
+          interest,
+          snapshotCapture: publicSnapshotCaptureState()
+        };
       }
 
       case "VEILANCE_GET_PAYLOAD": {
@@ -1012,63 +1582,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!isExtensionPage(sender, ["popup.html"])) {
           throw new Error("Telemetry snapshots can be captured only from the Veilance popup");
         }
+        if (snapshotAutomaticCapture) {
+          throw new Error("Automatic snapshots are enabled. Disable them in Settings to take a snapshot manually.");
+        }
         const tabId = Number(message.tabId);
         if (!Number.isInteger(tabId) || tabId < 0) throw new Error("Choose a website tab before taking a snapshot");
-        const tab = await chrome.tabs.get(tabId);
-        if (tab?.incognito) throw new Error("Telemetry snapshots are disabled in Incognito");
-        const page = safePageIdentity(tab?.url || "");
-        if (!page || !isPublicTelemetryHostname(page.hostname)) {
-          throw new Error("Snapshots are limited to public HTTP(S) websites; private and internal hosts are excluded");
-        }
-        return queueTab(tabId, async () => {
-          let state = states.get(tabId);
-          if (!state || state.origin !== page.origin) {
-            state = await beginVisit(tabId, tab.url, { now: Date.now(), navigationId: newId() });
-          }
-          const initialFindings = findingsFor(state);
-          const initialInterest = scoreTelemetryInterest(state, initialFindings);
-          if (!initialInterest.eligible) {
-            throw new Error(
-              `Nothing notable enough to snapshot yet (${initialInterest.score}/100 interest; ` +
-              `${initialInterest.minimumScore}/100 required).`
-            );
-          }
-          const captured = await chrome.tabs.sendMessage(tabId, {
-            type: "VEILANCE_CAPTURE_REDACTED_DOCUMENT"
-          });
-          if (!captured?.ok || !captured.document) {
-            throw new Error(captured?.error || "The page did not return a redacted document");
-          }
-          const createdAt = Date.now();
-          const latestPageSnapshot = snapshotForEnabledIndicators(captured.pageSnapshot);
-          if (Object.keys(latestPageSnapshot).length) {
-            applyPageSnapshot(state, latestPageSnapshot, createdAt);
-            await saveState(tabId, state);
-          }
-          const snapshotId = newId();
-          const payload = buildTelemetrySnapshot(
-            state,
-            captured.document,
-            chrome.runtime.getManifest().version,
-            createdAt,
-            {
-              eventId: snapshotId,
-              trackers: trackerObservationsFor(state),
-              findings: findingsFor(state)
-            }
-          );
-          if (!validateTelemetrySnapshot(payload)) {
-            throw new Error("The snapshot failed Veilance's final safety validator");
-          }
-          await historyStore.upsertSnapshot({
-            snapshotId,
-            hostname: page.hostname,
-            createdAt,
-            payload
-          });
-          const snapshots = await historyStore.listSnapshotSummaries(1);
-          return { ok: true, snapshot: snapshots[0] || { snapshotId, hostname: page.hostname, createdAt } };
-        });
+        return queueTab(tabId, () => captureTelemetrySnapshotForTab(tabId));
       }
 
       case "VEILANCE_CLEAR_STATE": {
@@ -1083,6 +1602,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // Retain the last safe origin if the tab is already gone.
           }
           if (previous?.visitId) {
+            cancelAutomaticSnapshotTimer(previous.visitId);
             pendingHistory.delete(previous.visitId);
             await historyStore.delete(previous.visitId);
           }
@@ -1109,6 +1629,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case "VEILANCE_DELETE_VISIT": {
         const visitId = String(message.visitId || "");
+        cancelAutomaticSnapshotTimer(visitId);
         pendingHistory.delete(visitId);
         const matchingTabs = [...states.entries()]
           .filter(([, state]) => state.visitId === visitId)
@@ -1159,6 +1680,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await configureSnapshotUploadAlarm();
         return { ok: true };
 
+      case "VEILANCE_SET_AUTOMATIC_SNAPSHOT_CAPTURE": {
+        if (!isSettingsPage(sender)) throw new Error("Automatic snapshot capture is available only from Veilance Settings");
+        snapshotAutomaticCapture = Boolean(message.enabled);
+        await chrome.storage.local.set({ [SNAPSHOT_AUTOMATIC_CAPTURE_KEY]: snapshotAutomaticCapture });
+        let scheduled = 0;
+        if (snapshotAutomaticCapture) {
+          for (const [tabId, state] of states) {
+            if (maybeScheduleAutomaticSnapshot(tabId, state)) scheduled += 1;
+          }
+        } else {
+          cancelAllAutomaticSnapshotTimers();
+        }
+        return { ok: true, scheduled, snapshotCapture: publicSnapshotCaptureState() };
+      }
+
       case "VEILANCE_SET_SNAPSHOT_UPLOAD_CONSENT": {
         if (!isSettingsPage(sender)) throw new Error("Snapshot upload consent is available only from Veilance Settings");
         const enabled = Boolean(message.enabled);
@@ -1167,13 +1703,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         snapshotUploadConsent = enabled;
         if (!enabled) snapshotUploadAbortController?.abort();
-        if (enabled && !telemetryContributorId) telemetryContributorId = randomBytesHex(32);
-        await chrome.storage.local.set({
-          [SNAPSHOT_UPLOAD_CONSENT_KEY]: snapshotUploadConsent,
-          ...(telemetryContributorId ? { [TELEMETRY_CONTRIBUTOR_ID_KEY]: telemetryContributorId } : {})
-        });
+        if (enabled && !telemetryClientId) await initializeTelemetryClientId();
+        await chrome.storage.local.set({ [SNAPSHOT_UPLOAD_CONSENT_KEY]: snapshotUploadConsent });
+        if (enabled && snapshotAutomaticUpload) {
+          await historyStore.queueAllSnapshots(Date.now() + randomSnapshotDelay());
+        }
         await configureSnapshotUploadAlarm();
         return { ok: true, snapshotUpload: publicSnapshotUploadState() };
+      }
+
+      case "VEILANCE_SET_AUTOMATIC_SNAPSHOT_UPLOAD": {
+        if (!isSettingsPage(sender)) throw new Error("Automatic uploads are available only from Veilance Settings");
+        const enabled = Boolean(message.enabled);
+        if (enabled && !snapshotUploadingAvailable()) {
+          throw new Error("Telemetry uploading is disabled in this build");
+        }
+        if (enabled && !snapshotUploadConsent) {
+          throw new Error("Allow pseudonymous snapshot uploads before enabling automatic uploads");
+        }
+        snapshotAutomaticUpload = enabled;
+        await chrome.storage.local.set({ [SNAPSHOT_AUTOMATIC_UPLOAD_KEY]: snapshotAutomaticUpload });
+        const queued = enabled
+          ? await historyStore.queueAllSnapshots(Date.now() + randomSnapshotDelay())
+          : 0;
+        await configureSnapshotUploadAlarm();
+        return { ok: true, queued, snapshotUpload: publicSnapshotUploadState() };
       }
 
       case "VEILANCE_QUEUE_TELEMETRY_SNAPSHOT": {
@@ -1206,6 +1760,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return { ok: true, queued, nextAttemptAt };
       }
 
+      case "VEILANCE_UPLOAD_TELEMETRY_NOW": {
+        if (!isSettingsPage(sender)) throw new Error("Immediate uploads are available only from Veilance Settings");
+        if (!snapshotUploadingAvailable()) throw new Error("Telemetry uploading is disabled in this build");
+        if (!snapshotUploadConsent) throw new Error("Enable snapshot upload consent before uploading");
+        const queued = await historyStore.queueAllSnapshots(Date.now(), { includeQueued: true });
+        const result = await uploadDueSnapshots("manual");
+        return { ok: true, queued, uploaded: result?.uploaded || 0 };
+      }
+
       case "VEILANCE_GET_SETTINGS":
         return {
           ok: true,
@@ -1213,9 +1776,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           customIndicators,
           indicatorSettings,
           trackerDatabase: publicTrackerDatabaseState(),
+          detectionDatabase: publicDetectionDatabaseState(),
           wallet: publicWalletRecord(wallet),
           walletError,
           database: await historyStore.info(),
+          snapshotCapture: publicSnapshotCaptureState(),
           snapshotUpload: publicSnapshotUploadState()
         };
 
@@ -1238,7 +1803,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!isSettingsPage(sender)) throw new Error("Tracker database controls are available only from Veilance Settings");
         trackerDatabaseState.databaseEnabled = Boolean(message.enabled);
         await chrome.storage.local.set({ [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState });
-        await refreshTrackerFindings();
+        await refreshManagedFindings();
         return { ok: true, trackerDatabase: publicTrackerDatabaseState() };
 
       case "VEILANCE_SET_TRACKER_AUTO_UPDATE":
@@ -1252,6 +1817,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!isSettingsPage(sender)) throw new Error("Tracker updates are available only from Veilance Settings");
         await syncTrackerDatabase("manual");
         return { ok: true, trackerDatabase: publicTrackerDatabaseState() };
+
+      case "VEILANCE_SET_DETECTION_DATABASE_ENABLED":
+        if (!isSettingsPage(sender)) throw new Error("Detection database controls are available only from Veilance Settings");
+        detectionDatabaseState.databaseEnabled = Boolean(message.enabled);
+        await chrome.storage.local.set({ [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState });
+        await refreshManagedFindings();
+        return { ok: true, detectionDatabase: publicDetectionDatabaseState() };
+
+      case "VEILANCE_SET_DETECTION_AUTO_UPDATE":
+        if (!isSettingsPage(sender)) throw new Error("Detection update controls are available only from Veilance Settings");
+        detectionDatabaseState.autoUpdateEnabled = Boolean(message.enabled);
+        await chrome.storage.local.set({ [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState });
+        await configureDetectionAlarm();
+        return { ok: true, detectionDatabase: publicDetectionDatabaseState() };
+
+      case "VEILANCE_CHECK_DETECTION_UPDATES":
+        if (!isSettingsPage(sender)) throw new Error("Detection updates are available only from Veilance Settings");
+        await syncDetectionDatabase("manual");
+        return { ok: true, detectionDatabase: publicDetectionDatabaseState() };
 
       case "VEILANCE_IMPORT_INDICATORS": {
         const parsed = parseIndicatorDocuments(message.documents);
@@ -1309,6 +1893,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.runtime.onInstalled.addListener(() => {
   void ready.then(async () => {
     console.info(`Veilance v${chrome.runtime.getManifest().version} installed. Collection and history remain local.`);
-    if (trackerDatabaseState.autoUpdateEnabled) await syncTrackerDatabase("install");
-  }).catch((error) => console.error("Veilance install-time tracker update failed", error));
+    if (trackerDatabaseState.autoUpdateEnabled) {
+      await syncTrackerDatabase("install").catch((error) => {
+        console.error("Veilance install-time tracker update failed", error);
+      });
+    }
+    if (detectionDatabaseState.autoUpdateEnabled) {
+      await syncDetectionDatabase("install").catch((error) => {
+        console.error("Veilance install-time detection update failed", error);
+      });
+    }
+  }).catch((error) => console.error("Veilance install initialization failed", error));
 });

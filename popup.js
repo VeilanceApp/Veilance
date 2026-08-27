@@ -1,12 +1,34 @@
+import {
+  initializeTheme,
+  subscribeToTheme,
+  toggleResolvedTheme
+} from "./lib/theme.js";
+import {
+  OVERVIEW_ACTIVITY_BASELINE,
+  classifyOverviewActivity
+} from "./lib/overview-baselines.js";
+
 const elements = {
+  themeToggle: document.querySelector("#themeToggle"),
   liveState: document.querySelector("#liveState"),
   hostname: document.querySelector("#hostname"),
   statusPill: document.querySelector("#statusPill"),
+  statusPillText: document.querySelector("#statusPillText"),
   visitTiming: document.querySelector("#visitTiming"),
+  liveMessage: document.querySelector("#liveMessage"),
   thirdPartyHosts: document.querySelector("#thirdPartyHosts"),
+  thirdPartyHostsCard: document.querySelector("#thirdPartyHostsCard"),
+  thirdPartyHostsLevel: document.querySelector("#thirdPartyHostsLevel"),
   requestCount: document.querySelector("#requestCount"),
+  requestCountCard: document.querySelector("#requestCountCard"),
+  requestCountLevel: document.querySelector("#requestCountLevel"),
   signalCount: document.querySelector("#signalCount"),
+  signalCountCard: document.querySelector("#signalCountCard"),
+  signalCountLevel: document.querySelector("#signalCountLevel"),
   storageCount: document.querySelector("#storageCount"),
+  storageCountCard: document.querySelector("#storageCountCard"),
+  storageCountLevel: document.querySelector("#storageCountLevel"),
+  findingsPanel: document.querySelector("#findingsPanel"),
   findingCount: document.querySelector("#findingCount"),
   findings: document.querySelector("#findings"),
   liveDetailPanel: document.querySelector("#liveDetailPanel"),
@@ -21,6 +43,12 @@ const elements = {
   refreshButton: document.querySelector("#refreshButton"),
   settingsButton: document.querySelector("#settingsButton"),
   liveView: document.querySelector("#liveView"),
+  liveDashboard: document.querySelector("#liveDashboard"),
+  unsupportedPage: document.querySelector("#unsupportedPage"),
+  unsupportedKind: document.querySelector("#unsupportedKind"),
+  unsupportedDescription: document.querySelector("#unsupportedDescription"),
+  unsupportedRetryButton: document.querySelector("#unsupportedRetryButton"),
+  unsupportedSettingsButton: document.querySelector("#unsupportedSettingsButton"),
   historyView: document.querySelector("#historyView"),
   historyBadge: document.querySelector("#historyBadge"),
   historyList: document.querySelector("#historyList"),
@@ -36,8 +64,32 @@ let activeTabId = null;
 let activeView = "live";
 let currentLiveState = null;
 let currentLiveFindings = [];
-let currentLiveInterest = { score: 0, level: "routine", minimumScore: 20, eligible: false, reasons: [] };
+let currentLiveInterest = { score: 0, level: "routine", minimumScore: 25, eligible: false, reasons: [] };
 let snapshotCaptureBusy = false;
+let automaticSnapshotCaptureEnabled = false;
+
+const overviewMetricElements = Object.freeze({
+  thirdPartyHosts: {
+    value: elements.thirdPartyHosts,
+    card: elements.thirdPartyHostsCard,
+    level: elements.thirdPartyHostsLevel
+  },
+  requests: {
+    value: elements.requestCount,
+    card: elements.requestCountCard,
+    level: elements.requestCountLevel
+  },
+  apiSignals: {
+    value: elements.signalCount,
+    card: elements.signalCountCard,
+    level: elements.signalCountLevel
+  },
+  storageEvents: {
+    value: elements.storageCount,
+    card: elements.storageCountCard,
+    level: elements.storageCountLevel
+  }
+});
 
 async function send(message) {
   const response = await chrome.runtime.sendMessage(message);
@@ -58,6 +110,74 @@ function totalStorageEvents(state) {
   return Object.values(state?.signals || {})
     .filter((signal) => signal.indicatorId === "browser-storage" || signal.kind === "storage")
     .reduce((sum, signal) => sum + Number(signal.count || 0), 0);
+}
+
+function renderOverviewMetrics(values = {}, availability = "available") {
+  for (const [metricName, metricElements] of Object.entries(overviewMetricElements)) {
+    metricElements.card.classList.remove("metric-high");
+
+    if (availability !== "available") {
+      metricElements.value.textContent = "0";
+      metricElements.level.className = `metric-level ${availability}`;
+      metricElements.level.textContent = availability === "pending" ? "Checking" : "Unavailable";
+      metricElements.level.setAttribute(
+        "aria-label",
+        availability === "pending" ? "Activity comparison is loading" : "Activity comparison is unavailable"
+      );
+      metricElements.card.title = "Activity volume comparison is unavailable.";
+      continue;
+    }
+
+    const result = classifyOverviewActivity(metricName, values[metricName]);
+    metricElements.value.textContent = String(result.count);
+    metricElements.level.className = `metric-level ${result.level}`;
+    metricElements.level.textContent = result.label;
+    metricElements.level.setAttribute("aria-label", result.description);
+    metricElements.card.classList.toggle("metric-high", result.isHigh);
+    metricElements.card.title = `${result.description} Longer visits can accumulate more activity.`;
+  }
+}
+
+function findingCountLabel(count) {
+  const normalizedCount = Math.max(0, Math.floor(Number(count) || 0));
+  return `${normalizedCount} ${normalizedCount === 1 ? "finding" : "findings"}`;
+}
+
+function renderFindingCount(count) {
+  const label = findingCountLabel(count);
+  elements.findingCount.textContent = label;
+  elements.findingCount.setAttribute("aria-label", label);
+}
+
+function renderStatus(summary, findings = []) {
+  const highFindings = findings.filter((finding) => finding.severity === "high");
+  let label = summary?.label || "Observing locally";
+  if (highFindings.length === 1) {
+    label = `Sensitive: ${highFindings[0].title}`;
+  } else if (highFindings.length > 1) {
+    label = `${highFindings.length} sensitive findings · ${highFindings[0].title}`;
+  }
+
+  elements.statusPill.className = `status ${summary?.status || "quiet"}`;
+  elements.statusPill.classList.toggle("has-findings", findings.length > 0);
+  elements.statusPillText.textContent = label;
+  elements.statusPill.disabled = findings.length === 0;
+  const findingPreview = findings.slice(0, 3).map((finding) => finding.title).join(", ");
+  const remainingFindingCount = Math.max(0, findings.length - 3);
+  elements.statusPill.title = findings.length
+    ? `View ${findingCountLabel(findings.length)}: ${findingPreview}${remainingFindingCount ? `, and ${remainingFindingCount} more` : ""}`
+    : label;
+  elements.statusPill.setAttribute(
+    "aria-label",
+    findings.length ? `${label}. View ${findingCountLabel(findings.length)}.` : label
+  );
+}
+
+function showCurrentFindings() {
+  if (!currentLiveFindings.length) return;
+  const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  elements.findingsPanel.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+  requestAnimationFrame(() => elements.findings.querySelector(".finding")?.focus({ preventScroll: true }));
 }
 
 function formatDateTime(value) {
@@ -107,7 +227,7 @@ function displayValue(value) {
 
 function findingMarkup(finding) {
   return `
-    <article class="finding">
+    <article class="finding" tabindex="-1">
       <div class="finding-title">
         <span class="severity ${escapeHtml(finding.severity)}">${escapeHtml(finding.severity)}</span>
         <strong>${escapeHtml(finding.title)}</strong>
@@ -128,7 +248,7 @@ function renderFindings(container, findings, emptyText) {
 
 function renderSnapshotInterest(value) {
   const score = Math.max(0, Math.min(100, Math.floor(Number(value?.score) || 0)));
-  const minimumScore = Math.max(1, Math.min(100, Math.floor(Number(value?.minimumScore) || 20)));
+  const minimumScore = Math.max(1, Math.min(100, Math.floor(Number(value?.minimumScore) || 25)));
   const level = ["routine", "interesting", "high", "critical"].includes(value?.level)
     ? value.level
     : "routine";
@@ -139,14 +259,48 @@ function renderSnapshotInterest(value) {
     eligible: value?.eligible === true && score >= minimumScore,
     reasons: Array.isArray(value?.reasons) ? value.reasons : []
   };
-  elements.snapshotInterest.className = `interest-meter ${level}`;
+  elements.snapshotInterest.className = `interest-meter ${level}${currentLiveInterest.eligible ? " ready" : ""}`;
+  elements.snapshotInterest.style.setProperty("--interest-progress", `${score}%`);
   elements.snapshotInterestScore.textContent = String(score);
   elements.snapshotInterestLabel.textContent = currentLiveInterest.eligible
-    ? `${level} · ready`
-    : `${minimumScore - score} more needed`;
+    ? "Ready to save"
+    : `${minimumScore - score} ${minimumScore - score === 1 ? "point" : "points"} until ready`;
+  elements.snapshotInterest.setAttribute("aria-valuenow", String(score));
+  elements.snapshotInterest.setAttribute(
+    "aria-valuetext",
+    currentLiveInterest.eligible
+      ? `${score} out of 100. Ready to save.`
+      : `${score} out of 100. ${minimumScore - score} points until ready.`
+  );
   elements.snapshotInterest.title = currentLiveInterest.reasons.length
     ? currentLiveInterest.reasons.map((reason) => `${reason.id}: +${reason.points}`).join("\n")
     : "No notable activity has contributed to the score yet.";
+}
+
+function renderSnapshotButtonState() {
+  elements.snapshotButton.disabled =
+    automaticSnapshotCaptureEnabled ||
+    !currentLiveState ||
+    snapshotCaptureBusy ||
+    !currentLiveInterest.eligible;
+
+  if (automaticSnapshotCaptureEnabled) {
+    elements.snapshotButton.title = "Automatic snapshots are enabled. Disable them in Settings to take snapshots manually.";
+    if (!snapshotCaptureBusy) {
+      elements.snapshotStatus.classList.remove("error");
+      elements.snapshotStatus.dataset.automaticCaptureNotice = "true";
+      elements.snapshotStatus.textContent = "Automatic snapshots are enabled. Disable them in Settings to save one manually.";
+    }
+    return;
+  }
+
+  elements.snapshotButton.title = currentLiveInterest.eligible
+    ? `Capture this ${currentLiveInterest.score}/100 interest visit`
+    : `Snapshots require ${currentLiveInterest.minimumScore}/100 interest`;
+  if (elements.snapshotStatus.dataset.automaticCaptureNotice === "true") {
+    delete elements.snapshotStatus.dataset.automaticCaptureNotice;
+    elements.snapshotStatus.textContent = "";
+  }
 }
 
 function keyGridMarkup(values) {
@@ -203,7 +357,7 @@ function telemetryDetailsMarkup(state) {
 
   return `
     <section class="detail-block">
-      <div class="detail-block-head"><h3>Visit timeline</h3><span>${state.active === false ? "COMPLETE" : "ACTIVE"}</span></div>
+      <div class="detail-block-head"><h3>Visit timeline</h3><span>${state.active === false ? "Complete" : "Active"}</span></div>
       ${keyGridMarkup([
         ["Started", formatDateTime(state.startedAt)],
         ["Page load completed", formatDateTime(state.loadCompletedAt)],
@@ -212,7 +366,7 @@ function telemetryDetailsMarkup(state) {
       ])}
     </section>
     <section class="detail-block">
-      <div class="detail-block-head"><h3>Network contacts</h3><span>${hosts.length} HOSTS</span></div>
+      <div class="detail-block-head"><h3>Network contacts</h3><span>${hosts.length} host${hosts.length === 1 ? "" : "s"}</span></div>
       ${keyGridMarkup([
         ["Total requests", state.network?.totalRequests || 0],
         ["First-party", state.network?.firstPartyRequests || 0],
@@ -223,15 +377,15 @@ function telemetryDetailsMarkup(state) {
       ${dataRowsMarkup(hosts, "No network hosts were observed for this visit.")}
     </section>
     <section class="detail-block">
-      <div class="detail-block-head"><h3>Browser API signals</h3><span>${signals.length} TYPES</span></div>
+      <div class="detail-block-head"><h3>Browser API calls</h3><span>${signals.length} type${signals.length === 1 ? "" : "s"}</span></div>
       ${dataRowsMarkup(signals, "No enabled API indicators fired during this visit.")}
     </section>
     <section class="detail-block">
-      <div class="detail-block-head"><h3>Page snapshot</h3><span>COUNTS ONLY</span></div>
+      <div class="detail-block-head"><h3>Page snapshot</h3><span>Counts only</span></div>
       ${keyGridMarkup(pageEntries)}
     </section>
     <section class="detail-block">
-      <div class="detail-block-head"><h3>Response security</h3><span>STATUS ${escapeHtml(displayValue(state.security?.statusCode))}</span></div>
+      <div class="detail-block-head"><h3>Response security</h3><span>Status ${escapeHtml(displayValue(state.security?.statusCode))}</span></div>
       ${keyGridMarkup(headerEntries)}
     </section>
   `;
@@ -241,16 +395,34 @@ function renderUnsupported(tab) {
   currentLiveState = null;
   currentLiveFindings = [];
   renderSnapshotInterest(null);
+  elements.liveDashboard.hidden = true;
+  elements.unsupportedPage.hidden = false;
+  const url = String(tab?.url || "");
+  if (/^(?:chrome|edge|brave|about):/i.test(url)) {
+    elements.unsupportedKind.textContent = "Browser backstage";
+    elements.unsupportedDescription.textContent = "The browser keeps its internal pages behind the velvet rope, so the privacy detective is waiting outside.";
+  } else if (/^(?:chrome|moz)-extension:/i.test(url)) {
+    elements.unsupportedKind.textContent = "Friendly territory";
+    elements.unsupportedDescription.textContent = "Extension pages are fellow staff, not part of the audience. Veilance leaves its neighbors alone.";
+  } else if (/^file:/i.test(url)) {
+    elements.unsupportedKind.textContent = "Local files stay local";
+    elements.unsupportedDescription.textContent = "Veilance won’t rummage through files on your computer. Some boundaries deserve to stay delightfully boring.";
+  } else {
+    elements.unsupportedKind.textContent = "Outside the observation zone";
+    elements.unsupportedDescription.textContent = "This tab doesn’t use a standard web address, so Veilance has nowhere safe to begin its investigation.";
+  }
   elements.hostname.textContent = tab?.url?.startsWith("chrome://") ? "Chrome internal page" : "Unsupported page";
   elements.statusPill.className = "status unsupported";
-  elements.statusPill.textContent = "Veilance cannot inspect this page";
+  elements.statusPillText.textContent = "Veilance cannot inspect this page";
+  elements.statusPill.disabled = true;
+  elements.statusPill.title = "Veilance cannot inspect this page";
+  elements.statusPill.setAttribute("aria-label", "Veilance cannot inspect this page");
   elements.visitTiming.textContent = "Browser-internal and extension pages are outside the observation boundary.";
-  elements.liveState.textContent = "UNAVAILABLE";
-  elements.thirdPartyHosts.textContent = "0";
-  elements.requestCount.textContent = "0";
-  elements.signalCount.textContent = "0";
-  elements.storageCount.textContent = "0";
-  elements.findingCount.textContent = "0";
+  elements.liveMessage.textContent = "";
+  elements.liveState.classList.add("unavailable");
+  elements.liveState.innerHTML = "<i></i><span>Off duty</span>";
+  renderOverviewMetrics({}, "unavailable");
+  renderFindingCount(0);
   renderFindings(elements.findings, [], "Nothing is collected from this type of page.");
   elements.liveDetails.innerHTML = '<div class="empty">Complete details are unavailable for this page.</div>';
   elements.clearButton.disabled = true;
@@ -272,31 +444,88 @@ async function loadState() {
   const findings = response.findings || [];
   currentLiveState = state;
   currentLiveFindings = findings;
+  automaticSnapshotCaptureEnabled = response.snapshotCapture?.automatic === true;
   renderSnapshotInterest(response.interest);
+  elements.unsupportedPage.hidden = true;
+  elements.liveDashboard.hidden = false;
 
   elements.hostname.textContent = state?.hostname || new URL(tab.url).hostname;
-  elements.statusPill.className = `status ${summary?.status || "quiet"}`;
-  elements.statusPill.textContent = summary?.label || "Observing locally";
-  elements.liveState.innerHTML = "<i></i> LOCAL";
-  elements.thirdPartyHosts.textContent = String(summary?.thirdPartyHostCount || 0);
-  elements.requestCount.textContent = String(state?.network?.totalRequests || 0);
-  elements.signalCount.textContent = String(summary?.signalCount || 0);
-  elements.storageCount.textContent = String(totalStorageEvents(state));
-  elements.findingCount.textContent = String(findings.length);
+  elements.liveMessage.textContent = "";
+  renderStatus(summary, findings);
+  elements.liveState.classList.remove("unavailable");
+  elements.liveState.innerHTML = "<i></i><span>Monitoring</span>";
+  renderOverviewMetrics({
+    thirdPartyHosts: summary?.thirdPartyHostCount,
+    requests: state?.network?.totalRequests,
+    apiSignals: summary?.signalCount,
+    storageEvents: totalStorageEvents(state)
+  });
+  renderFindingCount(findings.length);
   elements.visitTiming.textContent = state
     ? `${state.active === false ? "Completed" : "Active"} · started ${formatDateTime(state.startedAt)} · ${formatDuration(state.startedAt, state.endedAt)}`
     : "Waiting for this page to begin reporting.";
   elements.clearButton.disabled = !state;
-  elements.snapshotButton.disabled = !state || snapshotCaptureBusy || !currentLiveInterest.eligible;
-  elements.snapshotButton.title = currentLiveInterest.eligible
-    ? `Capture this ${currentLiveInterest.score}/100 interest visit`
-    : `Snapshots require ${currentLiveInterest.minimumScore}/100 interest`;
+  renderSnapshotButtonState();
   renderFindings(
     elements.findings,
     findings,
     "No privacy-relevant activity has been observed yet. Enabled indicators continue watching this visit."
   );
   if (elements.liveDetailPanel.open) elements.liveDetails.innerHTML = telemetryDetailsMarkup(state);
+}
+
+function renderLiveError(error) {
+  currentLiveState = null;
+  currentLiveFindings = [];
+  renderSnapshotInterest(null);
+  elements.unsupportedPage.hidden = true;
+  elements.liveDashboard.hidden = false;
+  elements.hostname.textContent = "Unable to load site data";
+  elements.statusPill.className = "status unsupported";
+  elements.statusPillText.textContent = "Veilance did not respond";
+  elements.statusPill.disabled = true;
+  elements.statusPill.title = "Veilance did not respond";
+  elements.statusPill.setAttribute("aria-label", "Veilance did not respond");
+  elements.visitTiming.textContent = "Monitoring has not changed the page. Try refreshing this view or reloading the extension.";
+  elements.liveMessage.textContent = error?.message || "An unexpected extension error occurred.";
+  elements.liveState.classList.add("unavailable");
+  elements.liveState.innerHTML = "<i></i><span>Unavailable</span>";
+  renderOverviewMetrics({}, "unavailable");
+  renderFindingCount(0);
+  renderFindings(elements.findings, [], "Visit findings are unavailable until Veilance reconnects.");
+  elements.liveDetails.innerHTML = '<div class="empty">Technical details are unavailable.</div>';
+  elements.clearButton.disabled = true;
+  elements.snapshotButton.disabled = true;
+}
+
+function renderHistoryError(error) {
+  elements.historyList.innerHTML = `<div class="empty panel-empty">Visit history could not be loaded. ${escapeHtml(error?.message || "Try again in a moment.")}</div>`;
+}
+
+async function refreshLive() {
+  elements.refreshButton.disabled = true;
+  elements.refreshButton.classList.add("is-loading");
+  try {
+    await loadState();
+  } catch (error) {
+    renderLiveError(error);
+  } finally {
+    elements.refreshButton.disabled = false;
+    elements.refreshButton.classList.remove("is-loading");
+  }
+}
+
+async function refreshHistory() {
+  elements.historyRefreshButton.disabled = true;
+  elements.historyRefreshButton.classList.add("is-loading");
+  try {
+    await loadHistory();
+  } catch (error) {
+    renderHistoryError(error);
+  } finally {
+    elements.historyRefreshButton.disabled = false;
+    elements.historyRefreshButton.classList.remove("is-loading");
+  }
 }
 
 function historyCardMarkup(visit) {
@@ -310,12 +539,12 @@ function historyCardMarkup(visit) {
         </div>
         <div class="visit-meta">
           <span>${escapeHtml(formatListDate(visit.startedAt))}</span>
-          <span class="${visit.active ? "active-tag" : ""}">${visit.active ? "ACTIVE" : escapeHtml(formatDuration(visit.startedAt, endedAt))}</span>
+          <span class="${visit.active ? "active-tag" : ""}">${visit.active ? "Active" : escapeHtml(formatDuration(visit.startedAt, endedAt))}</span>
         </div>
         <div class="visit-metrics">
           <span>${visit.requestCount} requests</span>
-          <span>${visit.signalCount} signals</span>
-          <span>${visit.findingCount} findings</span>
+          <span>${visit.signalCount} browser API calls</span>
+          <span>${findingCountLabel(visit.findingCount)}</span>
         </div>
       </button>
     </article>
@@ -348,14 +577,14 @@ async function openHistoryVisit(visitId) {
     if (!state) throw new Error("This visit is no longer in history");
     elements.historyDetail.innerHTML = `
       <section class="detail-hero">
-        <span class="label">COMPLETE VISIT</span>
+        <span class="label">Complete visit</span>
         <h1>${escapeHtml(state.hostname || state.origin || "Unknown site")}</h1>
         <div class="status ${escapeHtml(summary.status)}">${escapeHtml(summary.label)}</div>
         <p>${escapeHtml(formatDateTime(state.startedAt))} · ${escapeHtml(formatDuration(state.startedAt, state.endedAt))} · ${state.active === false ? "Visit complete" : "Visit still active"}</p>
       </section>
       <section class="metrics">
         <article><strong>${state.network?.totalRequests || 0}</strong><span>requests</span></article>
-        <article><strong>${summary.signalCount || 0}</strong><span>API signals</span></article>
+        <article><strong>${summary.signalCount || 0}</strong><span>browser API calls</span></article>
         <article><strong>${summary.thirdPartyHostCount || 0}</strong><span>third parties</span></article>
         <article><strong>${findings.length}</strong><span>findings</span></article>
       </section>
@@ -392,16 +621,23 @@ function showHistoryList() {
 
 async function clearCurrentVisit() {
   if (!Number.isInteger(activeTabId)) return;
+  if (!confirm("Reset the current visit? Veilance will discard its live data and immediately begin monitoring the page again.")) return;
   await send({ type: "VEILANCE_CLEAR_STATE", tabId: activeTabId });
   await Promise.all([loadState(), loadHistory()]);
 }
 
 async function takeTelemetrySnapshot() {
-  if (!Number.isInteger(activeTabId) || snapshotCaptureBusy || !currentLiveInterest.eligible) return;
+  if (
+    !Number.isInteger(activeTabId) ||
+    automaticSnapshotCaptureEnabled ||
+    snapshotCaptureBusy ||
+    !currentLiveInterest.eligible
+  ) return;
   snapshotCaptureBusy = true;
   elements.snapshotButton.disabled = true;
   elements.snapshotButton.textContent = "Redacting…";
   elements.snapshotStatus.classList.remove("error");
+  delete elements.snapshotStatus.dataset.automaticCaptureNotice;
   elements.snapshotStatus.textContent = "Building an inert, redacted copy of this page locally…";
   try {
     const response = await send({
@@ -416,8 +652,8 @@ async function takeTelemetrySnapshot() {
     elements.snapshotStatus.textContent = error.message;
   } finally {
     snapshotCaptureBusy = false;
-    elements.snapshotButton.textContent = "Take snapshot";
-    elements.snapshotButton.disabled = !currentLiveState || !currentLiveInterest.eligible;
+    elements.snapshotButton.textContent = "Save snapshot";
+    renderSnapshotButtonState();
   }
 }
 
@@ -430,9 +666,9 @@ async function switchView(view) {
   }
   if (view === "history") {
     showHistoryList();
-    await loadHistory();
+    await refreshHistory();
   } else {
-    await loadState();
+    await refreshLive();
   }
 }
 
@@ -449,10 +685,21 @@ for (const button of document.querySelectorAll(".nav-button[data-view]")) {
   button.addEventListener("click", () => void switchView(button.dataset.view));
 }
 elements.settingsButton.addEventListener("click", () => void chrome.runtime.openOptionsPage());
-elements.refreshButton.addEventListener("click", () => void loadState());
-elements.historyRefreshButton.addEventListener("click", () => void loadHistory());
+elements.unsupportedSettingsButton.addEventListener("click", () => void chrome.runtime.openOptionsPage());
+elements.unsupportedRetryButton.addEventListener("click", () => {
+  elements.unsupportedRetryButton.disabled = true;
+  void refreshLive().finally(() => { elements.unsupportedRetryButton.disabled = false; });
+});
+elements.themeToggle.addEventListener("click", () => void toggleResolvedTheme().catch((error) => {
+  console.error("Veilance could not save the theme preference", error);
+}));
+elements.refreshButton.addEventListener("click", () => void refreshLive());
+elements.statusPill.addEventListener("click", showCurrentFindings);
+elements.historyRefreshButton.addEventListener("click", () => void refreshHistory());
 elements.historyBackButton.addEventListener("click", showHistoryList);
-elements.clearButton.addEventListener("click", () => void clearCurrentVisit());
+elements.clearButton.addEventListener("click", () => void clearCurrentVisit().catch((error) => {
+  elements.liveMessage.textContent = error?.message || "The current visit could not be reset.";
+}));
 elements.snapshotButton.addEventListener("click", () => void takeTelemetrySnapshot());
 elements.payoutSettingsButton.addEventListener("click", () => void openSettingsSection("wallet"));
 elements.liveDetailPanel.addEventListener("toggle", () => {
@@ -460,10 +707,17 @@ elements.liveDetailPanel.addEventListener("toggle", () => {
 });
 
 elements.version.textContent = `v${chrome.runtime.getManifest().version}`;
+renderOverviewMetrics({}, "pending");
 
-void Promise.all([loadState(), loadHistory()]).catch((error) => {
-  console.error("Veilance popup failed to initialize", error);
+subscribeToTheme(({ resolved }) => {
+  const nextTheme = resolved === "dark" ? "light" : "dark";
+  elements.themeToggle.title = `Use ${nextTheme} mode`;
+  elements.themeToggle.setAttribute("aria-label", `Use ${nextTheme} mode`);
 });
+void initializeTheme();
+
+void loadState().catch(renderLiveError);
+void loadHistory().catch(renderHistoryError);
 const refreshTimer = setInterval(() => {
   if (activeView === "live") void loadState().catch(() => {});
 }, 1500);

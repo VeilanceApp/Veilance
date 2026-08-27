@@ -1,4 +1,9 @@
 import { PAYOUTS_ENABLED } from "./config.js";
+import {
+  initializeTheme,
+  setThemePreference,
+  subscribeToTheme
+} from "./lib/theme.js";
 
 const elements = {
   version: document.querySelector("#version"),
@@ -16,6 +21,17 @@ const elements = {
   trackerUpdateError: document.querySelector("#trackerUpdateError"),
   trackerRepositoryLink: document.querySelector("#trackerRepositoryLink"),
   trackerUpdateLog: document.querySelector("#trackerUpdateLog"),
+  detectionDatabaseStatus: document.querySelector("#detectionDatabaseStatus"),
+  detectionDatabaseEnabled: document.querySelector("#detectionDatabaseEnabled"),
+  detectionAutoUpdateEnabled: document.querySelector("#detectionAutoUpdateEnabled"),
+  checkDetectionUpdatesButton: document.querySelector("#checkDetectionUpdatesButton"),
+  detectionCount: document.querySelector("#detectionCount"),
+  detectionSchedule: document.querySelector("#detectionSchedule"),
+  detectionLastChecked: document.querySelector("#detectionLastChecked"),
+  detectionRevision: document.querySelector("#detectionRevision"),
+  detectionUpdateError: document.querySelector("#detectionUpdateError"),
+  detectionRepositoryLink: document.querySelector("#detectionRepositoryLink"),
+  detectionUpdateLog: document.querySelector("#detectionUpdateLog"),
   resetIndicatorsButton: document.querySelector("#resetIndicatorsButton"),
   chooseFolderButton: document.querySelector("#chooseFolderButton"),
   indicatorFolderInput: document.querySelector("#indicatorFolderInput"),
@@ -33,8 +49,14 @@ const elements = {
   databaseCount: document.querySelector("#databaseCount"),
   clearHistoryButton: document.querySelector("#clearHistoryButton"),
   snapshotCount: document.querySelector("#snapshotCount"),
+  snapshotAutomaticCapture: document.querySelector("#snapshotAutomaticCapture"),
+  snapshotAutomaticCaptureDescription: document.querySelector("#snapshotAutomaticCaptureDescription"),
+  automaticSnapshotWarningDialog: document.querySelector("#automaticSnapshotWarningDialog"),
   snapshotUploadConsent: document.querySelector("#snapshotUploadConsent"),
   snapshotUploadDescription: document.querySelector("#snapshotUploadDescription"),
+  snapshotAutomaticUpload: document.querySelector("#snapshotAutomaticUpload"),
+  snapshotAutomaticUploadDescription: document.querySelector("#snapshotAutomaticUploadDescription"),
+  uploadNowButton: document.querySelector("#uploadNowButton"),
   queueAllSnapshotsButton: document.querySelector("#queueAllSnapshotsButton"),
   refreshSnapshotsButton: document.querySelector("#refreshSnapshotsButton"),
   clearSnapshotsButton: document.querySelector("#clearSnapshotsButton"),
@@ -66,6 +88,23 @@ let selectedSnapshot = null;
 
 const settingsTabs = [...document.querySelectorAll("[data-settings-tab]")];
 const settingsPanels = [...document.querySelectorAll("[data-settings-panel]")];
+const themeButtons = [...document.querySelectorAll("[data-theme-option]")];
+
+subscribeToTheme(({ preference }) => {
+  for (const button of themeButtons) {
+    const active = button.dataset.themeOption === preference;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+});
+
+for (const button of themeButtons) {
+  button.addEventListener("click", () => void setThemePreference(button.dataset.themeOption).catch((error) => {
+    showSaveStatus(error.message, true);
+  }));
+}
+
+void initializeTheme();
 
 function activateSettingsTab(requestedTab, options = {}) {
   const tabName = settingsTabs.some((button) => button.dataset.settingsTab === requestedTab)
@@ -227,8 +266,11 @@ function escapeHtml(value) {
 function showSaveStatus(message, isError = false) {
   clearTimeout(statusTimer);
   elements.saveStatus.textContent = message;
-  elements.saveStatus.style.color = isError ? "#e69aa4" : "#69cfe9";
-  statusTimer = setTimeout(() => { elements.saveStatus.textContent = ""; }, 3000);
+  elements.saveStatus.classList.toggle("error", isError);
+  statusTimer = setTimeout(() => {
+    elements.saveStatus.textContent = "";
+    elements.saveStatus.classList.remove("error");
+  }, 3500);
 }
 
 function showImportStatus(message, isError = false) {
@@ -240,7 +282,7 @@ function showImportStatus(message, isError = false) {
 function indicatorToggleMarkup(indicator, enabled) {
   return `
     <label class="switch" title="${enabled ? "Disable" : "Enable"} ${escapeHtml(indicator.name)}">
-      <input type="checkbox" data-indicator-id="${escapeHtml(indicator.id)}" ${enabled ? "checked" : ""}>
+      <input type="checkbox" data-indicator-id="${escapeHtml(indicator.id)}" aria-label="${enabled ? "Disable" : "Enable"} ${escapeHtml(indicator.name)}" ${enabled ? "checked" : ""}>
       <span aria-hidden="true"></span>
     </label>
   `;
@@ -257,6 +299,9 @@ function bindIndicatorToggles(root) {
   for (const input of root.querySelectorAll("[data-indicator-id]")) {
     input.addEventListener("change", async () => {
       const id = input.dataset.indicatorId;
+      const indicator = [...settingsData.builtInIndicators, ...settingsData.customIndicators]
+        .find((item) => item.id === id);
+      const indicatorName = indicator?.name || id;
       const previous = !input.checked;
       input.disabled = true;
       try {
@@ -267,12 +312,15 @@ function bindIndicatorToggles(root) {
         });
         settingsData.indicatorSettings = response.indicatorSettings;
         updateEnabledCount();
-        showSaveStatus(`${input.checked ? "Enabled" : "Disabled"} ${id}. New visits use this setting immediately.`);
+        showSaveStatus(`${indicatorName} is now ${input.checked ? "enabled" : "disabled"}. New activity uses this setting immediately.`);
       } catch (error) {
         input.checked = previous;
         showSaveStatus(error.message, true);
       } finally {
         input.disabled = false;
+        const action = input.checked ? "Disable" : "Enable";
+        input.setAttribute("aria-label", `${action} ${indicatorName}`);
+        input.closest("label")?.setAttribute("title", `${action} ${indicatorName}`);
       }
     });
   }
@@ -442,6 +490,51 @@ function renderTrackerDatabase() {
   }).join("");
 }
 
+function renderDetectionDatabase() {
+  const database = settingsData.detectionDatabase || {};
+  const detectionCount = Math.max(0, Number(database.detectionCount) || 0);
+  const intervalHours = Math.max(1, (Number(database.intervalMinutes) || 480) / 60);
+  const revision = String(database.sourceRevision || "");
+  elements.detectionDatabaseEnabled.checked = database.databaseEnabled !== false;
+  elements.detectionAutoUpdateEnabled.checked = database.autoUpdateEnabled !== false;
+  elements.detectionCount.textContent = detectionCount.toLocaleString();
+  elements.detectionSchedule.textContent = database.autoUpdateEnabled === false
+    ? "Disabled"
+    : `Every ${intervalHours.toLocaleString()} hours`;
+  elements.detectionLastChecked.textContent = formatTrackerDate(database.lastCheckAt);
+  elements.detectionRevision.textContent = revision ? revision.slice(0, 12) : "Not downloaded";
+  elements.detectionRevision.title = revision;
+  elements.detectionDatabaseStatus.textContent = database.databaseEnabled === false
+    ? `${detectionCount.toLocaleString()} downloaded · disabled`
+    : `${detectionCount.toLocaleString()} active`;
+  elements.detectionRepositoryLink.href = database.repository || elements.detectionRepositoryLink.href;
+  elements.detectionUpdateError.hidden = !database.lastError;
+  elements.detectionUpdateError.textContent = database.lastError || "";
+
+  const entries = Array.isArray(database.updateLog) ? database.updateLog : [];
+  if (!entries.length) {
+    elements.detectionUpdateLog.innerHTML = '<div class="empty-state">No detection update checks recorded yet.</div>';
+    return;
+  }
+  elements.detectionUpdateLog.innerHTML = entries.map((entry) => {
+    const status = ["installed", "updated", "up-to-date", "error"].includes(entry.status)
+      ? entry.status
+      : "unknown";
+    return `
+      <div class="tracker-log-entry">
+        <span class="tracker-log-status ${escapeHtml(status)}">${escapeHtml(status)}</span>
+        <div class="tracker-log-copy">
+          <strong>${escapeHtml(entry.message || "Detection database check completed.")}</strong>
+          <p>${escapeHtml((Number(entry.detectionCount) || 0).toLocaleString())} active detection${Number(entry.detectionCount) === 1 ? "" : "s"}</p>
+          <div class="tracker-log-meta">
+            ${trackerLogMeta(entry).map((value) => `<span>${escapeHtml(value)}</span>`).join("")}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
 function renderWallet() {
   const publicKey = settingsData.wallet?.publicKey || "";
   elements.walletAddress.textContent = publicKey || settingsData.walletError || "Wallet unavailable";
@@ -475,17 +568,72 @@ function canQueueSnapshot(snapshot) {
   );
 }
 
+function canUploadSnapshotNow(snapshot) {
+  const upload = settingsData?.snapshotUpload || {};
+  return Boolean(
+    upload.available &&
+    upload.consent &&
+    snapshot?.interest?.eligible === true &&
+    Number(snapshot.interest.score) >= Number(snapshot.interest.minimumScore) &&
+    Number(snapshot.interest.minimumScore) > 0 &&
+    ["local", "failed", "queued"].includes(snapshot?.upload?.status)
+  );
+}
+
+function snapshotQueueTitle(snapshot) {
+  const upload = settingsData?.snapshotUpload || {};
+  if (!upload.available) return "Uploads are disabled in this build.";
+  if (!upload.consent) return "Allow pseudonymous uploads above before queueing a snapshot.";
+  if (snapshot?.interest?.eligible !== true) return "This snapshot does not meet the upload interest threshold.";
+  if (snapshot?.upload?.status === "uploaded") return "This snapshot has already been uploaded.";
+  if (["queued", "uploading"].includes(snapshot?.upload?.status)) return "This snapshot is already queued.";
+  return "Queue this snapshot for a privacy-delayed upload batch.";
+}
+
 function renderSnapshotUpload() {
   const upload = settingsData?.snapshotUpload || {};
   elements.snapshotUploadConsent.disabled = !upload.available;
   elements.snapshotUploadConsent.checked = Boolean(upload.available && upload.consent);
+  elements.snapshotAutomaticUpload.checked = Boolean(upload.automatic);
+  elements.snapshotAutomaticUpload.disabled = !(upload.available && upload.consent);
   if (!upload.available) {
     elements.snapshotUploadDescription.textContent = "Uploads are disabled in this build. Interest-qualified local capture, review, download, and deletion remain available.";
+    elements.queueAllSnapshotsButton.title = "Uploads are disabled in this build.";
+    elements.uploadNowButton.title = "Uploads are disabled in this build.";
+    elements.snapshotAutomaticUploadDescription.textContent = "Automatic uploads are unavailable in this build.";
   } else if (!upload.consent) {
     elements.snapshotUploadDescription.textContent = `Uploads are available through ${upload.endpointHost}. Enable this control to opt in; only interest-qualified snapshots can be queued.`;
+    elements.queueAllSnapshotsButton.title = "Allow pseudonymous uploads before queueing snapshots.";
+    elements.uploadNowButton.title = "Allow pseudonymous uploads before uploading snapshots.";
+    elements.snapshotAutomaticUploadDescription.textContent = "Allow pseudonymous uploads above to enable automatic queueing.";
   } else {
-    elements.snapshotUploadDescription.textContent = `Uploads are allowed through ${upload.endpointHost}. Only interest-qualified snapshots you explicitly queue are batched after a randomized 5–15 minute delay.`;
+    elements.snapshotUploadDescription.textContent = `Uploads are allowed through ${upload.endpointHost}. Upload now sends immediately; Queue for later uses a randomized 5–15 minute delay.`;
+    elements.queueAllSnapshotsButton.title = "Queue every eligible local snapshot for a privacy-delayed upload.";
+    elements.uploadNowButton.title = "Queue eligible snapshots and begin uploading immediately.";
+    elements.snapshotAutomaticUploadDescription.textContent = upload.automatic
+      ? "Automatic uploads are on. New eligible snapshots are queued without another button press."
+      : "Automatic uploads are off. Enable this to queue new eligible snapshots automatically.";
   }
+}
+
+function renderSnapshotCapture() {
+  const capture = settingsData?.snapshotCapture || {};
+  const minimumScore = Math.max(1, Number(capture.minimumScore) || 25);
+  elements.snapshotAutomaticCapture.disabled = false;
+  elements.snapshotAutomaticCapture.checked = capture.automatic === true;
+  elements.snapshotAutomaticCaptureDescription.textContent = capture.automatic
+    ? `Automatic capture is on. Veilance saves one local snapshot per public-site visit after it reaches ${minimumScore}/100 interest. Complex websites or several tabs loading together may experience additional latency; disable it if browsing feels slower.`
+    : `Automatic capture is off. Eligible snapshots are saved only when you press Save snapshot.`;
+}
+
+function confirmAutomaticSnapshotCapture() {
+  elements.automaticSnapshotWarningDialog.returnValue = "cancel";
+  elements.automaticSnapshotWarningDialog.showModal();
+  return new Promise((resolve) => {
+    elements.automaticSnapshotWarningDialog.addEventListener("close", () => {
+      resolve(elements.automaticSnapshotWarningDialog.returnValue === "enable");
+    }, { once: true });
+  });
 }
 
 function snapshotRowMarkup(snapshot) {
@@ -522,7 +670,7 @@ function snapshotRowMarkup(snapshot) {
       <div class="snapshot-row-actions">
         <button class="secondary-button" type="button" data-preview-snapshot="${escapeHtml(snapshot.snapshotId)}">Review</button>
         <button class="secondary-button" type="button" data-download-snapshot="${escapeHtml(snapshot.snapshotId)}">Download</button>
-        <button class="primary-button" type="button" data-queue-snapshot="${escapeHtml(snapshot.snapshotId)}" ${queueDisabled}>Queue</button>
+        <button class="primary-button" type="button" data-queue-snapshot="${escapeHtml(snapshot.snapshotId)}" title="${escapeHtml(snapshotQueueTitle(snapshot))}" ${queueDisabled}>Queue</button>
         <button class="danger-outline-button" type="button" data-delete-snapshot="${escapeHtml(snapshot.snapshotId)}">Delete</button>
       </div>
     </article>
@@ -540,8 +688,9 @@ async function loadSnapshots() {
     settingsData?.snapshotUpload?.consent &&
     snapshotSummaries.some((snapshot) => canQueueSnapshot(snapshot))
   );
+  elements.uploadNowButton.disabled = !snapshotSummaries.some((snapshot) => canUploadSnapshotNow(snapshot));
   if (!snapshotSummaries.length) {
-    elements.snapshotList.innerHTML = '<div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 20/100 interest.</div>';
+    elements.snapshotList.innerHTML = '<div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 25/100 interest.</div>';
     return;
   }
   elements.snapshotList.innerHTML = snapshotSummaries.map(snapshotRowMarkup).join("");
@@ -639,11 +788,22 @@ async function loadSettings() {
   renderBuiltInIndicators();
   renderCustomIndicators();
   renderTrackerDatabase();
+  renderDetectionDatabase();
   renderWallet();
   renderDatabase();
+  renderSnapshotCapture();
   renderSnapshotUpload();
   updateEnabledCount();
-  await loadSnapshots();
+  try {
+    await loadSnapshots();
+  } catch (error) {
+    elements.snapshotCount.textContent = "Unavailable";
+    elements.snapshotList.innerHTML = `<div class="empty-state">Saved snapshots could not be loaded. ${escapeHtml(error?.message || "Try refreshing this section.")}</div>`;
+    elements.uploadNowButton.disabled = true;
+    elements.queueAllSnapshotsButton.disabled = true;
+    elements.clearSnapshotsButton.disabled = true;
+    showSaveStatus("Settings loaded, but saved snapshots are temporarily unavailable.", true);
+  }
 }
 
 async function importFolder(files) {
@@ -687,7 +847,7 @@ async function importFolder(files) {
     showImportStatus(error.message, true);
   } finally {
     elements.chooseFolderButton.disabled = false;
-    elements.chooseFolderButton.textContent = "Choose indicator folder";
+    elements.chooseFolderButton.textContent = "Choose folder";
     elements.indicatorFolderInput.value = "";
   }
 }
@@ -788,6 +948,22 @@ async function saveTrackerToggle(input, messageType, enabledMessage, disabledMes
   }
 }
 
+async function saveDetectionToggle(input, messageType, enabledMessage, disabledMessage) {
+  const previous = !input.checked;
+  input.disabled = true;
+  try {
+    const response = await send({ type: messageType, enabled: input.checked });
+    settingsData.detectionDatabase = response.detectionDatabase;
+    renderDetectionDatabase();
+    showSaveStatus(input.checked ? enabledMessage : disabledMessage);
+  } catch (error) {
+    input.checked = previous;
+    showSaveStatus(error.message, true);
+  } finally {
+    input.disabled = false;
+  }
+}
+
 elements.trackerDatabaseEnabled.addEventListener("change", () => {
   void saveTrackerToggle(
     elements.trackerDatabaseEnabled,
@@ -823,6 +999,41 @@ elements.checkTrackerUpdatesButton.addEventListener("click", async () => {
   }
 });
 
+elements.detectionDatabaseEnabled.addEventListener("change", () => {
+  void saveDetectionToggle(
+    elements.detectionDatabaseEnabled,
+    "VEILANCE_SET_DETECTION_DATABASE_ENABLED",
+    "Managed detection matching enabled.",
+    "Managed detection matching disabled. Downloaded rules remain stored locally."
+  );
+});
+
+elements.detectionAutoUpdateEnabled.addEventListener("change", () => {
+  void saveDetectionToggle(
+    elements.detectionAutoUpdateEnabled,
+    "VEILANCE_SET_DETECTION_AUTO_UPDATE",
+    "Automatic detection updates enabled. Veilance will check every eight hours.",
+    "Automatic detection updates disabled. Manual checks remain available."
+  );
+});
+
+elements.checkDetectionUpdatesButton.addEventListener("click", async () => {
+  elements.checkDetectionUpdatesButton.disabled = true;
+  elements.checkDetectionUpdatesButton.textContent = "Checking…";
+  try {
+    const response = await send({ type: "VEILANCE_CHECK_DETECTION_UPDATES" });
+    settingsData.detectionDatabase = response.detectionDatabase;
+    renderDetectionDatabase();
+    showSaveStatus("Detection database check completed.");
+  } catch (error) {
+    await loadSettings().catch(() => {});
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.checkDetectionUpdatesButton.disabled = false;
+    elements.checkDetectionUpdatesButton.textContent = "Check now";
+  }
+});
+
 elements.chooseFolderButton.addEventListener("click", () => elements.indicatorFolderInput.click());
 elements.indicatorFolderInput.addEventListener("change", () => void importFolder(elements.indicatorFolderInput.files));
 elements.downloadStarterButton.addEventListener("click", () => {
@@ -833,21 +1044,21 @@ elements.copySignalTemplateButton.addEventListener("click", () => {
   void copyText(
     JSON.stringify(SIGNAL_TEMPLATE, null, 2),
     elements.copySignalTemplateButton,
-    "Signal template copied"
+    "Signal example copied"
   );
 });
 elements.copyHostTemplateButton.addEventListener("click", () => {
   void copyText(
     JSON.stringify(HOST_TEMPLATE, null, 2),
     elements.copyHostTemplateButton,
-    "Host template copied"
+    "Host example copied"
   );
 });
 elements.copyVeilanceTemplateButton.addEventListener("click", () => {
   void copyText(
     JSON.stringify(VEILANCE_TEMPLATE, null, 2),
     elements.copyVeilanceTemplateButton,
-    "Veilance JSON copied"
+    "Tracker example copied"
   );
 });
 
@@ -885,13 +1096,70 @@ elements.snapshotUploadConsent.addEventListener("change", async () => {
     renderSnapshotUpload();
     await loadSnapshots();
     showSaveStatus(elements.snapshotUploadConsent.checked
-      ? "Pseudonymous snapshot uploads allowed. Nothing is uploaded until you queue it."
+      ? (response.snapshotUpload.automatic
+          ? "Pseudonymous uploads allowed. Automatic upload is enabled."
+          : "Pseudonymous uploads allowed. Choose Upload now, Queue for later, or enable automatic uploads.")
       : "Snapshot uploads paused. Local snapshots remain available.");
   } catch (error) {
     elements.snapshotUploadConsent.checked = previous;
     showSaveStatus(error.message, true);
   } finally {
     elements.snapshotUploadConsent.disabled = !settingsData?.snapshotUpload?.available;
+  }
+});
+
+elements.snapshotAutomaticCapture.addEventListener("change", async () => {
+  const previous = !elements.snapshotAutomaticCapture.checked;
+  elements.snapshotAutomaticCapture.disabled = true;
+  try {
+    if (elements.snapshotAutomaticCapture.checked) {
+      const confirmed = await confirmAutomaticSnapshotCapture();
+      if (!confirmed) {
+        elements.snapshotAutomaticCapture.checked = previous;
+        showSaveStatus("Automatic capture was not enabled.");
+        return;
+      }
+    }
+    const response = await send({
+      type: "VEILANCE_SET_AUTOMATIC_SNAPSHOT_CAPTURE",
+      enabled: elements.snapshotAutomaticCapture.checked
+    });
+    settingsData.snapshotCapture = response.snapshotCapture;
+    renderSnapshotCapture();
+    showSaveStatus(elements.snapshotAutomaticCapture.checked
+      ? (response.scheduled
+          ? `Automatic capture enabled. ${response.scheduled} active eligible visit${response.scheduled === 1 ? " is" : "s are"} being snapshotted.`
+          : "Automatic capture enabled. Future eligible visits will be saved locally.")
+      : "Automatic capture disabled. Existing local snapshots are unchanged.");
+  } catch (error) {
+    elements.snapshotAutomaticCapture.checked = previous;
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.snapshotAutomaticCapture.disabled = false;
+  }
+});
+
+elements.snapshotAutomaticUpload.addEventListener("change", async () => {
+  const previous = !elements.snapshotAutomaticUpload.checked;
+  elements.snapshotAutomaticUpload.disabled = true;
+  try {
+    const response = await send({
+      type: "VEILANCE_SET_AUTOMATIC_SNAPSHOT_UPLOAD",
+      enabled: elements.snapshotAutomaticUpload.checked
+    });
+    settingsData.snapshotUpload = response.snapshotUpload;
+    renderSnapshotUpload();
+    await loadSnapshots();
+    showSaveStatus(elements.snapshotAutomaticUpload.checked
+      ? `Automatic uploads enabled. ${response.queued || 0} existing snapshot${response.queued === 1 ? " was" : "s were"} queued.`
+      : "Automatic uploads disabled. Snapshots already queued remain queued.");
+  } catch (error) {
+    elements.snapshotAutomaticUpload.checked = previous;
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.snapshotAutomaticUpload.disabled = !(
+      settingsData?.snapshotUpload?.available && settingsData?.snapshotUpload?.consent
+    );
   }
 });
 
@@ -904,6 +1172,24 @@ elements.refreshSnapshotsButton.addEventListener("click", async () => {
     showSaveStatus(error.message, true);
   } finally {
     elements.refreshSnapshotsButton.disabled = false;
+  }
+});
+
+elements.uploadNowButton.addEventListener("click", async () => {
+  elements.uploadNowButton.disabled = true;
+  elements.uploadNowButton.textContent = "Uploading…";
+  try {
+    const response = await send({ type: "VEILANCE_UPLOAD_TELEMETRY_NOW" });
+    await loadSnapshots();
+    showSaveStatus(response.uploaded
+      ? `${response.uploaded} snapshot${response.uploaded === 1 ? "" : "s"} uploaded successfully.`
+      : "No eligible snapshots were ready to upload.");
+  } catch (error) {
+    await loadSnapshots().catch(() => {});
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.uploadNowButton.textContent = "Upload now";
+    elements.uploadNowButton.disabled = !snapshotSummaries.some((snapshot) => canUploadSnapshotNow(snapshot));
   }
 });
 
@@ -979,6 +1265,17 @@ elements.clearHistoryButton.addEventListener("click", async () => {
 elements.settingsPayoutButton.disabled = !PAYOUTS_ENABLED;
 elements.version.textContent = `v${chrome.runtime.getManifest().version}`;
 void loadSettings().catch((error) => {
-  elements.builtInIndicators.innerHTML = `<div class="loading">${escapeHtml(error.message)}</div>`;
-  showSaveStatus(error.message, true);
+  const message = error?.message || "Veilance settings could not be loaded.";
+  elements.builtInIndicators.innerHTML = `<div class="loading">${escapeHtml(message)}</div>`;
+  elements.trackerDatabaseStatus.textContent = "Unavailable";
+  elements.trackerUpdateError.hidden = false;
+  elements.trackerUpdateError.textContent = "Veilance settings could not be loaded. Reload this page or restart the extension.";
+  elements.checkTrackerUpdatesButton.disabled = true;
+  elements.detectionDatabaseStatus.textContent = "Unavailable";
+  elements.detectionUpdateError.hidden = false;
+  elements.detectionUpdateError.textContent = "Veilance settings could not be loaded. Reload this page or restart the extension.";
+  elements.checkDetectionUpdatesButton.disabled = true;
+  elements.clearSnapshotsButton.disabled = true;
+  elements.clearHistoryButton.disabled = true;
+  showSaveStatus(message, true);
 });

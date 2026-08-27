@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>Veilance Settings</title>
   <link rel="stylesheet" href="settings.css">
 </head>
@@ -10,25 +11,38 @@
   <header class="page-header">
     <div class="header-inner">
       <div class="brand">
-        <img src="assets/icon-48.png" alt="">
-        <div><strong>VEILANCE</strong><span>SETTINGS &amp; LOCAL CONTROL</span></div>
+        <img src="assets/icon-48.png" alt="Veilance">
+        <div><strong>Veilance</strong><span>Settings</span></div>
       </div>
-      <span id="version" class="version"></span>
+      <div class="page-tools">
+        <div class="theme-control" role="group" aria-label="Appearance">
+          <button type="button" data-theme-option="system" aria-pressed="true">System</button>
+          <button type="button" data-theme-option="light" aria-pressed="false">Light</button>
+          <button type="button" data-theme-option="dark" aria-pressed="false">Dark</button>
+        </div>
+        <span id="version" class="version"></span>
+      </div>
     </div>
   </header>
 
   <main>
     <section class="intro">
-      <span class="eyebrow">YOUR BROWSER, YOUR RULES</span>
-      <h1>Privacy observation you can understand and control.</h1>
-      <p>Choose what Veilance watches, inspect what is stored, and back up the wallet generated for this browser. Veilance observes enabled signals; it does not block, spoof, or change a website's fingerprint.</p>
+      <div class="intro-copy">
+        <span class="eyebrow">Settings</span>
+        <h1>Control what Veilance observes and stores.</h1>
+        <p>Choose the behaviors Veilance watches, review local data, and manage the wallet created for this browser. Veilance reports enabled signals; it does not block, spoof, or change a website's fingerprint.</p>
+      </div>
+      <aside class="local-note" aria-label="Local data notice">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z"></path></svg>
+        <div><strong>Local by default</strong><span>Visits, rules, snapshots, and wallet keys stay in this browser unless you take an explicit action.</span></div>
+      </aside>
     </section>
 
     <nav class="settings-tabs" role="tablist" aria-label="Settings sections">
-      <button id="settingsTabTrackers" class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settingsPanelTrackers" data-settings-tab="trackers">Trackers</button>
-      <button id="settingsTabIndicators" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelIndicators" data-settings-tab="indicators" tabindex="-1">Indicators</button>
+      <button id="settingsTabTrackers" class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settingsPanelTrackers" data-settings-tab="trackers">Tracker database</button>
+      <button id="settingsTabIndicators" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelIndicators" data-settings-tab="indicators" tabindex="-1">Detection</button>
       <button id="settingsTabSnapshots" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelSnapshots" data-settings-tab="snapshots" tabindex="-1">Snapshots</button>
-      <button id="settingsTabWallet" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelWallet" data-settings-tab="wallet" tabindex="-1">Wallet &amp; payouts</button>
+      <button id="settingsTabWallet" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelWallet" data-settings-tab="wallet" tabindex="-1">Wallet</button>
       <button id="settingsTabData" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelData" data-settings-tab="data" tabindex="-1">Local data</button>
     </nav>
 
@@ -36,33 +50,33 @@
       <section class="settings-card">
       <header class="card-header">
         <div>
-          <span class="eyebrow">VEILANCE TRACKER DATABASE</span>
-          <h2>Managed tracker definitions</h2>
-          <p>Veilance ships with the current tracker database enabled, then checks the public database every eight hours. Updates contain declarative JSON rules only and cannot execute code.</p>
+          <span class="eyebrow">Tracker database</span>
+          <h2>Managed tracker rules</h2>
+          <p>Bundled rules work immediately. When automatic updates are on, Veilance checks the public database every eight hours. Updates are data-only JSON and cannot execute code.</p>
         </div>
         <div class="header-actions tracker-header-actions">
-          <span id="trackerDatabaseStatus" class="count-badge">Loading…</span>
+          <span id="trackerDatabaseStatus" class="count-badge" role="status">Loading…</span>
           <button id="checkTrackerUpdatesButton" class="primary-button" type="button">Check now</button>
         </div>
       </header>
       <div class="tracker-control-grid">
         <div class="tracker-control-row">
           <div>
-            <strong>Use downloaded trackers</strong>
-            <p>Match contacted hosts against every usable rule from <code>veilance-json-trackers/*</code>.</p>
+            <strong>Enable tracker matching</strong>
+            <p>Compare contacted hostnames with every active rule in the local tracker database.</p>
           </div>
           <label class="switch" title="Enable or disable downloaded tracker matching">
-            <input id="trackerDatabaseEnabled" type="checkbox">
+            <input id="trackerDatabaseEnabled" type="checkbox" aria-label="Enable tracker matching">
             <span aria-hidden="true"></span>
           </label>
         </div>
         <div class="tracker-control-row">
           <div>
             <strong>Automatic updates</strong>
-            <p>Check GitHub every eight hours. Missed browser alarms run when the extension next wakes.</p>
+            <p>Check for rule changes every eight hours. A missed check runs when the extension next wakes.</p>
           </div>
           <label class="switch" title="Enable or disable automatic tracker updates">
-            <input id="trackerAutoUpdateEnabled" type="checkbox">
+            <input id="trackerAutoUpdateEnabled" type="checkbox" aria-label="Enable automatic tracker updates">
             <span aria-hidden="true"></span>
           </label>
         </div>
@@ -91,15 +105,70 @@
 
     <div id="settingsPanelIndicators" class="settings-tab-panel" role="tabpanel" aria-labelledby="settingsTabIndicators" data-settings-panel="indicators" hidden>
       <section class="settings-card">
+        <header class="card-header">
+          <div>
+            <span class="eyebrow">Detection database</span>
+            <h2>Managed detection fingerprints</h2>
+            <p>Veilance downloads validated JSON detection rules from the public Detection DB. Automatic updates check every eight hours and downloaded rules cannot execute code.</p>
+          </div>
+          <div class="header-actions tracker-header-actions">
+            <span id="detectionDatabaseStatus" class="count-badge" role="status">Loading…</span>
+            <button id="checkDetectionUpdatesButton" class="primary-button" type="button">Check now</button>
+          </div>
+        </header>
+        <div class="tracker-control-grid">
+          <div class="tracker-control-row">
+            <div>
+              <strong>Enable managed detections</strong>
+              <p>Evaluate downloaded detection fingerprints against the privacy signals collected during each visit.</p>
+            </div>
+            <label class="switch" title="Enable or disable downloaded detection matching">
+              <input id="detectionDatabaseEnabled" type="checkbox" aria-label="Enable managed detection matching">
+              <span aria-hidden="true"></span>
+            </label>
+          </div>
+          <div class="tracker-control-row">
+            <div>
+              <strong>Automatic updates</strong>
+              <p>Check the Detection DB every eight hours. Existing validated rules remain active if an update fails.</p>
+            </div>
+            <label class="switch" title="Enable or disable automatic detection updates">
+              <input id="detectionAutoUpdateEnabled" type="checkbox" aria-label="Enable automatic detection updates">
+              <span aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+        <div class="tracker-stats">
+          <div><span>Active detections</span><strong id="detectionCount">0</strong></div>
+          <div><span>Update schedule</span><strong id="detectionSchedule">Every 8 hours</strong></div>
+          <div><span>Last checked</span><strong id="detectionLastChecked">Not checked yet</strong></div>
+          <div><span>Source revision</span><strong id="detectionRevision">Not downloaded</strong></div>
+        </div>
+        <div id="detectionUpdateError" class="notice error" hidden></div>
+        <div class="tracker-source-row">
+          <span>Source</span>
+          <a id="detectionRepositoryLink" href="https://github.com/VeilanceApp/Veilance-Detection-DB" target="_blank" rel="noreferrer">VeilanceApp/Veilance-Detection-DB</a>
+        </div>
+        <div class="tracker-log-section">
+          <div class="tracker-log-heading">
+            <div><strong>Detection update log</strong><span>Most recent 50 checks</span></div>
+          </div>
+          <div id="detectionUpdateLog" class="tracker-update-log">
+            <div class="empty-state">No detection update checks recorded yet.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-card">
       <header class="card-header">
         <div>
-          <span class="eyebrow">OBSERVATION</span>
-          <h2>Built-in indicators</h2>
-          <p>Turning an indicator off stops new collection for that signal. Existing visit history is not rewritten.</p>
+          <span class="eyebrow">Detection</span>
+          <h2>Built-in signals</h2>
+          <p>Choose which privacy-relevant browser behaviors Veilance records. Turning a signal off affects new activity only; existing history is unchanged.</p>
         </div>
         <div class="header-actions">
           <span id="enabledCount" class="count-badge">0 enabled</span>
-          <button id="resetIndicatorsButton" class="text-button" type="button">Reset defaults</button>
+          <button id="resetIndicatorsButton" class="text-button" type="button">Restore defaults</button>
         </div>
       </header>
       <div id="builtInIndicators" class="indicator-groups">
@@ -110,11 +179,11 @@
     <section class="settings-card">
       <header class="card-header">
         <div>
-          <span class="eyebrow">CUSTOM RULES</span>
-          <h2>Load indicators from a folder</h2>
-          <p>You choose the folder. Veilance reads JSON files from that selection once and never scans your files in the background. Imported indicators are declarative matching rules—no code is executed.</p>
+          <span class="eyebrow">Custom rules</span>
+          <h2>Import indicators</h2>
+          <p>Select a folder of JSON rules. Veilance reads that selection once, validates each file, and never scans the folder in the background. Imported rules cannot execute code.</p>
         </div>
-        <button id="chooseFolderButton" class="primary-button" type="button">Choose indicator folder</button>
+        <button id="chooseFolderButton" class="primary-button" type="button">Choose folder</button>
         <input id="indicatorFolderInput" type="file" accept=".json,application/json" webkitdirectory multiple hidden>
       </header>
       <div id="importStatus" class="notice" hidden></div>
@@ -132,18 +201,18 @@
         </div>
         <div class="how-to-step">
           <span>3</span>
-          <div><strong>Load the folder</strong><p>Select <em>Choose indicator folder</em>. Veilance validates the files and shows any readable errors.</p></div>
+          <div><strong>Import and review</strong><p>Select <em>Choose folder</em>. Veilance reports rejected files and unsupported fields.</p></div>
         </div>
       </div>
       <div class="template-actions">
-        <button id="downloadStarterButton" class="secondary-button" type="button">Download starter rules</button>
-        <button id="copySignalTemplateButton" class="secondary-button" type="button">Copy signal template</button>
-        <button id="copyHostTemplateButton" class="secondary-button" type="button">Copy host template</button>
-        <button id="copyVeilanceTemplateButton" class="secondary-button" type="button">Copy Veilance JSON</button>
+        <button id="downloadStarterButton" class="secondary-button" type="button">Download starter file</button>
+        <button id="copySignalTemplateButton" class="secondary-button" type="button">Copy signal example</button>
+        <button id="copyHostTemplateButton" class="secondary-button" type="button">Copy host example</button>
+        <button id="copyVeilanceTemplateButton" class="secondary-button" type="button">Copy tracker example</button>
       </div>
       <details class="schema-help">
         <summary>Indicator file format and matching guide</summary>
-        <p>A file may contain one indicator, an array, or an object with an <code>indicators</code> array. The easiest rule matches a built-in source with <code>indicatorId</code>. For a narrower rule, copy the exact <code>API</code> and <code>action</code> shown in Complete visit details. Keep the matching built-in indicator enabled so its signals are available.</p>
+        <p>A file may contain one indicator, an array, or an object with an <code>indicators</code> array. The easiest rule matches a built-in source with <code>indicatorId</code>. For a narrower rule, copy the exact <code>API</code> and <code>action</code> shown in Technical details. Keep the matching built-in indicator enabled so its signals are available.</p>
         <pre>{
   "id": "repeated-font-probing",
   "name": "Repeated font probing",
@@ -189,16 +258,16 @@
       <section class="settings-card snapshot-section">
       <header class="card-header">
         <div>
-          <span class="eyebrow">LOCAL TELEMETRY SNAPSHOTS</span>
-          <h2>Snapshot vault</h2>
-          <p>Use <strong>Take snapshot</strong> in the popup while viewing a public website. Veilance stores up to 20 snapshots locally, but only when observed actions reach the interest threshold.</p>
+          <span class="eyebrow">Snapshots</span>
+          <h2>Saved evidence</h2>
+          <p>Use <strong>Save snapshot</strong> in the popup to preserve a redacted copy of an eligible public-site visit. Veilance keeps up to 20 snapshots on this device.</p>
         </div>
-        <span id="snapshotCount" class="count-badge">0 / 20</span>
+        <span id="snapshotCount" class="count-badge" aria-label="Stored snapshot count">0 / 20</span>
       </header>
 
       <div class="snapshot-interest-policy">
-        <div><span>CAPTURE THRESHOLD</span><strong>20 / 100</strong></div>
-        <p>High-risk actions add 40 points, medium findings add 20, and low findings add 5. Repeated allowed API activity can add 5–10 points. Routine visits below 20 are never snapshotted.</p>
+        <div><span>Capture threshold</span><strong>20 / 100</strong></div>
+        <p>High-risk actions add 25 points, medium findings add 10, and low findings add 2. Repeated allowed API activity can add 5–10 points. Routine visits below 25 are never snapshotted.</p>
       </div>
 
       <div class="snapshot-privacy-grid">
@@ -208,29 +277,54 @@
         </div>
         <div>
           <strong>Always removed</strong>
-          <p>Page text, URL paths/searches, form values, cookies, storage contents, event-handler attributes, inline script source, device fingerprint values, private/internal hosts, authorization data, and wallet keys.</p>
+          <p>Page text, URL paths/searches, form values, cookies, storage contents, event-handler attributes, inline script source, device fingerprint values, private/internal hosts, authorization data, and the private wallet key.</p>
         </div>
       </div>
 
-      <div class="snapshot-upload-control">
+      <div class="snapshot-upload-control snapshot-automatic-capture-control">
+        <div>
+          <strong>Save eligible snapshots automatically</strong>
+          <p id="snapshotAutomaticCaptureDescription">Automatic capture is off. Eligible snapshots are saved only when you press Save snapshot.</p>
+          <small>When enabled, Veilance saves one local snapshot per public-site visit after it reaches 25/100 interest. Manual capture in the popup is disabled until you turn this off. This does not enable uploading.</small>
+        </div>
+        <label class="switch" title="Automatically save interest-qualified snapshots">
+          <input id="snapshotAutomaticCapture" type="checkbox" aria-label="Save eligible snapshots automatically" disabled>
+          <span aria-hidden="true"></span>
+        </label>
+      </div>
+
+      <div class="snapshot-upload-control snapshot-upload-consent-control">
         <div>
           <strong>Allow pseudonymous snapshot uploads</strong>
-          <p id="snapshotUploadDescription">Uploads are disabled in this build. Interest-qualified local capture, review, download, and deletion remain available.</p>
-          <small>A random contributor ID is kept separate from the Solana wallet. Each snapshot must still be explicitly queued.</small>
+          <p id="snapshotUploadDescription">Checking telemetry upload availability…</p>
+          <small>Each request sends the stable contributor ID as <code>client_id</code>, the generated public Solana address as <code>wallet_address</code>, and the exact website hostname—including subdomains—as <code>domain_name</code>. Paths, queries, fragments, and the private wallet key are never sent in these fields.</small>
         </div>
         <label class="switch" title="Allow or pause pseudonymous snapshot uploads">
-          <input id="snapshotUploadConsent" type="checkbox" disabled>
+          <input id="snapshotUploadConsent" type="checkbox" aria-label="Allow pseudonymous snapshot uploads" disabled>
+          <span aria-hidden="true"></span>
+        </label>
+      </div>
+
+      <div class="snapshot-upload-control snapshot-automatic-upload-control">
+        <div>
+          <strong>Upload saved snapshots automatically</strong>
+          <p id="snapshotAutomaticUploadDescription">Allow pseudonymous uploads above to enable automatic queueing.</p>
+          <small>New interest-qualified snapshots use the existing randomized 5–15 minute privacy delay.</small>
+        </div>
+        <label class="switch" title="Automatically queue eligible snapshots">
+          <input id="snapshotAutomaticUpload" type="checkbox" aria-label="Upload eligible snapshots automatically" disabled>
           <span aria-hidden="true"></span>
         </label>
       </div>
 
       <div class="snapshot-toolbar">
-        <button id="queueAllSnapshotsButton" class="primary-button" type="button" disabled>Queue local snapshots</button>
+        <button id="uploadNowButton" class="primary-button" type="button" disabled>Upload now</button>
+        <button id="queueAllSnapshotsButton" class="secondary-button" type="button" disabled>Queue for later</button>
         <button id="refreshSnapshotsButton" class="secondary-button" type="button">Refresh list</button>
-        <button id="clearSnapshotsButton" class="danger-outline-button" type="button">Clear snapshots</button>
+        <button id="clearSnapshotsButton" class="danger-outline-button" type="button" disabled>Clear snapshots</button>
       </div>
       <div id="snapshotList" class="snapshot-list">
-        <div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 20/100 interest.</div>
+        <div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 25/100 interest.</div>
       </div>
       </section>
     </div>
@@ -239,11 +333,11 @@
       <section class="settings-card wallet-section">
       <header class="card-header">
         <div>
-          <span class="eyebrow">SOLANA WALLET &amp; PAYOUTS</span>
-          <h2>Wallet and payout controls</h2>
-          <p>Your wallet backup and future telemetry reward controls live here. The keypair was generated locally and is not uploaded or synced by Veilance.</p>
+          <span class="eyebrow">Wallet &amp; payouts</span>
+          <h2>Local Solana wallet</h2>
+          <p>Back up the wallet generated for this browser and manage future telemetry rewards. Veilance does not upload or sync the keypair.</p>
         </div>
-        <span class="network-badge">SOLANA</span>
+        <span class="network-badge">Solana</span>
       </header>
       <div class="wallet-address-box">
         <div>
@@ -267,9 +361,9 @@
       <section class="settings-card">
       <header class="card-header">
         <div>
-          <span class="eyebrow">LOCAL DATA</span>
+          <span class="eyebrow">Local data</span>
           <h2>Visit history</h2>
-          <p>Complete visit sessions are kept in SQLite and automatically limited to the most recent 20.</p>
+          <p>Complete visit sessions are stored in an on-device SQLite database and automatically limited to the most recent 20.</p>
         </div>
       </header>
       <div class="database-grid">
@@ -278,16 +372,31 @@
         <div><span>Visits stored</span><strong id="databaseCount">0 / 20</strong></div>
         <div><span>Data location</span><strong>This browser only</strong></div>
       </div>
-      <button id="clearHistoryButton" class="danger-outline-button full-width" type="button">Clear visit history</button>
+      <div class="danger-zone">
+        <div><strong>Clear visit history</strong><p>Deletes all saved visits from this browser. Snapshots and settings are not affected.</p></div>
+        <button id="clearHistoryButton" class="danger-outline-button" type="button">Clear history</button>
+      </div>
       </section>
     </div>
 
     <p id="saveStatus" class="save-status" role="status" aria-live="polite"></p>
   </main>
 
+  <dialog id="automaticSnapshotWarningDialog" class="wallet-dialog" aria-labelledby="automaticSnapshotWarningTitle">
+    <form method="dialog" class="dialog-content">
+      <span class="eyebrow">Performance notice</span>
+      <h2 id="automaticSnapshotWarningTitle">Automatic snapshots may affect page performance</h2>
+      <p>Veilance scans page structure to create privacy-safe snapshots. Complex websites or several tabs loading simultaneously may experience additional latency. Disable automatic snapshots at any time if browsing feels slower.</p>
+      <div class="dialog-actions dialog-footer">
+        <button class="text-button" type="submit" value="cancel">Cancel</button>
+        <button class="primary-button" type="submit" value="enable">Enable automatic snapshots</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="walletDialog" class="wallet-dialog">
     <form method="dialog" class="dialog-content">
-      <span class="eyebrow">PRIVATE KEY EXPORT</span>
+      <span class="eyebrow">Private key export</span>
       <h2>Handle this key like cash.</h2>
       <p>Veilance will reveal the Solana private key only after you confirm. Never paste it into a website or send it to anyone you do not completely trust.</p>
       <label class="confirm-row">
@@ -311,7 +420,7 @@
 
   <dialog id="snapshotDialog" class="snapshot-dialog">
     <div class="dialog-content">
-      <span class="eyebrow">REDACTED SNAPSHOT REVIEW</span>
+      <span class="eyebrow">Redacted snapshot review</span>
       <h2 id="snapshotDialogTitle">Telemetry snapshot</h2>
       <p>HTML is shown only as inert text. The snapshot contains evidence for review, not a final determination that a service is a fingerprinter, ad tracker, or anti-blocking system.</p>
       <pre id="snapshotPreviewMetadata" class="snapshot-preview-metadata"></pre>

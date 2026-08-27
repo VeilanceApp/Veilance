@@ -6,8 +6,10 @@ import { addNetworkRequest, addPageSignal, createEmptyState } from "../lib/core.
 import {
   BUILT_IN_INDICATORS,
   evaluateCustomIndicators,
+  managedDetectionId,
   managedTrackerId,
   mergeIndicatorSettings,
+  parseManagedDetectionDocuments,
   parseManagedTrackerRecords,
   parseVeilanceNetworkFilter,
   parseIndicatorDocuments,
@@ -95,6 +97,39 @@ test("Veilance JSON imports domains, metadata, and host-anchored filters", async
   assert.deepEqual(indicator.match.hosts, ["creative-serving.com", "p161.net"]);
   assert.equal(indicator.match.networkFilters.length, 2);
   assert.ok(indicator.match.networkFilters.every((rule) => rule.thirdParty === true));
+});
+
+test("managed detection documents validate flat JSON rules and get stable database ids", () => {
+  const documents = [
+    {
+      sourceName: "veilance-json-detections/repeated-font-probing.json",
+      text: JSON.stringify({
+        id: "repeated-font-probing",
+        name: "Repeated font probing",
+        category: "Fingerprinting",
+        description: "Font probing happened repeatedly.",
+        severity: "medium",
+        match: { indicatorId: "font-probing", minCount: 10 }
+      })
+    },
+    {
+      sourceName: "veilance-json-detections/automation-flag-probing.json",
+      text: JSON.stringify({
+        id: "automation-flag-probing",
+        name: "Automation flag probing",
+        category: "Fingerprinting",
+        description: "The page read navigator.webdriver.",
+        severity: "medium",
+        match: { indicatorId: "navigator-characteristics", api: "Navigator", action: "read-webdriver" }
+      })
+    }
+  ];
+  const result = parseManagedDetectionDocuments(documents);
+  assert.equal(result.errorCount, 0);
+  assert.equal(result.indicators.length, 2);
+  assert.equal(result.indicators[0].id, managedDetectionId(documents[0].sourceName));
+  assert.ok(result.indicators.every((indicator) => indicator.id.startsWith("detection.")));
+  assert.ok(result.indicators.every((indicator) => indicator.managedSource === "detection-database"));
 });
 
 test("managed tracker ids remain unique when organizations are shared", () => {
