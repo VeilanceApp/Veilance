@@ -1,3 +1,7 @@
+## What changed in v0.6.12
+
+* Patches a data loss bug where over 20 telemetry uploads would cause the data to be lost instead of uploaded
+
 ## What changed in v0.6.11
 
 * Every live Overview counter now shows a clear **Typical** or **High** volume

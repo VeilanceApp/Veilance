@@ -164,3 +164,59 @@ test("SQLite snapshot vault stores payloads separately, prunes old rows, and per
   assert.equal((await store.info()).snapshotCount, 3);
   await store.close();
 });
+
+test("SQLite snapshot pruning preserves queued uploads until they are sent", async () => {
+  let saved = null;
+  const sqlite3 = await sqlite3InitModule({ print: () => {}, printErr: () => {} });
+  const store = new SqliteVisitStore(sqlite3, {
+    load: async () => saved,
+    save: async (bytes) => { saved = bytes.slice(); }
+  }, { filename: "snapshot-queue-retention.sqlite3", maxSnapshots: 3 });
+
+  const snapshot = (number) => ({
+    snapshotId: `protected-${number}`,
+    hostname: `site-${number}.example`,
+    createdAt: 1000 + number,
+    payload: {
+      schemaVersion: "veilance.telemetry-snapshot.v2",
+      eventId: `protected-event-${number}`,
+      site: { hostname: `site-${number}.example`, https: true },
+      interest: {
+        score: 25,
+        level: "interesting",
+        minimumScore: 25,
+        eligible: true,
+        reasons: []
+      },
+      redactedDocument: {
+        format: "veilance.redacted-html.v1",
+        html: "<!doctype html><html><body>[REDACTED TEXT]</body></html>"
+      }
+    }
+  });
+
+  for (let number = 1; number <= 3; number += 1) {
+    await store.upsertSnapshot(snapshot(number));
+  }
+  await store.updateSnapshotUpload("protected-1", {
+    status: "queued",
+    nextAttemptAt: 5000
+  });
+
+  await store.upsertSnapshot(snapshot(4));
+  assert.equal((await store.info()).snapshotCount, 4);
+  assert.equal((await store.getSnapshot("protected-1")).upload.status, "queued");
+
+  assert.equal(await store.expediteQueuedSnapshotUploads(2000), 1);
+  assert.equal((await store.listDueSnapshotUploads(2000, 20))[0].snapshotId, "protected-1");
+
+  await store.updateSnapshotUpload("protected-1", {
+    status: "uploaded",
+    nextAttemptAt: null,
+    uploadedAt: 2100
+  });
+  await store.pruneSnapshots();
+  assert.equal(await store.getSnapshot("protected-1"), null);
+  assert.equal((await store.info()).snapshotCount, 3);
+  await store.close();
+});

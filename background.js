@@ -722,6 +722,7 @@ async function captureTelemetrySnapshotForTab(tabId, options = {}) {
     });
     await configureSnapshotUploadAlarm();
   }
+  await flushSnapshotQueueAtCapacity();
   const snapshot = await historyStore.getSnapshot(snapshotId);
   return { ok: true, snapshot: snapshot || { snapshotId, hostname: page.hostname, createdAt } };
 }
@@ -1021,6 +1022,23 @@ function uploadDueSnapshots(trigger = "scheduled") {
     snapshotUploadPromise = null;
   });
   return snapshotUploadPromise;
+}
+
+async function flushSnapshotQueueAtCapacity() {
+  if (!snapshotUploadingAvailable() || !snapshotUploadConsent) return;
+  const { snapshotCount, maximumSnapshots } = await historyStore.info();
+  if (snapshotCount <= maximumSnapshots) return;
+
+  const expedited = await historyStore.expediteQueuedSnapshotUploads(Date.now());
+  if (!expedited) return;
+
+  try {
+    await uploadDueSnapshots("capacity");
+  } catch (error) {
+    console.warn("Veilance capacity-triggered snapshot upload failed", error);
+  } finally {
+    await historyStore.pruneSnapshots();
+  }
 }
 
 async function refreshManagedFindings() {
