@@ -44,18 +44,31 @@ test("one production constant switches every Veilance telemetry endpoint", () =>
 });
 
 test("popup keeps snapshots local and links to compact payout settings", async () => {
-  const html = await readFile(new URL("../popup.html", import.meta.url), "utf8");
+  const [html, source] = await Promise.all([
+    readFile(new URL("../popup.html", import.meta.url), "utf8"),
+    readFile(new URL("../popup.js", import.meta.url), "utf8")
+  ]);
   assert.doesNotMatch(html, /Export JSON/i);
   assert.doesNotMatch(html, /id="exportButton"/);
   assert.doesNotMatch(html, /class="wallet-card"/);
   assert.match(html, /id="payoutSettingsButton"/);
   assert.match(html, /id="snapshotInterestScore"/);
+  assert.match(html, /id="snapshotInterest"[^>]*role="meter"/);
+  assert.match(html, /class="interest-meter-track"/);
   assert.match(html, /Last 20 visits/);
   assert.match(html, /id="snapshotButton"/);
   assert.match(html, /redacted HTML/i);
   assert.match(html, /Veilance doesn’t support this page/i);
   assert.match(html, /Nothing was collected from this page/i);
-  assert.match(html, /Short-load baseline · 8 sites/i);
+  assert.doesNotMatch(html, /baseline/i);
+  assert.doesNotMatch(html, /60 seconds|60-second|reference sites/i);
+  assert.match(html, /browser API calls/i);
+  assert.doesNotMatch(html, /High range:/i);
+  assert.doesNotMatch(html, /metric-threshold/i);
+  assert.match(html, /id="statusPill"[^>]*aria-controls="findingsPanel"/i);
+  assert.match(html, /id="findingCount"[^>]*>0 findings</i);
+  assert.match(source, /Sensitive: \$\{highFindings\[0\]\.title\}/);
+  assert.match(source, /statusPill\.addEventListener\("click", showCurrentFindings\)/);
   assert.match(html, /id="thirdPartyHostsLevel"/);
   assert.match(html, /id="requestCountLevel"/);
   assert.match(html, /id="signalCountLevel"/);

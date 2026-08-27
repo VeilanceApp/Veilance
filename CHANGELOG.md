@@ -1,12 +1,16 @@
 ## What changed in v0.6.11
 
-* Every live Overview counter now shows a visible **Baseline** or **A lot**
-  volume label
-* The exact high-volume cutoff appears directly in each card: 8 third-party
-  hosts, 250 requests, 600 API signals, or 125 storage events
-* Cutoffs are based on the upper quartile of an eight-site short-load reference
-  set and are deliberately described as volume context rather than evidence of
-  harmful behavior
+* Every live Overview counter now shows a clear **Typical** or **High** volume
+  label
+* Numeric cutoff lines are kept out of the popup so the colored **Typical** and
+  **High** states remain the focus
+* Activity cards now focus on concise colored **Typical** and **High** states
+* Sensitive status text identifies the primary behavior and links directly to
+  the finding details
+* Finding totals are explicitly labeled, and important reference text has
+  stronger contrast and larger type
+* The snapshot interest score is now a full-width meter with a clear ready
+  state instead of a cramped severity-tinted box
 * The Overview notes that counts accumulate during longer visits
 
 ## What changed in v0.6.10

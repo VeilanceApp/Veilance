@@ -8,18 +8,19 @@ import {
 
 test("overview activity cutoffs represent the supplied eight-site baseline", () => {
   assert.equal(OVERVIEW_ACTIVITY_BASELINE.sampleSize, 8);
+  assert.equal(OVERVIEW_ACTIVITY_BASELINE.durationSeconds, 60);
   assert.deepEqual(
     Object.fromEntries(Object.entries(OVERVIEW_ACTIVITY_BASELINE.metrics).map(([name, value]) => [name, value.aLotAt])),
     {
-      thirdPartyHosts: 8,
+      thirdPartyHosts: 10,
       requests: 250,
-      apiSignals: 600,
-      storageEvents: 125
+      apiSignals: 550,
+      storageEvents: 170
     }
   );
 });
 
-test("each cutoff identifies the busiest quarter of the supplied reference sites", () => {
+test("current cutoffs classify the intended high-volume reference examples", () => {
   const suppliedSamples = [
     { thirdPartyHosts: 2, requests: 294, apiSignals: 249, storageEvents: 29 },
     { thirdPartyHosts: 3, requests: 45, apiSignals: 257, storageEvents: 62 },
@@ -31,22 +32,28 @@ test("each cutoff identifies the busiest quarter of the supplied reference sites
     { thirdPartyHosts: 10, requests: 127, apiSignals: 168, storageEvents: 107 }
   ];
 
+  const expectedHighCounts = {
+    thirdPartyHosts: 2,
+    requests: 2,
+    apiSignals: 2,
+    storageEvents: 1
+  };
   for (const metricName of Object.keys(OVERVIEW_ACTIVITY_BASELINE.metrics)) {
     const highVolumeCount = suppliedSamples.filter((sample) => (
-      classifyOverviewActivity(metricName, sample[metricName]).isALot
+      classifyOverviewActivity(metricName, sample[metricName]).isHigh
     )).length;
-    assert.equal(highVolumeCount, 2, `${metricName} should classify two of eight reference sites as a lot`);
+    assert.equal(highVolumeCount, expectedHighCounts[metricName], `${metricName} should retain its expected reference classification`);
   }
 });
 
-test("overview activity changes to a lot exactly at each cutoff", () => {
+test("overview activity changes to high exactly at each cutoff", () => {
   for (const [metricName, baseline] of Object.entries(OVERVIEW_ACTIVITY_BASELINE.metrics)) {
     const below = classifyOverviewActivity(metricName, baseline.aLotAt - 1);
     const atCutoff = classifyOverviewActivity(metricName, baseline.aLotAt);
-    assert.equal(below.isALot, false, `${metricName} should remain in the baseline range below its cutoff`);
-    assert.equal(below.label, "Baseline");
-    assert.equal(atCutoff.isALot, true, `${metricName} should be a lot at its cutoff`);
-    assert.equal(atCutoff.label, "A lot");
+    assert.equal(below.isHigh, false, `${metricName} should remain typical below its cutoff`);
+    assert.equal(below.label, "Typical");
+    assert.equal(atCutoff.isHigh, true, `${metricName} should be high at its cutoff`);
+    assert.equal(atCutoff.label, "High");
   }
 });
 

@@ -599,6 +599,7 @@ h3 {
 }
 
 .status {
+  max-width: 100%;
   margin-top: 11px;
   padding: 5px 9px;
   display: inline-flex;
@@ -608,6 +609,33 @@ h3 {
   border-radius: 999px;
   font-size: 10px;
   font-weight: 650;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.status > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.status.has-findings { cursor: pointer; }
+.status.has-findings::after {
+  content: "↓";
+  flex: 0 0 auto;
+  margin-left: 1px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.status.has-findings:hover {
+  filter: brightness(1.06);
 }
 
 .status::before {
@@ -672,11 +700,6 @@ h3 {
   gap: 10px;
 }
 
-.metrics-context > span:last-child {
-  color: var(--muted);
-  font-size: 9px;
-}
-
 .metrics {
   margin: 8px 0;
   display: grid;
@@ -696,7 +719,7 @@ h3 {
   transition: border-color .15s ease, background .15s ease;
 }
 
-.overview-metrics article.metric-a-lot {
+.overview-metrics article.metric-high {
   border-color: color-mix(in srgb, var(--amber) 42%, var(--border));
   background: color-mix(in srgb, var(--amber-soft) 42%, var(--surface));
 }
@@ -742,13 +765,13 @@ h3 {
   white-space: nowrap;
 }
 
-.metrics .metric-level.baseline {
+.metrics .metric-level.typical {
   border-color: color-mix(in srgb, var(--green) 28%, var(--border));
   color: var(--green);
   background: var(--green-soft);
 }
 
-.metrics .metric-level.a-lot {
+.metrics .metric-level.high {
   border-color: color-mix(in srgb, var(--amber) 38%, var(--border));
   color: var(--amber);
   background: var(--amber-soft);
@@ -759,19 +782,6 @@ h3 {
   color: var(--muted);
   background: var(--surface-subtle);
 }
-
-.metrics .metric-threshold {
-  margin-top: 8px;
-  padding-top: 6px;
-  display: block;
-  border-top: 1px solid var(--border);
-  color: var(--muted-2);
-  font-size: 8.5px;
-  font-weight: 620;
-  line-height: 1.2;
-}
-
-.overview-metrics article.metric-a-lot .metric-threshold { color: var(--amber); }
 
 .metrics-note {
   margin: 0 2px 9px;
@@ -815,6 +825,10 @@ h3 {
 }
 
 .finding:last-child { border-bottom: 0; }
+.finding:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
 .finding-title {
   display: flex;
   align-items: center;
@@ -972,10 +986,7 @@ h3 {
 }
 
 .snapshot-card-heading {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 12px;
+  display: block;
 }
 
 .snapshot-card-heading > div:first-child > strong {
@@ -993,57 +1004,80 @@ h3 {
 
 .interest-meter {
   --interest-progress: 0%;
-  position: relative;
-  min-width: 92px;
-  padding: 8px 9px 10px;
-  overflow: hidden;
+  --interest-color: var(--muted);
+  margin-top: 11px;
+  padding: 10px 11px;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--surface-subtle);
-  text-align: right;
 }
 
-.interest-meter::after {
-  content: "";
-  position: absolute;
-  right: auto;
-  bottom: 0;
-  left: 0;
-  width: var(--interest-progress);
-  height: 3px;
-  background: currentColor;
-  transition: width .25s ease;
+.interest-meter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
 }
 
-.interest-meter > span {
+.interest-meter-copy { min-width: 0; }
+.interest-meter-copy > span {
   display: block;
-  color: var(--muted);
-  font-size: 8px;
-  font-weight: 650;
+  color: var(--text-soft);
+  font-size: 9.5px;
+  font-weight: 700;
 }
 
 .interest-meter strong {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  margin: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.interest-meter strong b {
+  color: var(--interest-color);
+  font-size: 20px;
+  letter-spacing: -.035em;
+}
+
+.interest-meter strong span {
+  margin-left: 2px;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.interest-meter-copy small {
   display: block;
   margin-top: 2px;
-  color: var(--text-soft);
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-}
-
-.interest-meter strong b { font-size: 17px; }
-.interest-meter small {
-  display: block;
-  margin-top: 1px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 8.5px;
+  line-height: 1.3;
 }
 
-.interest-meter.interesting { border-color: color-mix(in srgb, var(--cyan) 38%, var(--border)); color: var(--cyan); background: var(--cyan-soft); }
-.interest-meter.high { border-color: color-mix(in srgb, var(--amber) 40%, var(--border)); color: var(--amber); background: var(--amber-soft); }
-.interest-meter.critical { border-color: color-mix(in srgb, var(--red) 40%, var(--border)); color: var(--red); background: var(--red-soft); }
-.interest-meter.interesting strong,
-.interest-meter.high strong,
-.interest-meter.critical strong { color: currentColor; }
+.interest-meter-track {
+  height: 4px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.interest-meter-track i {
+  width: var(--interest-progress);
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--interest-color);
+  transition: width .25s ease;
+}
+
+.interest-meter.interesting { --interest-color: var(--cyan); }
+.interest-meter.high { --interest-color: var(--amber); }
+.interest-meter.critical { --interest-color: var(--red); }
+.interest-meter.ready { --interest-color: var(--accent); }
 
 .snapshot-button {
   width: 100%;

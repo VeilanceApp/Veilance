@@ -20,7 +20,7 @@ disabled.
 * Redirects update the same visit instead of resetting its data
 * Start, page-load-complete, update, and end timestamps
 * SQLite-backed history for the latest 20 visits
-* Full history detail for requests, hosts, API signals, page counts, findings,
+* Full history detail for requests, hosts, browser API calls, page counts, findings,
   and response security headers
 * Overview and History tabs in the popup
 * A tabbed Settings page
@@ -95,14 +95,12 @@ Do not select the ZIP itself. Chromium needs the extracted directory.
 
 ### Overview
 
-The Overview tab shows the active website, current status, request and signal
-counts, findings, and the live snapshot interest score. Each activity counter
-also shows whether it remains in the short-load baseline range or has reached
-**A lot**, with the exact cutoff visible in the card. The reference is based on
-eight common websites: 8 third-party hosts, 250 requests, 600 API signals, or
-125 storage events marks the start of the high-volume range. Counts accumulate
-throughout a visit, and high volume alone does not mean harmful behavior. Open
-**Technical details** to see the full local record while the visit is active.
+The Overview tab shows the active website, current status, request and browser
+API call counts, findings, and the live snapshot interest score. Each activity
+counter is labeled **Typical** or **High**. Counts accumulate throughout a
+visit, and high volume alone does not mean harmful behavior. Select a finding
+status to jump directly to its explanation, or open **Technical details** to
+see the full local record.
 
 The compact **Wallet & payouts** button opens the dedicated Settings
 tab containing the Solana address, backup controls, and payout status.

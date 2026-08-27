@@ -13,24 +13,22 @@ const elements = {
   liveState: document.querySelector("#liveState"),
   hostname: document.querySelector("#hostname"),
   statusPill: document.querySelector("#statusPill"),
+  statusPillText: document.querySelector("#statusPillText"),
   visitTiming: document.querySelector("#visitTiming"),
   liveMessage: document.querySelector("#liveMessage"),
   thirdPartyHosts: document.querySelector("#thirdPartyHosts"),
   thirdPartyHostsCard: document.querySelector("#thirdPartyHostsCard"),
   thirdPartyHostsLevel: document.querySelector("#thirdPartyHostsLevel"),
-  thirdPartyHostsThreshold: document.querySelector("#thirdPartyHostsThreshold"),
   requestCount: document.querySelector("#requestCount"),
   requestCountCard: document.querySelector("#requestCountCard"),
   requestCountLevel: document.querySelector("#requestCountLevel"),
-  requestCountThreshold: document.querySelector("#requestCountThreshold"),
   signalCount: document.querySelector("#signalCount"),
   signalCountCard: document.querySelector("#signalCountCard"),
   signalCountLevel: document.querySelector("#signalCountLevel"),
-  signalCountThreshold: document.querySelector("#signalCountThreshold"),
   storageCount: document.querySelector("#storageCount"),
   storageCountCard: document.querySelector("#storageCountCard"),
   storageCountLevel: document.querySelector("#storageCountLevel"),
-  storageCountThreshold: document.querySelector("#storageCountThreshold"),
+  findingsPanel: document.querySelector("#findingsPanel"),
   findingCount: document.querySelector("#findingCount"),
   findings: document.querySelector("#findings"),
   liveDetailPanel: document.querySelector("#liveDetailPanel"),
@@ -73,26 +71,22 @@ const overviewMetricElements = Object.freeze({
   thirdPartyHosts: {
     value: elements.thirdPartyHosts,
     card: elements.thirdPartyHostsCard,
-    level: elements.thirdPartyHostsLevel,
-    threshold: elements.thirdPartyHostsThreshold
+    level: elements.thirdPartyHostsLevel
   },
   requests: {
     value: elements.requestCount,
     card: elements.requestCountCard,
-    level: elements.requestCountLevel,
-    threshold: elements.requestCountThreshold
+    level: elements.requestCountLevel
   },
   apiSignals: {
     value: elements.signalCount,
     card: elements.signalCountCard,
-    level: elements.signalCountLevel,
-    threshold: elements.signalCountThreshold
+    level: elements.signalCountLevel
   },
   storageEvents: {
     value: elements.storageCount,
     card: elements.storageCountCard,
-    level: elements.storageCountLevel,
-    threshold: elements.storageCountThreshold
+    level: elements.storageCountLevel
   }
 });
 
@@ -119,9 +113,7 @@ function totalStorageEvents(state) {
 
 function renderOverviewMetrics(values = {}, availability = "available") {
   for (const [metricName, metricElements] of Object.entries(overviewMetricElements)) {
-    const baseline = OVERVIEW_ACTIVITY_BASELINE.metrics[metricName];
-    metricElements.threshold.textContent = `A lot starts at ${baseline.aLotAt}`;
-    metricElements.card.classList.remove("metric-a-lot");
+    metricElements.card.classList.remove("metric-high");
 
     if (availability !== "available") {
       metricElements.value.textContent = "0";
@@ -131,7 +123,7 @@ function renderOverviewMetrics(values = {}, availability = "available") {
         "aria-label",
         availability === "pending" ? "Activity comparison is loading" : "Activity comparison is unavailable"
       );
-      metricElements.card.title = `“A lot” starts at ${baseline.aLotAt} ${baseline.unit} in the ${OVERVIEW_ACTIVITY_BASELINE.sampleSize}-site short-load baseline.`;
+      metricElements.card.title = "Activity volume comparison is unavailable.";
       continue;
     }
 
@@ -140,9 +132,51 @@ function renderOverviewMetrics(values = {}, availability = "available") {
     metricElements.level.className = `metric-level ${result.level}`;
     metricElements.level.textContent = result.label;
     metricElements.level.setAttribute("aria-label", result.description);
-    metricElements.card.classList.toggle("metric-a-lot", result.isALot);
+    metricElements.card.classList.toggle("metric-high", result.isHigh);
     metricElements.card.title = `${result.description} Longer visits can accumulate more activity.`;
   }
+}
+
+function findingCountLabel(count) {
+  const normalizedCount = Math.max(0, Math.floor(Number(count) || 0));
+  return `${normalizedCount} ${normalizedCount === 1 ? "finding" : "findings"}`;
+}
+
+function renderFindingCount(count) {
+  const label = findingCountLabel(count);
+  elements.findingCount.textContent = label;
+  elements.findingCount.setAttribute("aria-label", label);
+}
+
+function renderStatus(summary, findings = []) {
+  const highFindings = findings.filter((finding) => finding.severity === "high");
+  let label = summary?.label || "Observing locally";
+  if (highFindings.length === 1) {
+    label = `Sensitive: ${highFindings[0].title}`;
+  } else if (highFindings.length > 1) {
+    label = `${highFindings.length} sensitive findings · ${highFindings[0].title}`;
+  }
+
+  elements.statusPill.className = `status ${summary?.status || "quiet"}`;
+  elements.statusPill.classList.toggle("has-findings", findings.length > 0);
+  elements.statusPillText.textContent = label;
+  elements.statusPill.disabled = findings.length === 0;
+  const findingPreview = findings.slice(0, 3).map((finding) => finding.title).join(", ");
+  const remainingFindingCount = Math.max(0, findings.length - 3);
+  elements.statusPill.title = findings.length
+    ? `View ${findingCountLabel(findings.length)}: ${findingPreview}${remainingFindingCount ? `, and ${remainingFindingCount} more` : ""}`
+    : label;
+  elements.statusPill.setAttribute(
+    "aria-label",
+    findings.length ? `${label}. View ${findingCountLabel(findings.length)}.` : label
+  );
+}
+
+function showCurrentFindings() {
+  if (!currentLiveFindings.length) return;
+  const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  elements.findingsPanel.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+  requestAnimationFrame(() => elements.findings.querySelector(".finding")?.focus({ preventScroll: true }));
 }
 
 function formatDateTime(value) {
@@ -192,7 +226,7 @@ function displayValue(value) {
 
 function findingMarkup(finding) {
   return `
-    <article class="finding">
+    <article class="finding" tabindex="-1">
       <div class="finding-title">
         <span class="severity ${escapeHtml(finding.severity)}">${escapeHtml(finding.severity)}</span>
         <strong>${escapeHtml(finding.title)}</strong>
@@ -224,12 +258,19 @@ function renderSnapshotInterest(value) {
     eligible: value?.eligible === true && score >= minimumScore,
     reasons: Array.isArray(value?.reasons) ? value.reasons : []
   };
-  elements.snapshotInterest.className = `interest-meter ${level}`;
+  elements.snapshotInterest.className = `interest-meter ${level}${currentLiveInterest.eligible ? " ready" : ""}`;
   elements.snapshotInterest.style.setProperty("--interest-progress", `${score}%`);
   elements.snapshotInterestScore.textContent = String(score);
   elements.snapshotInterestLabel.textContent = currentLiveInterest.eligible
-    ? `${level} · ready`
-    : `${minimumScore - score} more needed`;
+    ? "Ready to save"
+    : `${minimumScore - score} ${minimumScore - score === 1 ? "point" : "points"} until ready`;
+  elements.snapshotInterest.setAttribute("aria-valuenow", String(score));
+  elements.snapshotInterest.setAttribute(
+    "aria-valuetext",
+    currentLiveInterest.eligible
+      ? `${score} out of 100. Ready to save.`
+      : `${score} out of 100. ${minimumScore - score} points until ready.`
+  );
   elements.snapshotInterest.title = currentLiveInterest.reasons.length
     ? currentLiveInterest.reasons.map((reason) => `${reason.id}: +${reason.points}`).join("\n")
     : "No notable activity has contributed to the score yet.";
@@ -309,7 +350,7 @@ function telemetryDetailsMarkup(state) {
       ${dataRowsMarkup(hosts, "No network hosts were observed for this visit.")}
     </section>
     <section class="detail-block">
-      <div class="detail-block-head"><h3>Browser API signals</h3><span>${signals.length} type${signals.length === 1 ? "" : "s"}</span></div>
+      <div class="detail-block-head"><h3>Browser API calls</h3><span>${signals.length} type${signals.length === 1 ? "" : "s"}</span></div>
       ${dataRowsMarkup(signals, "No enabled API indicators fired during this visit.")}
     </section>
     <section class="detail-block">
@@ -345,13 +386,16 @@ function renderUnsupported(tab) {
   }
   elements.hostname.textContent = tab?.url?.startsWith("chrome://") ? "Chrome internal page" : "Unsupported page";
   elements.statusPill.className = "status unsupported";
-  elements.statusPill.textContent = "Veilance cannot inspect this page";
+  elements.statusPillText.textContent = "Veilance cannot inspect this page";
+  elements.statusPill.disabled = true;
+  elements.statusPill.title = "Veilance cannot inspect this page";
+  elements.statusPill.setAttribute("aria-label", "Veilance cannot inspect this page");
   elements.visitTiming.textContent = "Browser-internal and extension pages are outside the observation boundary.";
   elements.liveMessage.textContent = "";
   elements.liveState.classList.add("unavailable");
   elements.liveState.innerHTML = "<i></i><span>Off duty</span>";
   renderOverviewMetrics({}, "unavailable");
-  elements.findingCount.textContent = "0";
+  renderFindingCount(0);
   renderFindings(elements.findings, [], "Nothing is collected from this type of page.");
   elements.liveDetails.innerHTML = '<div class="empty">Complete details are unavailable for this page.</div>';
   elements.clearButton.disabled = true;
@@ -379,8 +423,7 @@ async function loadState() {
 
   elements.hostname.textContent = state?.hostname || new URL(tab.url).hostname;
   elements.liveMessage.textContent = "";
-  elements.statusPill.className = `status ${summary?.status || "quiet"}`;
-  elements.statusPill.textContent = summary?.label || "Observing locally";
+  renderStatus(summary, findings);
   elements.liveState.classList.remove("unavailable");
   elements.liveState.innerHTML = "<i></i><span>Monitoring</span>";
   renderOverviewMetrics({
@@ -389,7 +432,7 @@ async function loadState() {
     apiSignals: summary?.signalCount,
     storageEvents: totalStorageEvents(state)
   });
-  elements.findingCount.textContent = String(findings.length);
+  renderFindingCount(findings.length);
   elements.visitTiming.textContent = state
     ? `${state.active === false ? "Completed" : "Active"} · started ${formatDateTime(state.startedAt)} · ${formatDuration(state.startedAt, state.endedAt)}`
     : "Waiting for this page to begin reporting.";
@@ -414,13 +457,16 @@ function renderLiveError(error) {
   elements.liveDashboard.hidden = false;
   elements.hostname.textContent = "Unable to load site data";
   elements.statusPill.className = "status unsupported";
-  elements.statusPill.textContent = "Veilance did not respond";
+  elements.statusPillText.textContent = "Veilance did not respond";
+  elements.statusPill.disabled = true;
+  elements.statusPill.title = "Veilance did not respond";
+  elements.statusPill.setAttribute("aria-label", "Veilance did not respond");
   elements.visitTiming.textContent = "Monitoring has not changed the page. Try refreshing this view or reloading the extension.";
   elements.liveMessage.textContent = error?.message || "An unexpected extension error occurred.";
   elements.liveState.classList.add("unavailable");
   elements.liveState.innerHTML = "<i></i><span>Unavailable</span>";
   renderOverviewMetrics({}, "unavailable");
-  elements.findingCount.textContent = "0";
+  renderFindingCount(0);
   renderFindings(elements.findings, [], "Visit findings are unavailable until Veilance reconnects.");
   elements.liveDetails.innerHTML = '<div class="empty">Technical details are unavailable.</div>';
   elements.clearButton.disabled = true;
@@ -472,8 +518,8 @@ function historyCardMarkup(visit) {
         </div>
         <div class="visit-metrics">
           <span>${visit.requestCount} requests</span>
-          <span>${visit.signalCount} signals</span>
-          <span>${visit.findingCount} findings</span>
+          <span>${visit.signalCount} browser API calls</span>
+          <span>${findingCountLabel(visit.findingCount)}</span>
         </div>
       </button>
     </article>
@@ -513,7 +559,7 @@ async function openHistoryVisit(visitId) {
       </section>
       <section class="metrics">
         <article><strong>${state.network?.totalRequests || 0}</strong><span>requests</span></article>
-        <article><strong>${summary.signalCount || 0}</strong><span>API signals</span></article>
+        <article><strong>${summary.signalCount || 0}</strong><span>browser API calls</span></article>
         <article><strong>${summary.thirdPartyHostCount || 0}</strong><span>third parties</span></article>
         <article><strong>${findings.length}</strong><span>findings</span></article>
       </section>
@@ -617,6 +663,7 @@ elements.themeToggle.addEventListener("click", () => void toggleResolvedTheme().
   console.error("Veilance could not save the theme preference", error);
 }));
 elements.refreshButton.addEventListener("click", () => void refreshLive());
+elements.statusPill.addEventListener("click", showCurrentFindings);
 elements.historyRefreshButton.addEventListener("click", () => void refreshHistory());
 elements.historyBackButton.addEventListener("click", showHistoryList);
 elements.clearButton.addEventListener("click", () => void clearCurrentVisit().catch((error) => {

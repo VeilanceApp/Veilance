@@ -75,43 +75,40 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"></path></svg>
           </button>
         </div>
-        <div id="statusPill" class="status quiet">Waiting for page activity</div>
+        <button id="statusPill" class="status quiet" type="button" aria-controls="findingsPanel" title="Waiting for page activity" disabled>
+          <span id="statusPillText">Waiting for page activity</span>
+        </button>
         <p id="visitTiming" class="visit-timing">Preparing on-device monitoring…</p>
         <p id="liveMessage" class="inline-message" role="status" aria-live="polite"></p>
       </section>
 
       <div class="metrics-context">
         <span class="label">Activity volume</span>
-        <span>Short-load baseline · 8 sites</span>
       </div>
-      <section class="metrics overview-metrics" aria-label="Live visit activity compared with the eight-site short-load baseline">
+      <section class="metrics overview-metrics" aria-label="Live visit activity volume">
         <article id="thirdPartyHostsCard">
           <div class="metric-value-row"><strong id="thirdPartyHosts">0</strong><span id="thirdPartyHostsLevel" class="metric-level pending">Checking</span></div>
           <span>third-party hosts</span>
-          <small id="thirdPartyHostsThreshold" class="metric-threshold">A lot starts at 8</small>
         </article>
         <article id="requestCountCard">
           <div class="metric-value-row"><strong id="requestCount">0</strong><span id="requestCountLevel" class="metric-level pending">Checking</span></div>
           <span>requests observed</span>
-          <small id="requestCountThreshold" class="metric-threshold">A lot starts at 250</small>
         </article>
         <article id="signalCountCard">
           <div class="metric-value-row"><strong id="signalCount">0</strong><span id="signalCountLevel" class="metric-level pending">Checking</span></div>
-          <span>API signals</span>
-          <small id="signalCountThreshold" class="metric-threshold">A lot starts at 600</small>
+          <span title="Calls to browser features such as canvas, storage, media, and device APIs.">browser API calls</span>
         </article>
         <article id="storageCountCard">
           <div class="metric-value-row"><strong id="storageCount">0</strong><span id="storageCountLevel" class="metric-level pending">Checking</span></div>
           <span>storage events</span>
-          <small id="storageCountThreshold" class="metric-threshold">A lot starts at 125</small>
         </article>
       </section>
-      <p class="metrics-note">Counts build over the visit, so longer sessions can naturally exceed this short-load reference. High volume alone does not mean harmful behavior.</p>
+      <p class="metrics-note">Counts build throughout the visit. High volume alone does not mean harmful behavior.</p>
 
-      <section class="panel">
+      <section id="findingsPanel" class="panel">
         <div class="panel-head">
           <div><span class="label">Visit assessment</span><h2>Notable activity</h2></div>
-          <span id="findingCount" class="count" aria-label="Finding count">0</span>
+          <span id="findingCount" class="count" aria-label="0 findings" aria-live="polite">0 findings</span>
         </div>
         <div id="findings" class="findings">
           <div class="empty">No privacy-relevant activity has been observed yet.</div>
@@ -130,11 +127,16 @@
             <strong>Save a redacted copy</strong>
             <p>Eligible visits are saved on this device as counts and inert redacted HTML. Text, form values, URL paths, and secrets are removed.</p>
           </div>
-          <div id="snapshotInterest" class="interest-meter routine">
-            <span>Interest score</span>
-            <strong><b id="snapshotInterestScore">0</b>/100</strong>
-            <small id="snapshotInterestLabel">25 required</small>
+        </div>
+        <div id="snapshotInterest" class="interest-meter routine" role="meter" aria-label="Interest score" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="interest-meter-head">
+            <div class="interest-meter-copy">
+              <span>Interest score</span>
+              <small id="snapshotInterestLabel">25 points until ready</small>
+            </div>
+            <strong><b id="snapshotInterestScore">0</b><span>/100</span></strong>
           </div>
+          <div class="interest-meter-track" aria-hidden="true"><i></i></div>
         </div>
         <button id="snapshotButton" class="snapshot-button" type="button">Save snapshot</button>
         <p id="snapshotStatus" class="snapshot-status" role="status" aria-live="polite"></p>
