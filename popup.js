@@ -66,6 +66,7 @@ let currentLiveState = null;
 let currentLiveFindings = [];
 let currentLiveInterest = { score: 0, level: "routine", minimumScore: 25, eligible: false, reasons: [] };
 let snapshotCaptureBusy = false;
+let automaticSnapshotCaptureEnabled = false;
 
 const overviewMetricElements = Object.freeze({
   thirdPartyHosts: {
@@ -276,6 +277,32 @@ function renderSnapshotInterest(value) {
     : "No notable activity has contributed to the score yet.";
 }
 
+function renderSnapshotButtonState() {
+  elements.snapshotButton.disabled =
+    automaticSnapshotCaptureEnabled ||
+    !currentLiveState ||
+    snapshotCaptureBusy ||
+    !currentLiveInterest.eligible;
+
+  if (automaticSnapshotCaptureEnabled) {
+    elements.snapshotButton.title = "Automatic snapshots are enabled. Disable them in Settings to take snapshots manually.";
+    if (!snapshotCaptureBusy) {
+      elements.snapshotStatus.classList.remove("error");
+      elements.snapshotStatus.dataset.automaticCaptureNotice = "true";
+      elements.snapshotStatus.textContent = "Automatic snapshots are enabled. Disable them in Settings to save one manually.";
+    }
+    return;
+  }
+
+  elements.snapshotButton.title = currentLiveInterest.eligible
+    ? `Capture this ${currentLiveInterest.score}/100 interest visit`
+    : `Snapshots require ${currentLiveInterest.minimumScore}/100 interest`;
+  if (elements.snapshotStatus.dataset.automaticCaptureNotice === "true") {
+    delete elements.snapshotStatus.dataset.automaticCaptureNotice;
+    elements.snapshotStatus.textContent = "";
+  }
+}
+
 function keyGridMarkup(values) {
   return `<div class="key-grid">${values.map(([label, value]) => `
     <div class="key-item">
@@ -417,6 +444,7 @@ async function loadState() {
   const findings = response.findings || [];
   currentLiveState = state;
   currentLiveFindings = findings;
+  automaticSnapshotCaptureEnabled = response.snapshotCapture?.automatic === true;
   renderSnapshotInterest(response.interest);
   elements.unsupportedPage.hidden = true;
   elements.liveDashboard.hidden = false;
@@ -437,10 +465,7 @@ async function loadState() {
     ? `${state.active === false ? "Completed" : "Active"} · started ${formatDateTime(state.startedAt)} · ${formatDuration(state.startedAt, state.endedAt)}`
     : "Waiting for this page to begin reporting.";
   elements.clearButton.disabled = !state;
-  elements.snapshotButton.disabled = !state || snapshotCaptureBusy || !currentLiveInterest.eligible;
-  elements.snapshotButton.title = currentLiveInterest.eligible
-    ? `Capture this ${currentLiveInterest.score}/100 interest visit`
-    : `Snapshots require ${currentLiveInterest.minimumScore}/100 interest`;
+  renderSnapshotButtonState();
   renderFindings(
     elements.findings,
     findings,
@@ -602,11 +627,17 @@ async function clearCurrentVisit() {
 }
 
 async function takeTelemetrySnapshot() {
-  if (!Number.isInteger(activeTabId) || snapshotCaptureBusy || !currentLiveInterest.eligible) return;
+  if (
+    !Number.isInteger(activeTabId) ||
+    automaticSnapshotCaptureEnabled ||
+    snapshotCaptureBusy ||
+    !currentLiveInterest.eligible
+  ) return;
   snapshotCaptureBusy = true;
   elements.snapshotButton.disabled = true;
   elements.snapshotButton.textContent = "Redacting…";
   elements.snapshotStatus.classList.remove("error");
+  delete elements.snapshotStatus.dataset.automaticCaptureNotice;
   elements.snapshotStatus.textContent = "Building an inert, redacted copy of this page locally…";
   try {
     const response = await send({
@@ -622,7 +653,7 @@ async function takeTelemetrySnapshot() {
   } finally {
     snapshotCaptureBusy = false;
     elements.snapshotButton.textContent = "Save snapshot";
-    elements.snapshotButton.disabled = !currentLiveState || !currentLiveInterest.eligible;
+    renderSnapshotButtonState();
   }
 }
 

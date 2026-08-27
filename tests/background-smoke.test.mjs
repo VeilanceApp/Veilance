@@ -329,6 +329,21 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(automaticCaptureSetting.scheduled, 0);
   assert.equal(localBacking.veilanceTelemetryAutomaticCaptureV1, true);
 
+  const stateWithAutomaticCapture = await dispatch(
+    { type: "VEILANCE_GET_STATE", tabId: 7 },
+    { url: "chrome-extension://veilance-test/popup.html" }
+  );
+  assert.equal(stateWithAutomaticCapture.snapshotCapture.automatic, true);
+
+  const consoleErrorBeforeManualCaptureCheck = console.error;
+  console.error = () => {};
+  const manualCaptureBlocked = await dispatch(
+    { type: "VEILANCE_CREATE_TELEMETRY_SNAPSHOT", tabId: 7 },
+    { url: "chrome-extension://veilance-test/popup.html" }
+  ).finally(() => { console.error = consoleErrorBeforeManualCaptureCheck; });
+  assert.equal(manualCaptureBlocked.ok, false);
+  assert.match(manualCaptureBlocked.error, /Automatic snapshots are enabled/);
+
   chrome.webNavigation.onBeforeNavigate.listeners[0]({
     tabId: 7,
     frameId: 0,

@@ -285,7 +285,7 @@
         <div>
           <strong>Save eligible snapshots automatically</strong>
           <p id="snapshotAutomaticCaptureDescription">Automatic capture is off. Eligible snapshots are saved only when you press Save snapshot.</p>
-          <small>When enabled, Veilance saves one local snapshot per public-site visit after it reaches 25/100 interest. This does not enable uploading.</small>
+          <small>When enabled, Veilance saves one local snapshot per public-site visit after it reaches 25/100 interest. Manual capture in the popup is disabled until you turn this off. This does not enable uploading.</small>
         </div>
         <label class="switch" title="Automatically save interest-qualified snapshots">
           <input id="snapshotAutomaticCapture" type="checkbox" aria-label="Save eligible snapshots automatically" disabled>
@@ -381,6 +381,18 @@
 
     <p id="saveStatus" class="save-status" role="status" aria-live="polite"></p>
   </main>
+
+  <dialog id="automaticSnapshotWarningDialog" class="wallet-dialog" aria-labelledby="automaticSnapshotWarningTitle">
+    <form method="dialog" class="dialog-content">
+      <span class="eyebrow">Performance notice</span>
+      <h2 id="automaticSnapshotWarningTitle">Automatic snapshots may affect page performance</h2>
+      <p>Veilance scans page structure to create privacy-safe snapshots. Complex websites or several tabs loading simultaneously may experience additional latency. Disable automatic snapshots at any time if browsing feels slower.</p>
+      <div class="dialog-actions dialog-footer">
+        <button class="text-button" type="submit" value="cancel">Cancel</button>
+        <button class="primary-button" type="submit" value="enable">Enable automatic snapshots</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="walletDialog" class="wallet-dialog">
     <form method="dialog" class="dialog-content">

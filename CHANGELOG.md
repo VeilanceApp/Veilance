@@ -1,6 +1,13 @@
-## What changed in v0.6.12
+## What changed in v0.6.13
 
-* Patches a data loss bug where over 20 telemetry uploads would cause the data to be lost instead of uploaded
+* Queued, uploading, and failed snapshots are protected from local retention
+  pruning so pending telemetry is not lost when more than 20 snapshots exist
+* Queue pressure triggers an immediate consented upload attempt, while failed
+  records remain stored for their next retry
+* Enabling automatic snapshot capture now requires acknowledging that complex
+  pages or several tabs loading together may experience additional latency
+* The popup disables manual snapshot capture while automatic capture is on and
+  explains how to restore the manual control
 
 ## What changed in v0.6.11
 

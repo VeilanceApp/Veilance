@@ -57,6 +57,7 @@ test("popup keeps snapshots local and links to compact payout settings", async (
   assert.match(html, /class="interest-meter-track"/);
   assert.match(html, /Last 20 visits/);
   assert.match(html, /id="snapshotButton"/);
+  assert.match(html, /id="snapshotButton"[^>]*aria-describedby="snapshotStatus"/);
   assert.match(html, /redacted HTML/i);
   assert.match(html, /Veilance doesn’t support this page/i);
   assert.match(html, /Nothing was collected from this page/i);
@@ -69,6 +70,8 @@ test("popup keeps snapshots local and links to compact payout settings", async (
   assert.match(html, /id="findingCount"[^>]*>0 findings</i);
   assert.match(source, /Sensitive: \$\{highFindings\[0\]\.title\}/);
   assert.match(source, /statusPill\.addEventListener\("click", showCurrentFindings\)/);
+  assert.match(source, /automaticSnapshotCaptureEnabled/);
+  assert.match(source, /Automatic snapshots are enabled\. Disable them in Settings/i);
   assert.match(html, /id="thirdPartyHostsLevel"/);
   assert.match(html, /id="requestCountLevel"/);
   assert.match(html, /id="signalCountLevel"/);
@@ -96,6 +99,10 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /id="settingsPayoutButton"[^>]*disabled/);
   assert.match(html, /id="snapshotUploadConsent"[^>]*disabled/);
   assert.match(html, /id="snapshotAutomaticCapture"[^>]*disabled/);
+  assert.match(html, /id="automaticSnapshotWarningDialog"/);
+  assert.match(html, /Automatic snapshots may affect page performance/i);
+  assert.match(html, /several tabs loading simultaneously may experience additional latency/i);
+  assert.match(html, /Enable automatic snapshots/i);
   assert.match(html, /id="snapshotAutomaticUpload"[^>]*disabled/);
   assert.match(html, /id="uploadNowButton"[^>]*disabled/);
   assert.match(html, /id="snapshotList"/);
@@ -160,7 +167,7 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.6.11");
+  assert.equal(manifest.version, "0.6.13");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));

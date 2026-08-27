@@ -51,6 +51,7 @@ const elements = {
   snapshotCount: document.querySelector("#snapshotCount"),
   snapshotAutomaticCapture: document.querySelector("#snapshotAutomaticCapture"),
   snapshotAutomaticCaptureDescription: document.querySelector("#snapshotAutomaticCaptureDescription"),
+  automaticSnapshotWarningDialog: document.querySelector("#automaticSnapshotWarningDialog"),
   snapshotUploadConsent: document.querySelector("#snapshotUploadConsent"),
   snapshotUploadDescription: document.querySelector("#snapshotUploadDescription"),
   snapshotAutomaticUpload: document.querySelector("#snapshotAutomaticUpload"),
@@ -621,8 +622,18 @@ function renderSnapshotCapture() {
   elements.snapshotAutomaticCapture.disabled = false;
   elements.snapshotAutomaticCapture.checked = capture.automatic === true;
   elements.snapshotAutomaticCaptureDescription.textContent = capture.automatic
-    ? `Automatic capture is on. Veilance saves one local snapshot per public-site visit after it reaches ${minimumScore}/100 interest.`
+    ? `Automatic capture is on. Veilance saves one local snapshot per public-site visit after it reaches ${minimumScore}/100 interest. Complex websites or several tabs loading together may experience additional latency; disable it if browsing feels slower.`
     : `Automatic capture is off. Eligible snapshots are saved only when you press Save snapshot.`;
+}
+
+function confirmAutomaticSnapshotCapture() {
+  elements.automaticSnapshotWarningDialog.returnValue = "cancel";
+  elements.automaticSnapshotWarningDialog.showModal();
+  return new Promise((resolve) => {
+    elements.automaticSnapshotWarningDialog.addEventListener("close", () => {
+      resolve(elements.automaticSnapshotWarningDialog.returnValue === "enable");
+    }, { once: true });
+  });
 }
 
 function snapshotRowMarkup(snapshot) {
@@ -1101,6 +1112,14 @@ elements.snapshotAutomaticCapture.addEventListener("change", async () => {
   const previous = !elements.snapshotAutomaticCapture.checked;
   elements.snapshotAutomaticCapture.disabled = true;
   try {
+    if (elements.snapshotAutomaticCapture.checked) {
+      const confirmed = await confirmAutomaticSnapshotCapture();
+      if (!confirmed) {
+        elements.snapshotAutomaticCapture.checked = previous;
+        showSaveStatus("Automatic capture was not enabled.");
+        return;
+      }
+    }
     const response = await send({
       type: "VEILANCE_SET_AUTOMATIC_SNAPSHOT_CAPTURE",
       enabled: elements.snapshotAutomaticCapture.checked

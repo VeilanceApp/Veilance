@@ -1558,7 +1558,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await waitForTab(tabId);
         const state = states.get(tabId) || null;
         const { findings, summary, interest } = summaryFor(state);
-        return { ok: true, state, findings, summary, interest };
+        return {
+          ok: true,
+          state,
+          findings,
+          summary,
+          interest,
+          snapshotCapture: publicSnapshotCaptureState()
+        };
       }
 
       case "VEILANCE_GET_PAYLOAD": {
@@ -1574,6 +1581,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "VEILANCE_CREATE_TELEMETRY_SNAPSHOT": {
         if (!isExtensionPage(sender, ["popup.html"])) {
           throw new Error("Telemetry snapshots can be captured only from the Veilance popup");
+        }
+        if (snapshotAutomaticCapture) {
+          throw new Error("Automatic snapshots are enabled. Disable them in Settings to take a snapshot manually.");
         }
         const tabId = Number(message.tabId);
         if (!Number.isInteger(tabId) || tabId < 0) throw new Error("Choose a website tab before taking a snapshot");
