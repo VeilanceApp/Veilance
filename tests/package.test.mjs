@@ -55,6 +55,12 @@ test("popup keeps snapshots local and links to compact payout settings", async (
   assert.match(html, /redacted HTML/i);
   assert.match(html, /Veilance doesn’t support this page/i);
   assert.match(html, /Nothing was collected from this page/i);
+  assert.match(html, /Short-load baseline · 8 sites/i);
+  assert.match(html, /id="thirdPartyHostsLevel"/);
+  assert.match(html, /id="requestCountLevel"/);
+  assert.match(html, /id="signalCountLevel"/);
+  assert.match(html, /id="storageCountLevel"/);
+  assert.match(html, /High volume alone does not mean harmful behavior/i);
 });
 
 test("settings exposes indicator folders, wallet export, and disabled payouts", async () => {
@@ -141,7 +147,7 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.6.10");
+  assert.equal(manifest.version, "0.6.11");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));

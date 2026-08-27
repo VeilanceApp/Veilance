@@ -664,12 +664,27 @@ h3 {
 
 .inline-message:empty { display: none; }
 
+.metrics-context {
+  margin: 10px 2px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.metrics-context > span:last-child {
+  color: var(--muted);
+  font-size: 9px;
+}
+
 .metrics {
   margin: 8px 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+
+.overview-metrics { margin: 0 0 6px; }
 
 .metrics article {
   min-width: 0;
@@ -678,6 +693,19 @@ h3 {
   border-radius: 10px;
   background: var(--surface);
   box-shadow: var(--shadow-sm);
+  transition: border-color .15s ease, background .15s ease;
+}
+
+.overview-metrics article.metric-a-lot {
+  border-color: color-mix(in srgb, var(--amber) 42%, var(--border));
+  background: color-mix(in srgb, var(--amber-soft) 42%, var(--surface));
+}
+
+.metric-value-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .metrics strong {
@@ -688,11 +716,68 @@ h3 {
   font-variant-numeric: tabular-nums;
 }
 
-.metrics span {
+.metrics article > span {
   display: block;
   margin-top: 4px;
   color: var(--muted);
   font-size: 10.5px;
+}
+
+.metrics .metric-level {
+  min-height: 20px;
+  margin: 0;
+  padding: 3px 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  font-size: 8.5px;
+  font-weight: 750;
+  letter-spacing: .01em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.metrics .metric-level.baseline {
+  border-color: color-mix(in srgb, var(--green) 28%, var(--border));
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.metrics .metric-level.a-lot {
+  border-color: color-mix(in srgb, var(--amber) 38%, var(--border));
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.metrics .metric-level.unavailable,
+.metrics .metric-level.pending {
+  color: var(--muted);
+  background: var(--surface-subtle);
+}
+
+.metrics .metric-threshold {
+  margin-top: 8px;
+  padding-top: 6px;
+  display: block;
+  border-top: 1px solid var(--border);
+  color: var(--muted-2);
+  font-size: 8.5px;
+  font-weight: 620;
+  line-height: 1.2;
+}
+
+.overview-metrics article.metric-a-lot .metric-threshold { color: var(--amber); }
+
+.metrics-note {
+  margin: 0 2px 9px;
+  color: var(--muted);
+  font-size: 8.5px;
+  line-height: 1.45;
 }
 
 .panel { overflow: hidden; }

@@ -1,3 +1,14 @@
+## What changed in v0.6.11
+
+* Every live Overview counter now shows a visible **Baseline** or **A lot**
+  volume label
+* The exact high-volume cutoff appears directly in each card: 8 third-party
+  hosts, 250 requests, 600 API signals, or 125 storage events
+* Cutoffs are based on the upper quartile of an eight-site short-load reference
+  set and are deliberately described as volume context rather than evidence of
+  harmful behavior
+* The Overview notes that counts accumulate during longer visits
+
 ## What changed in v0.6.10
 
 * One `VEILANCE_USE_PRODUCTION_API` constant now switches both telemetry

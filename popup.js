@@ -3,6 +3,10 @@ import {
   subscribeToTheme,
   toggleResolvedTheme
 } from "./lib/theme.js";
+import {
+  OVERVIEW_ACTIVITY_BASELINE,
+  classifyOverviewActivity
+} from "./lib/overview-baselines.js";
 
 const elements = {
   themeToggle: document.querySelector("#themeToggle"),
@@ -12,9 +16,21 @@ const elements = {
   visitTiming: document.querySelector("#visitTiming"),
   liveMessage: document.querySelector("#liveMessage"),
   thirdPartyHosts: document.querySelector("#thirdPartyHosts"),
+  thirdPartyHostsCard: document.querySelector("#thirdPartyHostsCard"),
+  thirdPartyHostsLevel: document.querySelector("#thirdPartyHostsLevel"),
+  thirdPartyHostsThreshold: document.querySelector("#thirdPartyHostsThreshold"),
   requestCount: document.querySelector("#requestCount"),
+  requestCountCard: document.querySelector("#requestCountCard"),
+  requestCountLevel: document.querySelector("#requestCountLevel"),
+  requestCountThreshold: document.querySelector("#requestCountThreshold"),
   signalCount: document.querySelector("#signalCount"),
+  signalCountCard: document.querySelector("#signalCountCard"),
+  signalCountLevel: document.querySelector("#signalCountLevel"),
+  signalCountThreshold: document.querySelector("#signalCountThreshold"),
   storageCount: document.querySelector("#storageCount"),
+  storageCountCard: document.querySelector("#storageCountCard"),
+  storageCountLevel: document.querySelector("#storageCountLevel"),
+  storageCountThreshold: document.querySelector("#storageCountThreshold"),
   findingCount: document.querySelector("#findingCount"),
   findings: document.querySelector("#findings"),
   liveDetailPanel: document.querySelector("#liveDetailPanel"),
@@ -53,6 +69,33 @@ let currentLiveFindings = [];
 let currentLiveInterest = { score: 0, level: "routine", minimumScore: 25, eligible: false, reasons: [] };
 let snapshotCaptureBusy = false;
 
+const overviewMetricElements = Object.freeze({
+  thirdPartyHosts: {
+    value: elements.thirdPartyHosts,
+    card: elements.thirdPartyHostsCard,
+    level: elements.thirdPartyHostsLevel,
+    threshold: elements.thirdPartyHostsThreshold
+  },
+  requests: {
+    value: elements.requestCount,
+    card: elements.requestCountCard,
+    level: elements.requestCountLevel,
+    threshold: elements.requestCountThreshold
+  },
+  apiSignals: {
+    value: elements.signalCount,
+    card: elements.signalCountCard,
+    level: elements.signalCountLevel,
+    threshold: elements.signalCountThreshold
+  },
+  storageEvents: {
+    value: elements.storageCount,
+    card: elements.storageCountCard,
+    level: elements.storageCountLevel,
+    threshold: elements.storageCountThreshold
+  }
+});
+
 async function send(message) {
   const response = await chrome.runtime.sendMessage(message);
   if (!response?.ok) throw new Error(response?.error || "Veilance did not return a response");
@@ -72,6 +115,34 @@ function totalStorageEvents(state) {
   return Object.values(state?.signals || {})
     .filter((signal) => signal.indicatorId === "browser-storage" || signal.kind === "storage")
     .reduce((sum, signal) => sum + Number(signal.count || 0), 0);
+}
+
+function renderOverviewMetrics(values = {}, availability = "available") {
+  for (const [metricName, metricElements] of Object.entries(overviewMetricElements)) {
+    const baseline = OVERVIEW_ACTIVITY_BASELINE.metrics[metricName];
+    metricElements.threshold.textContent = `A lot starts at ${baseline.aLotAt}`;
+    metricElements.card.classList.remove("metric-a-lot");
+
+    if (availability !== "available") {
+      metricElements.value.textContent = "0";
+      metricElements.level.className = `metric-level ${availability}`;
+      metricElements.level.textContent = availability === "pending" ? "Checking" : "Unavailable";
+      metricElements.level.setAttribute(
+        "aria-label",
+        availability === "pending" ? "Activity comparison is loading" : "Activity comparison is unavailable"
+      );
+      metricElements.card.title = `“A lot” starts at ${baseline.aLotAt} ${baseline.unit} in the ${OVERVIEW_ACTIVITY_BASELINE.sampleSize}-site short-load baseline.`;
+      continue;
+    }
+
+    const result = classifyOverviewActivity(metricName, values[metricName]);
+    metricElements.value.textContent = String(result.count);
+    metricElements.level.className = `metric-level ${result.level}`;
+    metricElements.level.textContent = result.label;
+    metricElements.level.setAttribute("aria-label", result.description);
+    metricElements.card.classList.toggle("metric-a-lot", result.isALot);
+    metricElements.card.title = `${result.description} Longer visits can accumulate more activity.`;
+  }
 }
 
 function formatDateTime(value) {
@@ -279,10 +350,7 @@ function renderUnsupported(tab) {
   elements.liveMessage.textContent = "";
   elements.liveState.classList.add("unavailable");
   elements.liveState.innerHTML = "<i></i><span>Off duty</span>";
-  elements.thirdPartyHosts.textContent = "0";
-  elements.requestCount.textContent = "0";
-  elements.signalCount.textContent = "0";
-  elements.storageCount.textContent = "0";
+  renderOverviewMetrics({}, "unavailable");
   elements.findingCount.textContent = "0";
   renderFindings(elements.findings, [], "Nothing is collected from this type of page.");
   elements.liveDetails.innerHTML = '<div class="empty">Complete details are unavailable for this page.</div>';
@@ -315,10 +383,12 @@ async function loadState() {
   elements.statusPill.textContent = summary?.label || "Observing locally";
   elements.liveState.classList.remove("unavailable");
   elements.liveState.innerHTML = "<i></i><span>Monitoring</span>";
-  elements.thirdPartyHosts.textContent = String(summary?.thirdPartyHostCount || 0);
-  elements.requestCount.textContent = String(state?.network?.totalRequests || 0);
-  elements.signalCount.textContent = String(summary?.signalCount || 0);
-  elements.storageCount.textContent = String(totalStorageEvents(state));
+  renderOverviewMetrics({
+    thirdPartyHosts: summary?.thirdPartyHostCount,
+    requests: state?.network?.totalRequests,
+    apiSignals: summary?.signalCount,
+    storageEvents: totalStorageEvents(state)
+  });
   elements.findingCount.textContent = String(findings.length);
   elements.visitTiming.textContent = state
     ? `${state.active === false ? "Completed" : "Active"} · started ${formatDateTime(state.startedAt)} · ${formatDuration(state.startedAt, state.endedAt)}`
@@ -349,10 +419,7 @@ function renderLiveError(error) {
   elements.liveMessage.textContent = error?.message || "An unexpected extension error occurred.";
   elements.liveState.classList.add("unavailable");
   elements.liveState.innerHTML = "<i></i><span>Unavailable</span>";
-  elements.thirdPartyHosts.textContent = "0";
-  elements.requestCount.textContent = "0";
-  elements.signalCount.textContent = "0";
-  elements.storageCount.textContent = "0";
+  renderOverviewMetrics({}, "unavailable");
   elements.findingCount.textContent = "0";
   renderFindings(elements.findings, [], "Visit findings are unavailable until Veilance reconnects.");
   elements.liveDetails.innerHTML = '<div class="empty">Technical details are unavailable.</div>';
@@ -562,6 +629,7 @@ elements.liveDetailPanel.addEventListener("toggle", () => {
 });
 
 elements.version.textContent = `v${chrome.runtime.getManifest().version}`;
+renderOverviewMetrics({}, "pending");
 
 subscribeToTheme(({ resolved }) => {
   const nextTheme = resolved === "dark" ? "light" : "dark";

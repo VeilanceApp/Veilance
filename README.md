@@ -1,4 +1,4 @@
-# Veilance Browser Extension v0.6.10
+# Veilance Browser Extension v0.6.11
 
 Veilance is a local-first browser privacy observability extension. It shows what
 a website requests from browser APIs and which network hosts it contacts while
@@ -96,8 +96,13 @@ Do not select the ZIP itself. Chromium needs the extracted directory.
 ### Overview
 
 The Overview tab shows the active website, current status, request and signal
-counts, findings, and the live snapshot interest score. Open **Technical
-details** to see the full local record while the visit is active.
+counts, findings, and the live snapshot interest score. Each activity counter
+also shows whether it remains in the short-load baseline range or has reached
+**A lot**, with the exact cutoff visible in the card. The reference is based on
+eight common websites: 8 third-party hosts, 250 requests, 600 API signals, or
+125 storage events marks the start of the high-volume range. Counts accumulate
+throughout a visit, and high volume alone does not mean harmful behavior. Open
+**Technical details** to see the full local record while the visit is active.
 
 The compact **Wallet & payouts** button opens the dedicated Settings
 tab containing the Solana address, backup controls, and payout status.

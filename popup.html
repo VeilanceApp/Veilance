@@ -80,12 +80,33 @@
         <p id="liveMessage" class="inline-message" role="status" aria-live="polite"></p>
       </section>
 
-      <section class="metrics" aria-label="Live visit summary">
-        <article><strong id="thirdPartyHosts">0</strong><span>third-party hosts</span></article>
-        <article><strong id="requestCount">0</strong><span>requests observed</span></article>
-        <article><strong id="signalCount">0</strong><span>API signals</span></article>
-        <article><strong id="storageCount">0</strong><span>storage events</span></article>
+      <div class="metrics-context">
+        <span class="label">Activity volume</span>
+        <span>Short-load baseline · 8 sites</span>
+      </div>
+      <section class="metrics overview-metrics" aria-label="Live visit activity compared with the eight-site short-load baseline">
+        <article id="thirdPartyHostsCard">
+          <div class="metric-value-row"><strong id="thirdPartyHosts">0</strong><span id="thirdPartyHostsLevel" class="metric-level pending">Checking</span></div>
+          <span>third-party hosts</span>
+          <small id="thirdPartyHostsThreshold" class="metric-threshold">A lot starts at 8</small>
+        </article>
+        <article id="requestCountCard">
+          <div class="metric-value-row"><strong id="requestCount">0</strong><span id="requestCountLevel" class="metric-level pending">Checking</span></div>
+          <span>requests observed</span>
+          <small id="requestCountThreshold" class="metric-threshold">A lot starts at 250</small>
+        </article>
+        <article id="signalCountCard">
+          <div class="metric-value-row"><strong id="signalCount">0</strong><span id="signalCountLevel" class="metric-level pending">Checking</span></div>
+          <span>API signals</span>
+          <small id="signalCountThreshold" class="metric-threshold">A lot starts at 600</small>
+        </article>
+        <article id="storageCountCard">
+          <div class="metric-value-row"><strong id="storageCount">0</strong><span id="storageCountLevel" class="metric-level pending">Checking</span></div>
+          <span>storage events</span>
+          <small id="storageCountThreshold" class="metric-threshold">A lot starts at 125</small>
+        </article>
       </section>
+      <p class="metrics-note">Counts build over the visit, so longer sessions can naturally exceed this short-load reference. High volume alone does not mean harmful behavior.</p>
 
       <section class="panel">
         <div class="panel-head">
