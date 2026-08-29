@@ -1,3 +1,11 @@
+## 0.6.14
+
+- Added a new **Protections** settings tab.
+- Added **Fingerprint Protection (Beta)**, disabled by default. The first protection randomizes Canvas 2D readback and canvas exports to reduce stable canvas fingerprinting across navigations.
+- Added a disabled **Tracker Protection** control as a preview of a future blocking feature.
+- Added the generated contributor UUID to Settings with a direct link to `https://veilance.org/leaderboard?uuid=<UUID>`.
+- Fingerprint protection is dynamically registered in the page MAIN world at `document_start` when enabled and unregistered when disabled.
+
 ## What changed in v0.6.13
 
 * Queued, uploading, and failed snapshots are protected from local retention

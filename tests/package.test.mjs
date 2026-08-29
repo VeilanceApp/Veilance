@@ -22,7 +22,7 @@ import {
 } from "../config.js";
 
 test("one production constant switches every Veilance telemetry endpoint", () => {
-  assert.equal(VEILANCE_USE_PRODUCTION_API, false);
+  assert.equal(VEILANCE_USE_PRODUCTION_API, true);
   assert.equal(VEILANCE_DEVELOPMENT_API_ORIGIN, "http://10.0.10.211:5132");
   assert.equal(VEILANCE_PRODUCTION_API_ORIGIN, "https://api.veilance.org");
   assert.equal(veilanceApiOrigin(false), VEILANCE_DEVELOPMENT_API_ORIGIN);
@@ -35,11 +35,11 @@ test("one production constant switches every Veilance telemetry endpoint", () =>
     veilanceApiEndpoint("/api/v1/telemetry/ip", true),
     "https://api.veilance.org/api/v1/telemetry/ip"
   );
-  assert.equal(VEILANCE_API_ORIGIN, VEILANCE_DEVELOPMENT_API_ORIGIN);
+  assert.equal(VEILANCE_API_ORIGIN, VEILANCE_PRODUCTION_API_ORIGIN);
   assert.equal(TELEMETRY_UPLOAD_ENABLED, true);
-  assert.equal(TELEMETRY_UPLOAD_ENDPOINT, "http://10.0.10.211:5132/api/v1/telemetry/upload");
-  assert.equal(TELEMETRY_IP_ADDRESS_ENDPOINT, "http://10.0.10.211:5132/api/v1/telemetry/ip");
-  assert.equal(TELEMETRY_UPLOAD_ALLOW_INSECURE_HTTP, true);
+  assert.equal(TELEMETRY_UPLOAD_ENDPOINT, "https://api.veilance.org/api/v1/telemetry/upload");
+  assert.equal(TELEMETRY_IP_ADDRESS_ENDPOINT, "https://api.veilance.org/api/v1/telemetry/ip");
+  assert.equal(TELEMETRY_UPLOAD_ALLOW_INSECURE_HTTP, false);
   assert.equal(PAYOUTS_ENABLED, false);
 });
 
@@ -108,7 +108,11 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /id="snapshotList"/);
   assert.match(html, /id="snapshotHtmlPreview"/);
   assert.match(html, /private\/internal hosts/i);
-  assert.match(html, /does not block, spoof, or change/i);
+  assert.match(html, /data-settings-tab="protections"/);
+  assert.match(html, /id="fingerprintProtectionEnabled"/);
+  assert.match(html, /id="trackerProtectionEnabled"[^>]*disabled/);
+  assert.match(html, /Contributor UUID/i);
+  assert.match(html, /https:\/\/veilance\.org\/leaderboard/i);
 });
 
 test("popup and Settings scripts reference elements that exist in their pages", async () => {
@@ -167,12 +171,13 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.6.13");
+  assert.equal(manifest.version, "0.6.14");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.permissions.includes("alarms"));
   assert.ok(manifest.permissions.includes("unlimitedStorage"));
+  assert.ok(manifest.permissions.includes("scripting"));
   assert.equal(manifest.background.type, "module");
   assert.equal(manifest.options_ui.page, "settings.html");
   assert.match(manifest.content_security_policy.extension_pages, /wasm-unsafe-eval/);

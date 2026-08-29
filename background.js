@@ -73,6 +73,8 @@ const SNAPSHOT_UPLOAD_ALARM = "veilanceTelemetrySnapshotUploadV1";
 const SNAPSHOT_UPLOAD_CONSENT_KEY = "veilanceTelemetrySnapshotConsentV1";
 const SNAPSHOT_AUTOMATIC_UPLOAD_KEY = "veilanceTelemetryAutomaticUploadV1";
 const SNAPSHOT_AUTOMATIC_CAPTURE_KEY = "veilanceTelemetryAutomaticCaptureV1";
+const FINGERPRINT_PROTECTION_ENABLED_KEY = "veilanceFingerprintProtectionEnabledV1";
+const FINGERPRINT_PROTECTION_SCRIPT_ID = "veilance-fingerprint-protection-v1";
 const MAX_TRACKER_UPDATE_LOG = 50;
 const MAX_DETECTION_UPDATE_LOG = 50;
 const HISTORY_FLUSH_DELAY_MS = 200;
@@ -102,6 +104,7 @@ let historyStore = null;
 let snapshotUploadConsent = false;
 let snapshotAutomaticUpload = false;
 let snapshotAutomaticCapture = false;
+let fingerprintProtectionEnabled = false;
 let telemetryClientId = null;
 let snapshotUploadPromise = null;
 let snapshotUploadAbortController = null;
@@ -170,6 +173,35 @@ function publicSnapshotCaptureState() {
     automatic: Boolean(snapshotAutomaticCapture),
     minimumScore: SNAPSHOT_INTEREST_MINIMUM
   };
+}
+
+function publicProtectionState() {
+  return {
+    fingerprintEnabled: Boolean(fingerprintProtectionEnabled),
+    fingerprintLabel: "Fingerprint Protection (Beta)",
+    fingerprintDescription: "Randomizes common canvas fingerprint readback so websites receive a session-specific result instead of a stable canvas fingerprint.",
+    trackerEnabled: false,
+    trackerAvailable: false
+  };
+}
+
+async function configureFingerprintProtectionScript() {
+  if (!chrome.scripting?.getRegisteredContentScripts) return;
+  const registered = await chrome.scripting.getRegisteredContentScripts({ ids: [FINGERPRINT_PROTECTION_SCRIPT_ID] });
+  const exists = registered.some((entry) => entry.id === FINGERPRINT_PROTECTION_SCRIPT_ID);
+  if (fingerprintProtectionEnabled && !exists) {
+    await chrome.scripting.registerContentScripts([{
+      id: FINGERPRINT_PROTECTION_SCRIPT_ID,
+      matches: ["http://*/*", "https://*/*"],
+      js: ["protection.js"],
+      runAt: "document_start",
+      world: "MAIN",
+      allFrames: false,
+      persistAcrossSessions: true
+    }]);
+  } else if (!fingerprintProtectionEnabled && exists) {
+    await chrome.scripting.unregisterContentScripts({ ids: [FINGERPRINT_PROTECTION_SCRIPT_ID] });
+  }
 }
 
 async function initializeTelemetryClientId(storedValues = null) {
@@ -741,6 +773,7 @@ const ready = (async () => {
       SNAPSHOT_UPLOAD_CONSENT_KEY,
       SNAPSHOT_AUTOMATIC_UPLOAD_KEY,
       SNAPSHOT_AUTOMATIC_CAPTURE_KEY,
+      FINGERPRINT_PROTECTION_ENABLED_KEY,
       TELEMETRY_CLIENT_ID_STORAGE_KEY,
       LEGACY_TELEMETRY_CONTRIBUTOR_ID_STORAGE_KEY
     ]),
@@ -751,6 +784,8 @@ const ready = (async () => {
   snapshotUploadConsent = localStored?.[SNAPSHOT_UPLOAD_CONSENT_KEY] === true;
   snapshotAutomaticUpload = localStored?.[SNAPSHOT_AUTOMATIC_UPLOAD_KEY] === true;
   snapshotAutomaticCapture = localStored?.[SNAPSHOT_AUTOMATIC_CAPTURE_KEY] === true;
+  fingerprintProtectionEnabled = localStored?.[FINGERPRINT_PROTECTION_ENABLED_KEY] === true;
+  await configureFingerprintProtectionScript();
   await initializeTelemetryClientId(localStored);
   await historyStore.recoverInterruptedSnapshotUploads();
   const savedCustom = localStored?.[CUSTOM_INDICATORS_KEY];
@@ -1781,8 +1816,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           walletError,
           database: await historyStore.info(),
           snapshotCapture: publicSnapshotCaptureState(),
-          snapshotUpload: publicSnapshotUploadState()
+          snapshotUpload: publicSnapshotUploadState(),
+          protections: publicProtectionState(),
+          telemetryClientId
         };
+
+      case "VEILANCE_SET_FINGERPRINT_PROTECTION": {
+        if (!isSettingsPage(sender)) throw new Error("Protection controls are available only from Veilance Settings");
+        fingerprintProtectionEnabled = Boolean(message.enabled);
+        await chrome.storage.local.set({ [FINGERPRINT_PROTECTION_ENABLED_KEY]: fingerprintProtectionEnabled });
+        await configureFingerprintProtectionScript();
+        return { ok: true, protections: publicProtectionState() };
+      }
 
       case "VEILANCE_SET_INDICATOR": {
         const id = String(message.id || "");

@@ -5,6 +5,7 @@
   const CONTROL_NAME = "__veilance_control_v1__";
   const INSTALLED_FLAG = Symbol.for("veilance.instrumentation.v1");
   const WRAPPED_FLAG = Symbol.for("veilance.wrapped.v1");
+  const FINGERPRINT_PROTECTION_FLAG = Symbol.for("veilance.fingerprint-protection-enabled.v1");
   const MAX_BUFFERED_EVENTS = 300;
   const MAX_EVENTS_PER_SIGNAL = 75;
 
@@ -20,6 +21,55 @@
   let enabledIndicatorIds = new Set();
   let configured = false;
   let drained = false;
+
+  const fingerprintSeedBytes = new Uint32Array(1);
+  try {
+    crypto.getRandomValues(fingerprintSeedBytes);
+  } catch {
+    fingerprintSeedBytes[0] = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+  }
+
+  function fingerprintProtectionEnabled() {
+    try {
+      return window[FINGERPRINT_PROTECTION_FLAG] === true;
+    } catch {
+      return false;
+    }
+  }
+
+  function mixFingerprintSeed(value) {
+    let x = value >>> 0;
+    x ^= x >>> 16;
+    x = Math.imul(x, 0x7feb352d);
+    x ^= x >>> 15;
+    x = Math.imul(x, 0x846ca68b);
+    x ^= x >>> 16;
+    return x >>> 0;
+  }
+
+  function farbleImageData(imageData) {
+    if (!fingerprintProtectionEnabled() || !imageData?.data || !imageData.data.length) return imageData;
+    const copy = new Uint8ClampedArray(imageData.data);
+    const pixelCount = Math.max(1, Math.floor(copy.length / 4));
+    const edits = Math.min(8, pixelCount);
+    for (let index = 0; index < edits; index += 1) {
+      const mixed = mixFingerprintSeed(fingerprintSeedBytes[0] ^ Math.imul(index + 1, 0x9e3779b1));
+      const pixel = mixed % pixelCount;
+      const channel = (mixed >>> 8) % 3;
+      const offset = pixel * 4 + channel;
+      const delta = (mixed & 1) === 0 ? -1 : 1;
+      copy[offset] = Math.max(0, Math.min(255, copy[offset] + delta));
+    }
+    try {
+      return new ImageData(copy, imageData.width, imageData.height, { colorSpace: imageData.colorSpace });
+    } catch {
+      try {
+        return new ImageData(copy, imageData.width, imageData.height);
+      } catch {
+        return imageData;
+      }
+    }
+  }
 
   function safeHost(value) {
     if (typeof value !== "string") return undefined;
@@ -100,7 +150,7 @@
     }
   }
 
-  function observeMethodAccess(target, method, onAccess) {
+  function observeMethodAccess(target, method, onAccess, protectedMethod = null) {
     if (!target) return;
     let descriptor;
     try {
@@ -123,8 +173,9 @@
       } catch {
         // Instrumentation must never break the host page.
       }
-      // Return the native method directly so browser diagnostics created by
-      // the call are attributed to the website instead of this extension.
+      // Return the native method directly when protection is off so browser
+      // diagnostics created by the call remain attributed to the website.
+      if (protectedMethod && fingerprintProtectionEnabled()) return protectedMethod;
       return original;
     }
 
@@ -394,16 +445,85 @@
     });
   }
 
-  // Canvas readback. Normal drawing calls are intentionally ignored.
-  observeMethodAccess(globalThis.HTMLCanvasElement?.prototype, "toDataURL", () => {
-    emit("canvas", "fingerprinting", "Canvas", "export");
-  });
-  observeMethodAccess(globalThis.HTMLCanvasElement?.prototype, "toBlob", () => {
-    emit("canvas", "fingerprinting", "Canvas", "export");
-  });
-  observeMethodAccess(globalThis.CanvasRenderingContext2D?.prototype, "getImageData", () => {
-    emit("canvas", "fingerprinting", "Canvas", "readback");
-  });
+  // Canvas readback. When Fingerprint Protection is enabled, readback is
+  // slightly and consistently perturbed for this page without changing the
+  // visible canvas. Protection is installed at document_start by protection.js.
+  const canvasPrototype = globalThis.HTMLCanvasElement?.prototype;
+  const canvas2dPrototype = globalThis.CanvasRenderingContext2D?.prototype;
+  const nativeCanvasToDataURL = canvasPrototype?.toDataURL;
+  const nativeCanvasToBlob = canvasPrototype?.toBlob;
+  const nativeGetImageData = canvas2dPrototype?.getImageData;
+  const nativePutImageData = canvas2dPrototype?.putImageData;
+  const nativeDrawImage = canvas2dPrototype?.drawImage;
+
+  function nativeLike(original, replacement) {
+    try {
+      Object.defineProperty(replacement, "toString", {
+        value: () => Function.prototype.toString.call(original),
+        configurable: true
+      });
+    } catch {
+      // Function metadata is best effort.
+    }
+    return replacement;
+  }
+
+  function protectedCanvasCopy(source) {
+    if (!fingerprintProtectionEnabled()) return null;
+    const width = Number(source?.width) || 0;
+    const height = Number(source?.height) || 0;
+    if (width <= 0 || height <= 0 || width * height > 16777216) return null;
+    if (typeof nativeDrawImage !== "function" || typeof nativeGetImageData !== "function" || typeof nativePutImageData !== "function") return null;
+    const copy = document.createElement("canvas");
+    copy.width = width;
+    copy.height = height;
+    const context = copy.getContext("2d", { willReadFrequently: true });
+    if (!context) return null;
+    Reflect.apply(nativeDrawImage, context, [source, 0, 0]);
+    const pixels = Reflect.apply(nativeGetImageData, context, [0, 0, width, height]);
+    Reflect.apply(nativePutImageData, context, [farbleImageData(pixels), 0, 0]);
+    return copy;
+  }
+
+  if (typeof nativeCanvasToDataURL === "function") {
+    const protectedToDataURL = nativeLike(nativeCanvasToDataURL, function (...args) {
+      try {
+        const copy = protectedCanvasCopy(this);
+        if (copy) return Reflect.apply(nativeCanvasToDataURL, copy, args);
+      } catch {
+        // Preserve native behavior for tainted or unsupported canvases.
+      }
+      return Reflect.apply(nativeCanvasToDataURL, this, args);
+    });
+    observeMethodAccess(canvasPrototype, "toDataURL", function () {
+      emit("canvas", "fingerprinting", "Canvas", "export");
+      if (fingerprintProtectionEnabled()) return protectedToDataURL;
+    }, protectedToDataURL);
+  }
+
+  if (typeof nativeCanvasToBlob === "function") {
+    const protectedToBlob = nativeLike(nativeCanvasToBlob, function (...args) {
+      try {
+        const copy = protectedCanvasCopy(this);
+        if (copy) return Reflect.apply(nativeCanvasToBlob, copy, args);
+      } catch {
+        // Preserve native behavior for tainted or unsupported canvases.
+      }
+      return Reflect.apply(nativeCanvasToBlob, this, args);
+    });
+    observeMethodAccess(canvasPrototype, "toBlob", function () {
+      emit("canvas", "fingerprinting", "Canvas", "export");
+    }, protectedToBlob);
+  }
+
+  if (typeof nativeGetImageData === "function") {
+    const protectedGetImageData = nativeLike(nativeGetImageData, function (...args) {
+      return farbleImageData(Reflect.apply(nativeGetImageData, this, args));
+    });
+    observeMethodAccess(canvas2dPrototype, "getImageData", function () {
+      emit("canvas", "fingerprinting", "Canvas", "readback");
+    }, protectedGetImageData);
+  }
   wrapMethod(globalThis.CanvasRenderingContext2D?.prototype, "measureText", () => {
     emit("font-probing", "fingerprinting", "Canvas2D", "measure-text");
   });
