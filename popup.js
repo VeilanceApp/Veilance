@@ -62,7 +62,6 @@ const elements = {
   protectionStateBadge: document.querySelector("#protectionStateBadge"),
   protectionSummary: document.querySelector("#protectionSummary"),
   protectionTotal: document.querySelector("#protectionTotal"),
-  fingerprintProtectionStatus: document.querySelector("#fingerprintProtectionStatus"),
   protectionEventCount: document.querySelector("#protectionEventCount"),
   protectionEvents: document.querySelector("#protectionEvents"),
   openProtectionSettings: document.querySelector("#openProtectionSettings"),
@@ -440,24 +439,61 @@ function renderUnsupported(tab) {
   elements.snapshotStatus.textContent = "Snapshots are unavailable for browser-internal pages.";
 }
 
+function stackProtectionEvents(events) {
+  const stacked = new Map();
+  for (const event of Array.isArray(events) ? events : []) {
+    const surface = String(event?.surface || "Fingerprint").trim() || "Fingerprint";
+    const key = surface.toLowerCase();
+    const count = Math.max(1, Number(event?.count) || 1);
+    const timestamp = Number(event?.lastProtectedAt ?? event?.timestamp) || 0;
+    const current = stacked.get(key);
+    if (current) {
+      current.count += count;
+      current.timestamp = Math.max(current.timestamp, timestamp);
+    } else {
+      stacked.set(key, { surface, count, timestamp });
+    }
+  }
+  return [...stacked.values()].sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function protectionEventCopy(surface) {
+  const normalized = String(surface || "").toLowerCase();
+  if (normalized.includes("canvas")) {
+    return {
+      title: "Canvas fingerprint protected",
+      description: "The website received randomized Canvas data."
+    };
+  }
+  if (normalized.includes("webgl")) {
+    return {
+      title: "WebGL fingerprint protected",
+      description: "The website received randomized graphics data."
+    };
+  }
+  if (normalized.includes("audio")) {
+    return {
+      title: "Audio fingerprint protected",
+      description: "The website received randomized audio data."
+    };
+  }
+  return {
+    title: `${surface || "Fingerprint"} protected`,
+    description: "Veilance changed the fingerprint data before the website received it."
+  };
+}
+
 function protectionEventMarkup(event) {
-  const before = escapeHtml(event?.beforeSignature || "unknown");
-  const after = escapeHtml(event?.afterSignature || "unknown");
-  const changed = Math.max(0, Number(event?.changedUnits) || 0);
-  const timestamp = Number.isFinite(event?.timestamp) ? formatDateTime(event.timestamp) : "just now";
+  const count = Math.max(1, Number(event?.count) || 1);
+  const copy = protectionEventCopy(event?.surface);
   return `
     <article class="protection-event-card">
-      <div class="protection-event-head">
-        <div><strong>${escapeHtml(event?.surface || "Protected surface")}</strong><span>${escapeHtml(event?.action || "Protected")}</span></div>
-        <time>${escapeHtml(timestamp)}</time>
+      <span class="protection-event-icon" aria-hidden="true">✓</span>
+      <div class="protection-event-copy">
+        <strong>${escapeHtml(copy.title)}</strong>
+        <span>${escapeHtml(copy.description)}</span>
       </div>
-      <div class="signature-difference">
-        <div class="signature before"><span>Website would receive</span><code>${before}</code><small>Original local signature</small></div>
-        <span class="difference-arrow" aria-hidden="true">→</span>
-        <div class="signature after"><span>Website received</span><code>${after}</code><small>Protected signature</small></div>
-      </div>
-      <div class="protection-event-result"><strong>${changed.toLocaleString()} pixel${changed === 1 ? "" : "s"} changed</strong><span>${escapeHtml(event?.technique || "Fingerprint protection")}</span></div>
-      <p>${escapeHtml(event?.explanation || "Veilance modified fingerprintable output before the website received it.")}</p>
+      <span class="protection-event-count">${count.toLocaleString()}×</span>
     </article>`;
 }
 
@@ -465,23 +501,25 @@ function renderProtections(state = currentLiveState, settings = currentProtectio
   const enabled = settings?.fingerprintEnabled === true;
   const protectionState = state?.protections || {};
   const events = Array.isArray(protectionState.events) ? protectionState.events : [];
-  const total = Math.max(0, Number(protectionState.total) || 0);
+  const stackedEvents = stackProtectionEvents(events);
+  const eventTotal = stackedEvents.reduce((sum, event) => sum + event.count, 0);
+  const total = Math.max(eventTotal, Math.max(0, Number(protectionState.total) || 0));
   elements.protectionBadge.textContent = String(total);
   elements.protectionTotal.textContent = total.toLocaleString();
-  elements.protectionEventCount.textContent = `${events.length} event${events.length === 1 ? "" : "s"}`;
+  elements.protectionEventCount.textContent = `${total.toLocaleString()} total`;
   elements.protectionStateBadge.textContent = enabled ? "On" : "Off";
   elements.protectionStateBadge.className = `protection-state ${enabled ? "on" : "off"}`;
-  elements.fingerprintProtectionStatus.textContent = enabled ? "Enabled" : "Disabled";
-  elements.fingerprintProtectionStatus.className = `feature-status ${enabled ? "enabled" : "disabled"}`;
   elements.protectionSummary.textContent = enabled
-    ? "Fingerprint Protection is active. Veilance is changing supported Canvas fingerprint output before websites receive it."
-    : "Fingerprint Protection is off. Veilance may detect fingerprinting activity, but it is not changing what websites receive.";
+    ? total > 0
+      ? `Veilance changed Canvas fingerprint data ${total.toLocaleString()} time${total === 1 ? "" : "s"} before this website could read it.`
+      : "Protection is on. Veilance will change Canvas fingerprint data before websites read it. The page will still look the same."
+    : "Fingerprint Protection is off. Turn it on to change Canvas fingerprint data before websites read it.";
   if (!enabled) {
-    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Protection is currently off</strong><p>Veilance is observing fingerprint attempts only. Enable Fingerprint Protection in Settings, then reload the website to begin changing supported Canvas output.</p></div>';
-  } else if (!events.length) {
-    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Protection is active</strong><p>No supported Canvas fingerprint read has been intercepted on this page yet. This is normal if the site has not tried to read Canvas fingerprint data.</p></div>';
+    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Protection is off</strong><p>Turn it on in Settings, then reload the page.</p></div>';
+  } else if (!stackedEvents.length) {
+    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>No protection needed yet</strong><p>This page has not tried a supported Canvas fingerprint read.</p></div>';
   } else {
-    elements.protectionEvents.innerHTML = events.map(protectionEventMarkup).join("");
+    elements.protectionEvents.innerHTML = stackedEvents.map(protectionEventMarkup).join("");
   }
 }
 

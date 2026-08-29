@@ -79,6 +79,19 @@ test("popup keeps snapshots local and links to compact payout settings", async (
   assert.match(html, /High volume alone does not mean harmful behavior/i);
 });
 
+test("popup groups protection activity and keeps the explanation simple", async () => {
+  const [html, source] = await Promise.all([
+    readFile(new URL("../popup.html", import.meta.url), "utf8"),
+    readFile(new URL("../popup.js", import.meta.url), "utf8")
+  ]);
+  assert.match(html, /Protected activity/i);
+  assert.match(html, /change Canvas fingerprint data before websites read it/i);
+  assert.match(source, /function stackProtectionEvents/);
+  assert.match(source, /Canvas fingerprint protected/);
+  assert.doesNotMatch(html, /Website would receive|Original local signature|protected signature|pixel values/i);
+  assert.doesNotMatch(html, /protection-flow|signature-difference|fingerprintProtectionStatus|protection-feature-card/i);
+});
+
 test("settings exposes indicator folders, wallet export, and disabled payouts", async () => {
   const html = await readFile(new URL("../settings.html", import.meta.url), "utf8");
   assert.match(html, /role="tablist"/);
@@ -171,7 +184,7 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.6.14");
+  assert.equal(manifest.version, "0.6.16");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));

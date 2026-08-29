@@ -1,3 +1,10 @@
+## 0.6.16 - Simplified protection activity
+
+- Simplified the popup Protections panel to show only protection status, a plain-language explanation, and the number of protections on the current page.
+- Removed technical signatures, pixel counts, flow diagrams, and repeated explanatory cards from the popup.
+- Stacked repeated protection events into one row per protected fingerprint surface with a running count.
+- Kept Tracker Protection greyed out as a future feature.
+
 ## 0.6.15 - Protection visibility
 
 - Added a top-level **Protections** tab beside History in the extension popup.

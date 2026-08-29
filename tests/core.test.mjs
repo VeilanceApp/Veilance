@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   addNetworkRequest,
   addPageSignal,
+  addProtectionEvent,
   applyPageIdentity,
   buildFindings,
   buildSanitizedPayload,
@@ -85,6 +86,32 @@ test("known tracker matching can be disabled without disabling request counts", 
   );
   assert.equal(state.network.totalRequests, 1);
   assert.deepEqual(state.network.trackers, {});
+});
+
+test("duplicate protection events are stacked by fingerprint surface", () => {
+  const state = createEmptyState(11, "https://example.com", 1000);
+  addProtectionEvent(state, {
+    surface: "Canvas 2D",
+    action: "Canvas export",
+    timestamp: 1100
+  }, 1100);
+  addProtectionEvent(state, {
+    surface: "Canvas 2D",
+    action: "Pixel readback",
+    timestamp: 1200
+  }, 1200);
+  addProtectionEvent(state, {
+    surface: "WebGL",
+    action: "Pixel readback",
+    timestamp: 1300
+  }, 1300);
+
+  assert.equal(state.protections.total, 3);
+  assert.equal(state.protections.events.length, 2);
+  const canvas = state.protections.events.find((entry) => entry.surface === "Canvas 2D");
+  assert.equal(canvas.count, 2);
+  assert.equal(canvas.firstProtectedAt, 1100);
+  assert.equal(canvas.lastProtectedAt, 1200);
 });
 
 test("event detail removes sensitive values", () => {
