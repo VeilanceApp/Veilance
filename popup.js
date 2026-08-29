@@ -461,25 +461,25 @@ function protectionEventCopy(surface) {
   const normalized = String(surface || "").toLowerCase();
   if (normalized.includes("canvas")) {
     return {
-      title: "Canvas fingerprint protected",
+      title: "Canvas fingerprint shielded",
       description: "The website received randomized Canvas data."
     };
   }
   if (normalized.includes("webgl")) {
     return {
-      title: "WebGL fingerprint protected",
+      title: "WebGL fingerprint shielded",
       description: "The website received randomized graphics data."
     };
   }
   if (normalized.includes("audio")) {
     return {
-      title: "Audio fingerprint protected",
+      title: "Audio fingerprint shielded",
       description: "The website received randomized audio data."
     };
   }
   return {
-    title: `${surface || "Fingerprint"} protected`,
-    description: "Veilance changed the fingerprint data before the website received it."
+    title: `${surface || "Fingerprint"} shielded`,
+    description: "Veilance Shield changed the fingerprint data before the website received it."
   };
 }
 
@@ -511,13 +511,13 @@ function renderProtections(state = currentLiveState, settings = currentProtectio
   elements.protectionStateBadge.className = `protection-state ${enabled ? "on" : "off"}`;
   elements.protectionSummary.textContent = enabled
     ? total > 0
-      ? `Veilance changed Canvas fingerprint data ${total.toLocaleString()} time${total === 1 ? "" : "s"} before this website could read it.`
-      : "Protection is on. Veilance will change Canvas fingerprint data before websites read it. The page will still look the same."
-    : "Fingerprint Protection is off. Turn it on to change Canvas fingerprint data before websites read it.";
+      ? `Veilance Shield randomized Canvas fingerprint data ${total.toLocaleString()} time${total === 1 ? "" : "s"} before this website could read it.`
+      : "Veilance Shield is on. Canvas fingerprint data will be randomized before websites read it. The page will still look the same."
+    : "Fingerprint Shield is off. Turn it on to randomize Canvas fingerprint data before websites read it.";
   if (!enabled) {
-    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Protection is off</strong><p>Turn it on in Settings, then reload the page.</p></div>';
+    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Veilance Shield is off</strong><p>Turn it on in Settings, then reload the page.</p></div>';
   } else if (!stackedEvents.length) {
-    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>No protection needed yet</strong><p>This page has not tried a supported Canvas fingerprint read.</p></div>';
+    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Nothing shielded yet</strong><p>This page has not tried a supported Canvas fingerprint read.</p></div>';
   } else {
     elements.protectionEvents.innerHTML = stackedEvents.map(protectionEventMarkup).join("");
   }

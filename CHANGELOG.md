@@ -1,3 +1,10 @@
+## 0.6.17 - Veilance Shield branding
+
+- Rebranded the user-facing Protections feature as **Veilance Shield**.
+- Renamed the popup navigation tab to **Shielded** and its activity panel to **Shielded activity**.
+- Renamed the controls to **Fingerprint Shield** and the disabled future feature to **Tracker Shield**.
+- Kept existing internal storage keys and event structures unchanged for upgrade compatibility.
+
 ## 0.6.16 - Simplified protection activity
 
 - Simplified the popup Protections panel to show only protection status, a plain-language explanation, and the number of protections on the current page.

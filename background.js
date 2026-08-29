@@ -179,7 +179,7 @@ function publicSnapshotCaptureState() {
 function publicProtectionState() {
   return {
     fingerprintEnabled: Boolean(fingerprintProtectionEnabled),
-    fingerprintLabel: "Fingerprint Protection (Beta)",
+    fingerprintLabel: "Fingerprint Shield (Beta)",
     fingerprintDescription: "Randomizes common canvas fingerprint readback so websites receive a session-specific result instead of a stable canvas fingerprint.",
     trackerEnabled: false,
     trackerAvailable: false
@@ -1840,7 +1840,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         };
 
       case "VEILANCE_SET_FINGERPRINT_PROTECTION": {
-        if (!isSettingsPage(sender)) throw new Error("Protection controls are available only from Veilance Settings");
+        if (!isSettingsPage(sender)) throw new Error("Veilance Shield controls are available only from Veilance Settings");
         fingerprintProtectionEnabled = Boolean(message.enabled);
         await chrome.storage.local.set({ [FINGERPRINT_PROTECTION_ENABLED_KEY]: fingerprintProtectionEnabled });
         await configureFingerprintProtectionScript();

@@ -1092,8 +1092,8 @@ elements.fingerprintProtectionEnabled.addEventListener("change", async () => {
     settingsData.protections = response.protections;
     renderProtections();
     showSaveStatus(enabled
-      ? "Fingerprint Protection enabled. Reload open websites to protect them from the start of page load."
-      : "Fingerprint Protection disabled. Reload open websites to remove the protection from those pages.");
+      ? "Fingerprint Shield enabled. Reload open websites so Veilance Shield applies from the start of page load."
+      : "Fingerprint Shield disabled. Reload open websites to remove the shield from those pages.");
   } catch (error) {
     elements.fingerprintProtectionEnabled.checked = !enabled;
     showSaveStatus(error.message, true);

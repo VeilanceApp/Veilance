@@ -30,7 +30,7 @@
       <div class="intro-copy">
         <span class="eyebrow">Settings</span>
         <h1>Control what Veilance observes and stores.</h1>
-        <p>Choose the behaviors Veilance watches, review local data, and manage the wallet created for this browser. Veilance reports enabled signals and can optionally protect selected fingerprinting surfaces. Protections are disabled unless you turn them on.</p>
+        <p>Choose the behaviors Veilance watches, review local data, and manage the wallet created for this browser. Veilance reports enabled signals and can optionally shield selected fingerprinting surfaces. Veilance Shield is off unless you turn it on.</p>
       </div>
       <aside class="local-note" aria-label="Local data notice">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z"></path></svg>
@@ -41,7 +41,7 @@
     <nav class="settings-tabs" role="tablist" aria-label="Settings sections">
       <button id="settingsTabTrackers" class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settingsPanelTrackers" data-settings-tab="trackers">Tracker database</button>
       <button id="settingsTabIndicators" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelIndicators" data-settings-tab="indicators" tabindex="-1">Detection</button>
-      <button id="settingsTabProtections" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelProtections" data-settings-tab="protections" tabindex="-1">Protections</button>
+      <button id="settingsTabProtections" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelProtections" data-settings-tab="protections" tabindex="-1">Veilance Shield</button>
       <button id="settingsTabSnapshots" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelSnapshots" data-settings-tab="snapshots" tabindex="-1">Snapshots</button>
       <button id="settingsTabWallet" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelWallet" data-settings-tab="wallet" tabindex="-1">Wallet</button>
       <button id="settingsTabData" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelData" data-settings-tab="data" tabindex="-1">Local data</button>
@@ -259,38 +259,38 @@
       <section class="settings-card">
         <header class="card-header">
           <div>
-            <span class="eyebrow">Protections</span>
-            <h2>Active privacy defenses</h2>
-            <p>Protections change selected browser signals before a website can use them for tracking. Detection can remain enabled independently so Veilance still records fingerprinting attempts.</p>
+            <span class="eyebrow">Veilance Shield</span>
+            <h2>Control your privacy shield</h2>
+            <p>Veilance Shield changes selected browser signals before a website can use them for tracking. Detection can remain enabled independently so Veilance still records fingerprinting attempts.</p>
           </div>
           <span class="network-badge beta-badge">Beta</span>
         </header>
         <div class="tracker-control-grid protection-control-grid">
           <div class="tracker-control-row">
             <div>
-              <div class="protection-title"><strong>Fingerprint Protection</strong><span class="feature-badge">Beta</span></div>
+              <div class="protection-title"><strong>Fingerprint Shield</strong><span class="feature-badge">Beta</span></div>
               <p>Randomizes common canvas fingerprint readback. Websites receive a session-specific canvas result instead of a stable fingerprint that can be reused to recognize your browser. Off by default.</p>
-              <p class="protection-note">After changing this setting, reload open websites for the protection state to apply from the start of the page.</p>
+              <p class="protection-note">After changing this setting, reload open websites so Veilance Shield applies from the start of the page.</p>
             </div>
-            <label class="switch" title="Enable or disable fingerprint protection">
-              <input id="fingerprintProtectionEnabled" type="checkbox" aria-label="Enable fingerprint protection">
+            <label class="switch" title="Enable or disable Fingerprint Shield">
+              <input id="fingerprintProtectionEnabled" type="checkbox" aria-label="Enable Fingerprint Shield">
               <span aria-hidden="true"></span>
             </label>
           </div>
           <div class="tracker-control-row future-feature" aria-disabled="true">
             <div>
-              <div class="protection-title"><strong>Tracker Protection</strong><span class="feature-badge muted-badge">Coming soon</span></div>
+              <div class="protection-title"><strong>Tracker Shield</strong><span class="feature-badge muted-badge">Coming soon</span></div>
               <p>Will block known tracking requests before they load. Tracker detection and the local tracker database continue to work normally today.</p>
             </div>
-            <label class="switch" title="Tracker protection is coming in a future release">
-              <input id="trackerProtectionEnabled" type="checkbox" aria-label="Tracker protection coming soon" disabled>
+            <label class="switch" title="Tracker Shield is coming in a future release">
+              <input id="trackerProtectionEnabled" type="checkbox" aria-label="Tracker Shield coming soon" disabled>
               <span aria-hidden="true"></span>
             </label>
           </div>
         </div>
         <div class="protection-detail">
-          <strong>Current fingerprint coverage</strong>
-          <p>The current beta protects Canvas 2D readback and canvas exports. WebGL, Web Audio, font, and device-characteristic protections can be expanded in later releases after compatibility testing.</p>
+          <strong>Current shield coverage</strong>
+          <p>The current beta shields Canvas 2D readback and canvas exports. WebGL, Web Audio, font, and device-characteristic shielding can be expanded in later releases after compatibility testing.</p>
         </div>
       </section>
     </div>

@@ -64,7 +64,7 @@
       event: {
         surface: String(detail.surface || "Protected surface").slice(0, 80),
         action: String(detail.action || "Protected").slice(0, 80),
-        technique: String(detail.technique || "Fingerprint protection").slice(0, 120),
+        technique: String(detail.technique || "Fingerprint Shield").slice(0, 120),
         beforeSignature: String(detail.beforeSignature || "").slice(0, 32),
         afterSignature: String(detail.afterSignature || "").slice(0, 32),
         changedUnits: Math.max(0, Math.min(1000000, Number(detail.changedUnits) || 0)),

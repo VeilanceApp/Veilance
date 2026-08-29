@@ -84,10 +84,13 @@ test("popup groups protection activity and keeps the explanation simple", async 
     readFile(new URL("../popup.html", import.meta.url), "utf8"),
     readFile(new URL("../popup.js", import.meta.url), "utf8")
   ]);
-  assert.match(html, /Protected activity/i);
-  assert.match(html, /change Canvas fingerprint data before websites read it/i);
+  assert.match(html, /data-view="protections"[^>]*>[\s\S]*?Shielded/i);
+  assert.match(html, /Veilance Shield/i);
+  assert.match(html, /Shielded activity/i);
+  assert.match(html, /Tracker Shield/i);
+  assert.match(html, /randomize Canvas fingerprint data before websites read it/i);
   assert.match(source, /function stackProtectionEvents/);
-  assert.match(source, /Canvas fingerprint protected/);
+  assert.match(source, /Canvas fingerprint shielded/);
   assert.doesNotMatch(html, /Website would receive|Original local signature|protected signature|pixel values/i);
   assert.doesNotMatch(html, /protection-flow|signature-difference|fingerprintProtectionStatus|protection-feature-card/i);
 });
@@ -121,7 +124,9 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /id="snapshotList"/);
   assert.match(html, /id="snapshotHtmlPreview"/);
   assert.match(html, /private\/internal hosts/i);
-  assert.match(html, /data-settings-tab="protections"/);
+  assert.match(html, /data-settings-tab="protections"[^>]*>Veilance Shield<\/button>/i);
+  assert.match(html, /Fingerprint Shield/i);
+  assert.match(html, /Tracker Shield/i);
   assert.match(html, /id="fingerprintProtectionEnabled"/);
   assert.match(html, /id="trackerProtectionEnabled"[^>]*disabled/);
   assert.match(html, /Contributor UUID/i);
@@ -184,7 +189,7 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.6.16");
+  assert.equal(manifest.version, "0.6.17");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));
