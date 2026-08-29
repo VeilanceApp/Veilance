@@ -32,6 +32,9 @@
     <button class="nav-button" type="button" data-view="history">
       History <span id="historyBadge" class="nav-count">0</span>
     </button>
+    <button class="nav-button" type="button" data-view="protections">
+      Protections <span id="protectionBadge" class="nav-count">0</span>
+    </button>
     <button id="settingsButton" class="nav-button settings-button" type="button" title="Open settings">
       Settings
     </button>
@@ -149,6 +152,62 @@
 
       <button id="clearButton" class="clear-button" type="button" title="Discard the current visit data and begin monitoring again">Reset current visit</button>
       </div>
+    </section>
+
+    <section id="protectionsView" class="view" hidden>
+      <section class="protection-hero">
+        <div class="protection-hero-copy">
+          <span class="label">Active privacy defense</span>
+          <div class="protection-title-row">
+            <h1>Protections</h1>
+            <span id="protectionStateBadge" class="protection-state off">Off</span>
+          </div>
+          <p id="protectionSummary">Veilance can change selected fingerprint signals before a website reads them.</p>
+        </div>
+        <div class="protection-total">
+          <strong id="protectionTotal">0</strong>
+          <span>interceptions this visit</span>
+        </div>
+      </section>
+
+      <section id="fingerprintProtectionCard" class="protection-feature-card">
+        <div class="protection-feature-head">
+          <div>
+            <span class="feature-kicker">Fingerprint Protection · Beta</span>
+            <h2>Canvas fingerprint randomization</h2>
+          </div>
+          <span id="fingerprintProtectionStatus" class="feature-status">Checking</span>
+        </div>
+        <p>Some sites render hidden graphics and read the resulting pixels to create a stable device fingerprint. When enabled, Veilance changes a few invisible pixel values before the site receives the result.</p>
+        <div class="protection-flow" aria-label="How Canvas fingerprint protection works">
+          <div><span>1</span><strong>Website requests</strong><small>Canvas pixel data</small></div>
+          <i aria-hidden="true">→</i>
+          <div><span>2</span><strong>Veilance changes</strong><small>A few invisible pixels</small></div>
+          <i aria-hidden="true">→</i>
+          <div><span>3</span><strong>Website receives</strong><small>A different signature</small></div>
+        </div>
+        <p class="protection-disclosure"><strong>What this means:</strong> the visible page is not changed. Only fingerprintable Canvas output is altered. This beta does not yet protect every fingerprinting surface.</p>
+        <button id="openProtectionSettings" class="protection-settings-button" type="button">Manage protection settings</button>
+      </section>
+
+      <section class="protection-log-panel">
+        <div class="panel-head">
+          <div><span class="label">Live evidence</span><h2>What Veilance changed</h2></div>
+          <span id="protectionEventCount" class="count">0 events</span>
+        </div>
+        <div id="protectionEvents" class="protection-events">
+          <div class="empty panel-empty">No fingerprint reads have been protected on this page yet.</div>
+        </div>
+      </section>
+
+      <section class="future-protection-card" aria-disabled="true">
+        <div>
+          <span class="feature-kicker">Coming soon</span>
+          <h2>Tracker Protection</h2>
+          <p>Veilance will be able to block known tracking requests before they load. Tracker detection continues to work today.</p>
+        </div>
+        <span class="future-lock">Not available yet</span>
+      </section>
     </section>
 
     <section id="historyView" class="view" hidden>

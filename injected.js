@@ -3,6 +3,7 @@
 
   const EVENT_NAME = "__veilance_event_v1__";
   const CONTROL_NAME = "__veilance_control_v1__";
+  const PROTECTION_EVENT_NAME = "__veilance_protection_event_v1__";
   const INSTALLED_FLAG = Symbol.for("veilance.instrumentation.v1");
   const WRAPPED_FLAG = Symbol.for("veilance.wrapped.v1");
   const FINGERPRINT_PROTECTION_FLAG = Symbol.for("veilance.fingerprint-protection-enabled.v1");
@@ -23,6 +24,7 @@
   let drained = false;
 
   const fingerprintSeedBytes = new Uint32Array(1);
+  const farbleMetadata = new WeakMap();
   try {
     crypto.getRandomValues(fingerprintSeedBytes);
   } catch {
@@ -52,23 +54,44 @@
     const copy = new Uint8ClampedArray(imageData.data);
     const pixelCount = Math.max(1, Math.floor(copy.length / 4));
     const edits = Math.min(8, pixelCount);
+    let beforeHash = 0x811c9dc5;
+    let afterHash = 0x811c9dc5;
+    let changedPixels = 0;
     for (let index = 0; index < edits; index += 1) {
       const mixed = mixFingerprintSeed(fingerprintSeedBytes[0] ^ Math.imul(index + 1, 0x9e3779b1));
       const pixel = mixed % pixelCount;
       const channel = (mixed >>> 8) % 3;
       const offset = pixel * 4 + channel;
+      const originalValue = copy[offset];
       const delta = (mixed & 1) === 0 ? -1 : 1;
-      copy[offset] = Math.max(0, Math.min(255, copy[offset] + delta));
+      const protectedValue = Math.max(0, Math.min(255, originalValue + delta));
+      copy[offset] = protectedValue;
+      beforeHash ^= originalValue;
+      beforeHash = Math.imul(beforeHash, 0x01000193);
+      afterHash ^= protectedValue;
+      afterHash = Math.imul(afterHash, 0x01000193);
+      if (protectedValue !== originalValue) changedPixels += 1;
     }
+    let result;
     try {
-      return new ImageData(copy, imageData.width, imageData.height, { colorSpace: imageData.colorSpace });
+      result = new ImageData(copy, imageData.width, imageData.height, { colorSpace: imageData.colorSpace });
     } catch {
       try {
-        return new ImageData(copy, imageData.width, imageData.height);
+        result = new ImageData(copy, imageData.width, imageData.height);
       } catch {
         return imageData;
       }
     }
+    try {
+      farbleMetadata.set(result, {
+        beforeSignature: (beforeHash >>> 0).toString(16).padStart(8, "0"),
+        afterSignature: (afterHash >>> 0).toString(16).padStart(8, "0"),
+        changedPixels
+      });
+    } catch {
+      // Metadata is only used for Veilance's local protection explanation.
+    }
+    return result;
   }
 
   function safeHost(value) {
@@ -95,6 +118,30 @@
 
   function dispatch(event) {
     document.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: event }));
+  }
+
+  function dispatchProtection(detail) {
+    try {
+      document.dispatchEvent(new CustomEvent(PROTECTION_EVENT_NAME, { detail }));
+    } catch {
+      // Protection reporting must never interfere with the host page.
+    }
+  }
+
+  function reportCanvasProtection(action, original, protectedData) {
+    if (!fingerprintProtectionEnabled() || !original?.data || !protectedData?.data) return;
+    const metadata = farbleMetadata.get(protectedData);
+    if (!metadata || metadata.changedPixels <= 0 || metadata.beforeSignature === metadata.afterSignature) return;
+    dispatchProtection({
+      surface: "Canvas 2D",
+      action,
+      technique: "Session-specific pixel farbling",
+      beforeSignature: metadata.beforeSignature,
+      afterSignature: metadata.afterSignature,
+      changedUnits: metadata.changedPixels,
+      explanation: "Veilance changed a few invisible canvas pixel values before the website could read them, producing a different fingerprint without changing what you see.",
+      timestamp: Date.now()
+    });
   }
 
   function emit(indicatorId, kind, api, action, detail = {}) {
@@ -480,16 +527,20 @@
     const context = copy.getContext("2d", { willReadFrequently: true });
     if (!context) return null;
     Reflect.apply(nativeDrawImage, context, [source, 0, 0]);
-    const pixels = Reflect.apply(nativeGetImageData, context, [0, 0, width, height]);
-    Reflect.apply(nativePutImageData, context, [farbleImageData(pixels), 0, 0]);
-    return copy;
+    const originalPixels = Reflect.apply(nativeGetImageData, context, [0, 0, width, height]);
+    const protectedPixels = farbleImageData(originalPixels);
+    Reflect.apply(nativePutImageData, context, [protectedPixels, 0, 0]);
+    return { copy, originalPixels, protectedPixels };
   }
 
   if (typeof nativeCanvasToDataURL === "function") {
     const protectedToDataURL = nativeLike(nativeCanvasToDataURL, function (...args) {
       try {
-        const copy = protectedCanvasCopy(this);
-        if (copy) return Reflect.apply(nativeCanvasToDataURL, copy, args);
+        const result = protectedCanvasCopy(this);
+        if (result?.copy) {
+          reportCanvasProtection("Canvas export", result.originalPixels, result.protectedPixels);
+          return Reflect.apply(nativeCanvasToDataURL, result.copy, args);
+        }
       } catch {
         // Preserve native behavior for tainted or unsupported canvases.
       }
@@ -504,8 +555,11 @@
   if (typeof nativeCanvasToBlob === "function") {
     const protectedToBlob = nativeLike(nativeCanvasToBlob, function (...args) {
       try {
-        const copy = protectedCanvasCopy(this);
-        if (copy) return Reflect.apply(nativeCanvasToBlob, copy, args);
+        const result = protectedCanvasCopy(this);
+        if (result?.copy) {
+          reportCanvasProtection("Canvas export", result.originalPixels, result.protectedPixels);
+          return Reflect.apply(nativeCanvasToBlob, result.copy, args);
+        }
       } catch {
         // Preserve native behavior for tainted or unsupported canvases.
       }
@@ -518,7 +572,10 @@
 
   if (typeof nativeGetImageData === "function") {
     const protectedGetImageData = nativeLike(nativeGetImageData, function (...args) {
-      return farbleImageData(Reflect.apply(nativeGetImageData, this, args));
+      const originalPixels = Reflect.apply(nativeGetImageData, this, args);
+      const protectedPixels = farbleImageData(originalPixels);
+      reportCanvasProtection("Pixel readback", originalPixels, protectedPixels);
+      return protectedPixels;
     });
     observeMethodAccess(canvas2dPrototype, "getImageData", function () {
       emit("canvas", "fingerprinting", "Canvas", "readback");

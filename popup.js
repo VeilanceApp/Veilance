@@ -57,6 +57,15 @@ const elements = {
   historyDetailView: document.querySelector("#historyDetailView"),
   historyDetail: document.querySelector("#historyDetail"),
   historyBackButton: document.querySelector("#historyBackButton"),
+  protectionsView: document.querySelector("#protectionsView"),
+  protectionBadge: document.querySelector("#protectionBadge"),
+  protectionStateBadge: document.querySelector("#protectionStateBadge"),
+  protectionSummary: document.querySelector("#protectionSummary"),
+  protectionTotal: document.querySelector("#protectionTotal"),
+  fingerprintProtectionStatus: document.querySelector("#fingerprintProtectionStatus"),
+  protectionEventCount: document.querySelector("#protectionEventCount"),
+  protectionEvents: document.querySelector("#protectionEvents"),
+  openProtectionSettings: document.querySelector("#openProtectionSettings"),
   version: document.querySelector("#version")
 };
 
@@ -67,6 +76,7 @@ let currentLiveFindings = [];
 let currentLiveInterest = { score: 0, level: "routine", minimumScore: 25, eligible: false, reasons: [] };
 let snapshotCaptureBusy = false;
 let automaticSnapshotCaptureEnabled = false;
+let currentProtectionSettings = { fingerprintEnabled: false, trackerEnabled: false, trackerAvailable: false };
 
 const overviewMetricElements = Object.freeze({
   thirdPartyHosts: {
@@ -430,6 +440,51 @@ function renderUnsupported(tab) {
   elements.snapshotStatus.textContent = "Snapshots are unavailable for browser-internal pages.";
 }
 
+function protectionEventMarkup(event) {
+  const before = escapeHtml(event?.beforeSignature || "unknown");
+  const after = escapeHtml(event?.afterSignature || "unknown");
+  const changed = Math.max(0, Number(event?.changedUnits) || 0);
+  const timestamp = Number.isFinite(event?.timestamp) ? formatDateTime(event.timestamp) : "just now";
+  return `
+    <article class="protection-event-card">
+      <div class="protection-event-head">
+        <div><strong>${escapeHtml(event?.surface || "Protected surface")}</strong><span>${escapeHtml(event?.action || "Protected")}</span></div>
+        <time>${escapeHtml(timestamp)}</time>
+      </div>
+      <div class="signature-difference">
+        <div class="signature before"><span>Website would receive</span><code>${before}</code><small>Original local signature</small></div>
+        <span class="difference-arrow" aria-hidden="true">→</span>
+        <div class="signature after"><span>Website received</span><code>${after}</code><small>Protected signature</small></div>
+      </div>
+      <div class="protection-event-result"><strong>${changed.toLocaleString()} pixel${changed === 1 ? "" : "s"} changed</strong><span>${escapeHtml(event?.technique || "Fingerprint protection")}</span></div>
+      <p>${escapeHtml(event?.explanation || "Veilance modified fingerprintable output before the website received it.")}</p>
+    </article>`;
+}
+
+function renderProtections(state = currentLiveState, settings = currentProtectionSettings) {
+  const enabled = settings?.fingerprintEnabled === true;
+  const protectionState = state?.protections || {};
+  const events = Array.isArray(protectionState.events) ? protectionState.events : [];
+  const total = Math.max(0, Number(protectionState.total) || 0);
+  elements.protectionBadge.textContent = String(total);
+  elements.protectionTotal.textContent = total.toLocaleString();
+  elements.protectionEventCount.textContent = `${events.length} event${events.length === 1 ? "" : "s"}`;
+  elements.protectionStateBadge.textContent = enabled ? "On" : "Off";
+  elements.protectionStateBadge.className = `protection-state ${enabled ? "on" : "off"}`;
+  elements.fingerprintProtectionStatus.textContent = enabled ? "Enabled" : "Disabled";
+  elements.fingerprintProtectionStatus.className = `feature-status ${enabled ? "enabled" : "disabled"}`;
+  elements.protectionSummary.textContent = enabled
+    ? "Fingerprint Protection is active. Veilance is changing supported Canvas fingerprint output before websites receive it."
+    : "Fingerprint Protection is off. Veilance may detect fingerprinting activity, but it is not changing what websites receive.";
+  if (!enabled) {
+    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Protection is currently off</strong><p>Veilance is observing fingerprint attempts only. Enable Fingerprint Protection in Settings, then reload the website to begin changing supported Canvas output.</p></div>';
+  } else if (!events.length) {
+    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Protection is active</strong><p>No supported Canvas fingerprint read has been intercepted on this page yet. This is normal if the site has not tried to read Canvas fingerprint data.</p></div>';
+  } else {
+    elements.protectionEvents.innerHTML = events.map(protectionEventMarkup).join("");
+  }
+}
+
 async function loadState() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   activeTabId = tab?.id ?? null;
@@ -445,6 +500,8 @@ async function loadState() {
   currentLiveState = state;
   currentLiveFindings = findings;
   automaticSnapshotCaptureEnabled = response.snapshotCapture?.automatic === true;
+  currentProtectionSettings = response.protections || currentProtectionSettings;
+  renderProtections(state, currentProtectionSettings);
   renderSnapshotInterest(response.interest);
   elements.unsupportedPage.hidden = true;
   elements.liveDashboard.hidden = false;
@@ -661,12 +718,16 @@ async function switchView(view) {
   activeView = view;
   elements.liveView.hidden = view !== "live";
   elements.historyView.hidden = view !== "history";
+  elements.protectionsView.hidden = view !== "protections";
   for (const button of document.querySelectorAll(".nav-button[data-view]")) {
     button.classList.toggle("active", button.dataset.view === view);
   }
   if (view === "history") {
     showHistoryList();
     await refreshHistory();
+  } else if (view === "protections") {
+    await loadState();
+    renderProtections(currentLiveState, currentProtectionSettings);
   } else {
     await refreshLive();
   }
@@ -702,6 +763,7 @@ elements.clearButton.addEventListener("click", () => void clearCurrentVisit().ca
 }));
 elements.snapshotButton.addEventListener("click", () => void takeTelemetrySnapshot());
 elements.payoutSettingsButton.addEventListener("click", () => void openSettingsSection("wallet"));
+elements.openProtectionSettings.addEventListener("click", () => void openSettingsSection("protections"));
 elements.liveDetailPanel.addEventListener("toggle", () => {
   if (elements.liveDetailPanel.open) elements.liveDetails.innerHTML = telemetryDetailsMarkup(currentLiveState);
 });
@@ -719,6 +781,6 @@ void initializeTheme();
 void loadState().catch(renderLiveError);
 void loadHistory().catch(renderHistoryError);
 const refreshTimer = setInterval(() => {
-  if (activeView === "live") void loadState().catch(() => {});
+  if (activeView === "live" || activeView === "protections") void loadState().catch(() => {});
 }, 1500);
 addEventListener("unload", () => clearInterval(refreshTimer));

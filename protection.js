@@ -9,5 +9,6 @@
       writable: false
     });
   } catch {
+    // Best effort. The main Veilance instrumentation treats a missing flag as off.
   }
 })();

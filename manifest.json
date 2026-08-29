@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Veilance",
-  "version": "0.6.14",
+  "version": "0.6.15",
   "description": "Observe privacy-relevant browser activity and create locally stored, redacted telemetry snapshots.",
   "minimum_chrome_version": "111",
   "permissions": [
@@ -46,15 +46,26 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["injected.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "injected.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": false
     },
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["lib/redacted-html.js", "content.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "lib/redacted-html.js",
+        "content.js"
+      ],
       "run_at": "document_start",
       "world": "ISOLATED",
       "all_frames": false

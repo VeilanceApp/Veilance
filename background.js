@@ -1,6 +1,7 @@
 import {
   addNetworkRequest,
   addPageSignal,
+  addProtectionEvent,
   applyPageIdentity,
   applyPageSnapshot,
   applyResponseHeaders,
@@ -294,6 +295,10 @@ function normalizeRestoredState(tabId, state) {
   state.loadCompletedAt ??= null;
   state.endedAt ??= null;
   state.active = state.active !== false && !Number.isFinite(state.endedAt);
+  if (!state.protections || typeof state.protections !== "object") {
+    state.protections = { total: 0, lastProtectedAt: null, events: [] };
+  }
+  if (!Array.isArray(state.protections.events)) state.protections.events = [];
   const automaticSnapshot = state.automaticSnapshot;
   if (
     automaticSnapshot?.status === "captured" &&
@@ -1565,6 +1570,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
       }
 
+      case "VEILANCE_PROTECTION_EVENT": {
+        const tabId = sender.tab?.id;
+        if (!Number.isInteger(tabId)) return { ok: false, ignored: true };
+        return queueTab(tabId, async () => {
+          const current = contentState(sender, message);
+          if (!current) return { ok: false, ignored: true };
+          addProtectionEvent(current.state, message.event);
+          await saveState(current.tabId, current.state);
+          return { ok: true };
+        });
+      }
+
       case "VEILANCE_PAGE_SNAPSHOT": {
         const tabId = sender.tab?.id;
         if (!Number.isInteger(tabId)) return { ok: false, ignored: true };
@@ -1599,7 +1616,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           findings,
           summary,
           interest,
-          snapshotCapture: publicSnapshotCaptureState()
+          snapshotCapture: publicSnapshotCaptureState(),
+          protections: publicProtectionState()
         };
       }
 

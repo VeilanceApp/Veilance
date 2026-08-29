@@ -1,3 +1,12 @@
+## 0.6.15 - Protection visibility
+
+- Added a top-level **Protections** tab beside History in the extension popup.
+- Added live Canvas protection evidence showing the original local pixel signature and the protected signature delivered to the website.
+- Added per-visit protection interception counts and plain-language explanations of what Veilance changed and why.
+- Added clear enabled/disabled states so users can tell when Veilance is detecting only versus actively protecting Canvas output.
+- Added a disabled Tracker Protection preview in the Protections tab for the planned future feature.
+- Kept fingerprint protection off by default and added a direct link from the popup to protection settings.
+
 ## 0.6.14
 
 - Added a new **Protections** settings tab.
