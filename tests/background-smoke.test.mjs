@@ -32,7 +32,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   let telemetryIpLookupRequest = null;
   globalThis.fetch = async (value, options) => {
     const url = typeof value === "string" ? value : value.url;
-    if (url === "http://10.0.10.211:5132/api/v1/telemetry/ip") {
+    if (url === "https://api.veilance.org/api/v1/telemetry/ip") {
       telemetryIpLookupRequest = { url, options };
       return new Response(JSON.stringify({
         error: {},
@@ -43,7 +43,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
         headers: { "content-type": "application/json" }
       });
     }
-    if (url === "http://10.0.10.211:5132/api/v1/telemetry/upload") {
+    if (url === "https://api.veilance.org/api/v1/telemetry/upload") {
       telemetryUploadRequest = { url, options };
       return new Response(JSON.stringify({
         error: {},
@@ -154,7 +154,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(settings.snapshotUpload.automatic, false);
   assert.equal(settings.snapshotCapture.automatic, false);
   assert.equal(settings.snapshotCapture.minimumScore, 25);
-  assert.equal(settings.snapshotUpload.endpointHost, "10.0.10.211");
+  assert.equal(settings.snapshotUpload.endpointHost, "api.veilance.org");
   assert.equal(settings.snapshotUpload.clientIdPresent, true);
   assert.match(localBacking[TELEMETRY_CLIENT_ID_STORAGE_KEY].clientId, /^[a-f0-9]{64}$/);
   assert.equal(
@@ -298,11 +298,11 @@ test("background starts SQLite, creates a wallet, and restricts private export t
     { url: "chrome-extension://veilance-test/settings.html" }
   );
   assert.equal(uploadNow.uploaded, 2);
-  assert.equal(telemetryIpLookupRequest.url, "http://10.0.10.211:5132/api/v1/telemetry/ip");
+  assert.equal(telemetryIpLookupRequest.url, "https://api.veilance.org/api/v1/telemetry/ip");
   assert.equal(telemetryIpLookupRequest.options.method, "GET");
   assert.equal(telemetryIpLookupRequest.options.credentials, "omit");
   assert.equal(telemetryIpLookupRequest.options.redirect, "error");
-  assert.equal(telemetryUploadRequest.url, "http://10.0.10.211:5132/api/v1/telemetry/upload");
+  assert.equal(telemetryUploadRequest.url, "https://api.veilance.org/api/v1/telemetry/upload");
   assert.equal(telemetryUploadRequest.options.method, "POST");
   assert.ok(telemetryUploadRequest.options.body instanceof FormData);
   assert.equal(

@@ -1,3 +1,34 @@
+## 0.6.17 - Veilance Shield branding
+
+- Rebranded the user-facing Protections feature as **Veilance Shield**.
+- Renamed the popup navigation tab to **Shielded** and its activity panel to **Shielded activity**.
+- Renamed the controls to **Fingerprint Shield** and the disabled future feature to **Tracker Shield**.
+- Kept existing internal storage keys and event structures unchanged for upgrade compatibility.
+
+## 0.6.16 - Simplified protection activity
+
+- Simplified the popup Protections panel to show only protection status, a plain-language explanation, and the number of protections on the current page.
+- Removed technical signatures, pixel counts, flow diagrams, and repeated explanatory cards from the popup.
+- Stacked repeated protection events into one row per protected fingerprint surface with a running count.
+- Kept Tracker Protection greyed out as a future feature.
+
+## 0.6.15 - Protection visibility
+
+- Added a top-level **Protections** tab beside History in the extension popup.
+- Added live Canvas protection evidence showing the original local pixel signature and the protected signature delivered to the website.
+- Added per-visit protection interception counts and plain-language explanations of what Veilance changed and why.
+- Added clear enabled/disabled states so users can tell when Veilance is detecting only versus actively protecting Canvas output.
+- Added a disabled Tracker Protection preview in the Protections tab for the planned future feature.
+- Kept fingerprint protection off by default and added a direct link from the popup to protection settings.
+
+## 0.6.14
+
+- Added a new **Protections** settings tab.
+- Added **Fingerprint Protection (Beta)**, disabled by default. The first protection randomizes Canvas 2D readback and canvas exports to reduce stable canvas fingerprinting across navigations.
+- Added a disabled **Tracker Protection** control as a preview of a future blocking feature.
+- Added the generated contributor UUID to Settings with a direct link to `https://veilance.org/leaderboard?uuid=<UUID>`.
+- Fingerprint protection is dynamically registered in the page MAIN world at `document_start` when enabled and unregistered when disabled.
+
 ## What changed in v0.6.13
 
 * Queued, uploading, and failed snapshots are protected from local retention

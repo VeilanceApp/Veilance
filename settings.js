@@ -32,6 +32,8 @@ const elements = {
   detectionUpdateError: document.querySelector("#detectionUpdateError"),
   detectionRepositoryLink: document.querySelector("#detectionRepositoryLink"),
   detectionUpdateLog: document.querySelector("#detectionUpdateLog"),
+  fingerprintProtectionEnabled: document.querySelector("#fingerprintProtectionEnabled"),
+  trackerProtectionEnabled: document.querySelector("#trackerProtectionEnabled"),
   resetIndicatorsButton: document.querySelector("#resetIndicatorsButton"),
   chooseFolderButton: document.querySelector("#chooseFolderButton"),
   indicatorFolderInput: document.querySelector("#indicatorFolderInput"),
@@ -41,6 +43,8 @@ const elements = {
   copyVeilanceTemplateButton: document.querySelector("#copyVeilanceTemplateButton"),
   importStatus: document.querySelector("#importStatus"),
   walletAddress: document.querySelector("#walletAddress"),
+  contributorUuid: document.querySelector("#contributorUuid"),
+  contributorUuidLink: document.querySelector("#contributorUuidLink"),
   copyAddressButton: document.querySelector("#copyAddressButton"),
   exportWalletButton: document.querySelector("#exportWalletButton"),
   settingsPayoutButton: document.querySelector("#settingsPayoutButton"),
@@ -535,11 +539,24 @@ function renderDetectionDatabase() {
   }).join("");
 }
 
+function renderProtections() {
+  const protections = settingsData?.protections || {};
+  elements.fingerprintProtectionEnabled.checked = protections.fingerprintEnabled === true;
+  elements.trackerProtectionEnabled.checked = false;
+  elements.trackerProtectionEnabled.disabled = true;
+}
+
 function renderWallet() {
   const publicKey = settingsData.wallet?.publicKey || "";
   elements.walletAddress.textContent = publicKey || settingsData.walletError || "Wallet unavailable";
   elements.copyAddressButton.disabled = !publicKey;
   elements.exportWalletButton.disabled = !publicKey;
+
+  const uuid = String(settingsData?.telemetryClientId || "");
+  elements.contributorUuid.textContent = uuid || "UUID unavailable";
+  elements.contributorUuidLink.href = uuid
+    ? `https://veilance.org/leaderboard?uuid=${encodeURIComponent(uuid)}`
+    : "https://veilance.org/leaderboard";
 }
 
 function renderDatabase() {
@@ -789,6 +806,7 @@ async function loadSettings() {
   renderCustomIndicators();
   renderTrackerDatabase();
   renderDetectionDatabase();
+  renderProtections();
   renderWallet();
   renderDatabase();
   renderSnapshotCapture();
@@ -1060,6 +1078,28 @@ elements.copyVeilanceTemplateButton.addEventListener("click", () => {
     elements.copyVeilanceTemplateButton,
     "Tracker example copied"
   );
+});
+
+
+elements.fingerprintProtectionEnabled.addEventListener("change", async () => {
+  const enabled = elements.fingerprintProtectionEnabled.checked;
+  elements.fingerprintProtectionEnabled.disabled = true;
+  try {
+    const response = await send({
+      type: "VEILANCE_SET_FINGERPRINT_PROTECTION",
+      enabled
+    });
+    settingsData.protections = response.protections;
+    renderProtections();
+    showSaveStatus(enabled
+      ? "Fingerprint Shield enabled. Reload open websites so Veilance Shield applies from the start of page load."
+      : "Fingerprint Shield disabled. Reload open websites to remove the shield from those pages.");
+  } catch (error) {
+    elements.fingerprintProtectionEnabled.checked = !enabled;
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.fingerprintProtectionEnabled.disabled = false;
+  }
 });
 
 elements.copyAddressButton.addEventListener("click", () => {

@@ -57,6 +57,14 @@ const elements = {
   historyDetailView: document.querySelector("#historyDetailView"),
   historyDetail: document.querySelector("#historyDetail"),
   historyBackButton: document.querySelector("#historyBackButton"),
+  protectionsView: document.querySelector("#protectionsView"),
+  protectionBadge: document.querySelector("#protectionBadge"),
+  protectionStateBadge: document.querySelector("#protectionStateBadge"),
+  protectionSummary: document.querySelector("#protectionSummary"),
+  protectionTotal: document.querySelector("#protectionTotal"),
+  protectionEventCount: document.querySelector("#protectionEventCount"),
+  protectionEvents: document.querySelector("#protectionEvents"),
+  openProtectionSettings: document.querySelector("#openProtectionSettings"),
   version: document.querySelector("#version")
 };
 
@@ -67,6 +75,7 @@ let currentLiveFindings = [];
 let currentLiveInterest = { score: 0, level: "routine", minimumScore: 25, eligible: false, reasons: [] };
 let snapshotCaptureBusy = false;
 let automaticSnapshotCaptureEnabled = false;
+let currentProtectionSettings = { fingerprintEnabled: false, trackerEnabled: false, trackerAvailable: false };
 
 const overviewMetricElements = Object.freeze({
   thirdPartyHosts: {
@@ -430,6 +439,90 @@ function renderUnsupported(tab) {
   elements.snapshotStatus.textContent = "Snapshots are unavailable for browser-internal pages.";
 }
 
+function stackProtectionEvents(events) {
+  const stacked = new Map();
+  for (const event of Array.isArray(events) ? events : []) {
+    const surface = String(event?.surface || "Fingerprint").trim() || "Fingerprint";
+    const key = surface.toLowerCase();
+    const count = Math.max(1, Number(event?.count) || 1);
+    const timestamp = Number(event?.lastProtectedAt ?? event?.timestamp) || 0;
+    const current = stacked.get(key);
+    if (current) {
+      current.count += count;
+      current.timestamp = Math.max(current.timestamp, timestamp);
+    } else {
+      stacked.set(key, { surface, count, timestamp });
+    }
+  }
+  return [...stacked.values()].sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function protectionEventCopy(surface) {
+  const normalized = String(surface || "").toLowerCase();
+  if (normalized.includes("canvas")) {
+    return {
+      title: "Canvas fingerprint shielded",
+      description: "The website received randomized Canvas data."
+    };
+  }
+  if (normalized.includes("webgl")) {
+    return {
+      title: "WebGL fingerprint shielded",
+      description: "The website received randomized graphics data."
+    };
+  }
+  if (normalized.includes("audio")) {
+    return {
+      title: "Audio fingerprint shielded",
+      description: "The website received randomized audio data."
+    };
+  }
+  return {
+    title: `${surface || "Fingerprint"} shielded`,
+    description: "Veilance Shield changed the fingerprint data before the website received it."
+  };
+}
+
+function protectionEventMarkup(event) {
+  const count = Math.max(1, Number(event?.count) || 1);
+  const copy = protectionEventCopy(event?.surface);
+  return `
+    <article class="protection-event-card">
+      <span class="protection-event-icon" aria-hidden="true">✓</span>
+      <div class="protection-event-copy">
+        <strong>${escapeHtml(copy.title)}</strong>
+        <span>${escapeHtml(copy.description)}</span>
+      </div>
+      <span class="protection-event-count">${count.toLocaleString()}×</span>
+    </article>`;
+}
+
+function renderProtections(state = currentLiveState, settings = currentProtectionSettings) {
+  const enabled = settings?.fingerprintEnabled === true;
+  const protectionState = state?.protections || {};
+  const events = Array.isArray(protectionState.events) ? protectionState.events : [];
+  const stackedEvents = stackProtectionEvents(events);
+  const eventTotal = stackedEvents.reduce((sum, event) => sum + event.count, 0);
+  const total = Math.max(eventTotal, Math.max(0, Number(protectionState.total) || 0));
+  elements.protectionBadge.textContent = String(total);
+  elements.protectionTotal.textContent = total.toLocaleString();
+  elements.protectionEventCount.textContent = `${total.toLocaleString()} total`;
+  elements.protectionStateBadge.textContent = enabled ? "On" : "Off";
+  elements.protectionStateBadge.className = `protection-state ${enabled ? "on" : "off"}`;
+  elements.protectionSummary.textContent = enabled
+    ? total > 0
+      ? `Veilance Shield randomized Canvas fingerprint data ${total.toLocaleString()} time${total === 1 ? "" : "s"} before this website could read it.`
+      : "Veilance Shield is on. Canvas fingerprint data will be randomized before websites read it. The page will still look the same."
+    : "Fingerprint Shield is off. Turn it on to randomize Canvas fingerprint data before websites read it.";
+  if (!enabled) {
+    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Veilance Shield is off</strong><p>Turn it on in Settings, then reload the page.</p></div>';
+  } else if (!stackedEvents.length) {
+    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Nothing shielded yet</strong><p>This page has not tried a supported Canvas fingerprint read.</p></div>';
+  } else {
+    elements.protectionEvents.innerHTML = stackedEvents.map(protectionEventMarkup).join("");
+  }
+}
+
 async function loadState() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   activeTabId = tab?.id ?? null;
@@ -445,6 +538,8 @@ async function loadState() {
   currentLiveState = state;
   currentLiveFindings = findings;
   automaticSnapshotCaptureEnabled = response.snapshotCapture?.automatic === true;
+  currentProtectionSettings = response.protections || currentProtectionSettings;
+  renderProtections(state, currentProtectionSettings);
   renderSnapshotInterest(response.interest);
   elements.unsupportedPage.hidden = true;
   elements.liveDashboard.hidden = false;
@@ -661,12 +756,16 @@ async function switchView(view) {
   activeView = view;
   elements.liveView.hidden = view !== "live";
   elements.historyView.hidden = view !== "history";
+  elements.protectionsView.hidden = view !== "protections";
   for (const button of document.querySelectorAll(".nav-button[data-view]")) {
     button.classList.toggle("active", button.dataset.view === view);
   }
   if (view === "history") {
     showHistoryList();
     await refreshHistory();
+  } else if (view === "protections") {
+    await loadState();
+    renderProtections(currentLiveState, currentProtectionSettings);
   } else {
     await refreshLive();
   }
@@ -702,6 +801,7 @@ elements.clearButton.addEventListener("click", () => void clearCurrentVisit().ca
 }));
 elements.snapshotButton.addEventListener("click", () => void takeTelemetrySnapshot());
 elements.payoutSettingsButton.addEventListener("click", () => void openSettingsSection("wallet"));
+elements.openProtectionSettings.addEventListener("click", () => void openSettingsSection("protections"));
 elements.liveDetailPanel.addEventListener("toggle", () => {
   if (elements.liveDetailPanel.open) elements.liveDetails.innerHTML = telemetryDetailsMarkup(currentLiveState);
 });
@@ -719,6 +819,6 @@ void initializeTheme();
 void loadState().catch(renderLiveError);
 void loadHistory().catch(renderHistoryError);
 const refreshTimer = setInterval(() => {
-  if (activeView === "live") void loadState().catch(() => {});
+  if (activeView === "live" || activeView === "protections") void loadState().catch(() => {});
 }, 1500);
 addEventListener("unload", () => clearInterval(refreshTimer));

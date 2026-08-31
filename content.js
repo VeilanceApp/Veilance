@@ -3,6 +3,7 @@
 
   const EVENT_NAME = "__veilance_event_v1__";
   const CONTROL_NAME = "__veilance_control_v1__";
+  const PROTECTION_EVENT_NAME = "__veilance_protection_event_v1__";
   const seenEventIds = new Set();
   const pageSessionId = typeof crypto?.randomUUID === "function"
     ? crypto.randomUUID()
@@ -53,6 +54,24 @@
   document.addEventListener(EVENT_NAME, (event) => {
     const clean = sanitizePageEvent(event.detail);
     if (clean) safeSend({ type: "VEILANCE_PAGE_EVENT", event: clean });
+  });
+
+  document.addEventListener(PROTECTION_EVENT_NAME, (event) => {
+    const detail = event?.detail;
+    if (!detail || typeof detail !== "object") return;
+    safeSend({
+      type: "VEILANCE_PROTECTION_EVENT",
+      event: {
+        surface: String(detail.surface || "Protected surface").slice(0, 80),
+        action: String(detail.action || "Protected").slice(0, 80),
+        technique: String(detail.technique || "Fingerprint Shield").slice(0, 120),
+        beforeSignature: String(detail.beforeSignature || "").slice(0, 32),
+        afterSignature: String(detail.afterSignature || "").slice(0, 32),
+        changedUnits: Math.max(0, Math.min(1000000, Number(detail.changedUnits) || 0)),
+        explanation: String(detail.explanation || "").slice(0, 300),
+        timestamp: Number.isFinite(detail.timestamp) ? detail.timestamp : Date.now()
+      }
+    });
   });
 
   function registrableDomain(hostname) {
