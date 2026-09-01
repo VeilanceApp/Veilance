@@ -30,7 +30,7 @@
       <div class="intro-copy">
         <span class="eyebrow">Settings</span>
         <h1>Control what Veilance observes and stores.</h1>
-        <p>Choose the behaviors Veilance watches, review local data, and manage the wallet created for this browser. Veilance reports enabled signals and can optionally shield selected fingerprinting surfaces. Veilance Shield is off unless you turn it on.</p>
+        <p>Choose the behaviors Veilance watches, review local data, and manage the wallet created for this browser. Veilance reports enabled signals and shields supported fingerprinting surfaces by default.</p>
       </div>
       <aside class="local-note" aria-label="Local data notice">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z"></path></svg>
@@ -269,7 +269,7 @@
           <div class="tracker-control-row">
             <div>
               <div class="protection-title"><strong>Fingerprint Shield</strong><span class="feature-badge">Beta</span></div>
-              <p>Randomizes common canvas fingerprint readback. Websites receive a session-specific canvas result instead of a stable fingerprint that can be reused to recognize your browser. Off by default.</p>
+              <p>Applies validated Shield DB rules to supported Canvas, font-metric, WebGL, Web Audio, Navigator, and Screen fingerprint surfaces. On by default.</p>
               <p class="protection-note">After changing this setting, reload open websites so Veilance Shield applies from the start of the page.</p>
             </div>
             <label class="switch" title="Enable or disable Fingerprint Shield">
@@ -290,7 +290,62 @@
         </div>
         <div class="protection-detail">
           <strong>Current shield coverage</strong>
-          <p>The current beta shields Canvas 2D readback and canvas exports. WebGL, Web Audio, font, and device-characteristic shielding can be expanded in later releases after compatibility testing.</p>
+          <p><span id="activeShieldRuleCount">0</span> active data-only rules can farble, normalize, or bucket supported fingerprint values. Detection remains enabled independently so protected attempts still appear in visit activity.</p>
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <header class="card-header">
+          <div>
+            <span class="eyebrow">Shield database</span>
+            <h2>Managed protection rules</h2>
+            <p>Veilance includes an offline starter pack and checks the public Shield DB every eight hours. Downloaded JSON selects only protection strategies already packaged in the extension and cannot execute code.</p>
+          </div>
+          <div class="header-actions tracker-header-actions">
+            <span id="shieldDatabaseStatus" class="count-badge" role="status">Loading…</span>
+            <button id="checkShieldUpdatesButton" class="primary-button" type="button">Check now</button>
+          </div>
+        </header>
+        <div class="tracker-control-grid">
+          <div class="tracker-control-row">
+            <div>
+              <strong>Enable downloaded Shield rules</strong>
+              <p>Allow the Fingerprint Shield master switch to use the validated local rule database.</p>
+            </div>
+            <label class="switch" title="Enable or disable managed Shield rules">
+              <input id="shieldDatabaseEnabled" type="checkbox" aria-label="Enable managed Shield rules">
+              <span aria-hidden="true"></span>
+            </label>
+          </div>
+          <div class="tracker-control-row">
+            <div>
+              <strong>Automatic updates</strong>
+              <p>Check the Shield DB every eight hours. The last validated rules remain active if an update fails.</p>
+            </div>
+            <label class="switch" title="Enable or disable automatic Shield updates">
+              <input id="shieldAutoUpdateEnabled" type="checkbox" aria-label="Enable automatic Shield updates">
+              <span aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+        <div class="tracker-stats">
+          <div><span>Downloaded rules</span><strong id="shieldRuleCount">0</strong></div>
+          <div><span>Update schedule</span><strong id="shieldSchedule">Every 8 hours</strong></div>
+          <div><span>Last checked</span><strong id="shieldLastChecked">Not checked yet</strong></div>
+          <div><span>Source revision</span><strong id="shieldRevision">Loading…</strong></div>
+        </div>
+        <div id="shieldUpdateError" class="notice error" hidden></div>
+        <div class="tracker-source-row">
+          <span>Source</span>
+          <a id="shieldRepositoryLink" href="https://github.com/VeilanceApp/Veilance-Shield-DB" target="_blank" rel="noreferrer">VeilanceApp/Veilance-Shield-DB</a>
+        </div>
+        <div class="tracker-log-section">
+          <div class="tracker-log-heading">
+            <div><strong>Shield update log</strong><span>Most recent 50 checks</span></div>
+          </div>
+          <div id="shieldUpdateLog" class="tracker-update-log">
+            <div class="empty-state">No Shield update checks recorded yet.</div>
+          </div>
         </div>
       </section>
     </div>

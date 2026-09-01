@@ -94,6 +94,23 @@ test("remote detection download uses the requested JSON folder", async () => {
   assert.equal(result.etag, '"detection-revision"');
 });
 
+test("remote Shield download extracts only the requested rule folder", async () => {
+  const archive = tarArchive([
+    ["Veilance-Shield-DB-main/README.md", "ignored"],
+    ["Veilance-Shield-DB-main/veilance-json-shields/canvas.json", '{"id":"canvas"}'],
+    ["Veilance-Shield-DB-main/schema/shield-rule.schema.json", '{"type":"object"}']
+  ]);
+  const compressed = gzipSync(archive);
+  const result = await fetchJsonDatabaseArchive(
+    "https://example.test/shields.tar.gz",
+    "veilance-json-shields",
+    async () => new Response(compressed, { status: 200 })
+  );
+  assert.deepEqual(result.documents.map((document) => document.sourceName), [
+    "veilance-json-shields/canvas.json"
+  ]);
+});
+
 test("remote tracker download verifies, decompresses, and hashes the archive", async () => {
   const archive = tarArchive([
     ["Veilance-Tracker-DB-main/veilance-json-trackers/misc/test.json", '{"name":"Test"}']

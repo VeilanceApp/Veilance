@@ -75,7 +75,7 @@ let currentLiveFindings = [];
 let currentLiveInterest = { score: 0, level: "routine", minimumScore: 25, eligible: false, reasons: [] };
 let snapshotCaptureBusy = false;
 let automaticSnapshotCaptureEnabled = false;
-let currentProtectionSettings = { fingerprintEnabled: false, trackerEnabled: false, trackerAvailable: false };
+let currentProtectionSettings = { fingerprintEnabled: true, trackerEnabled: false, trackerAvailable: false };
 
 const overviewMetricElements = Object.freeze({
   thirdPartyHosts: {
@@ -443,21 +443,83 @@ function stackProtectionEvents(events) {
   const stacked = new Map();
   for (const event of Array.isArray(events) ? events : []) {
     const surface = String(event?.surface || "Fingerprint").trim() || "Fingerprint";
-    const key = surface.toLowerCase();
+    const technique = String(event?.technique || "").trim();
+    const ruleId = String(event?.ruleId || "").trim();
+    const key = `${ruleId}:${surface}:${technique}`.toLowerCase();
     const count = Math.max(1, Number(event?.count) || 1);
     const timestamp = Number(event?.lastProtectedAt ?? event?.timestamp) || 0;
     const current = stacked.get(key);
     if (current) {
       current.count += count;
-      current.timestamp = Math.max(current.timestamp, timestamp);
+      if (timestamp >= current.timestamp) {
+        current.timestamp = timestamp;
+        current.action = String(event?.action || current.action || "Protected").trim();
+        current.explanation = String(event?.explanation || current.explanation || "").trim();
+        current.returnedValue = event?.returnedValue || current.returnedValue;
+      }
     } else {
-      stacked.set(key, { surface, count, timestamp });
+      stacked.set(key, {
+        key,
+        action: String(event?.action || "Protected").trim(),
+        surface,
+        technique,
+        explanation: String(event?.explanation || "").trim(),
+        returnedValue: event?.returnedValue || null,
+        count,
+        timestamp
+      });
     }
   }
   return [...stacked.values()].sort((a, b) => b.timestamp - a.timestamp);
 }
 
-function protectionEventCopy(surface) {
+function returnedValueMarkup(value) {
+  if (!value || typeof value !== "object") {
+    return '<p class="protection-return-empty">A return-value preview was not recorded for this event.</p>';
+  }
+  let display;
+  if (value.kind === "scalar") {
+    display = {
+      type: value.type || typeof value.value,
+      value: value.value
+    };
+  } else if (value.kind === "array") {
+    display = {
+      type: value.type || "Array",
+      length: Math.max(0, Number(value.length) || 0),
+      sample: Array.isArray(value.sample) ? value.sample : [],
+      truncated: value.truncated === true
+    };
+  } else if (value.kind === "object") {
+    display = {
+      type: value.type || "Object",
+      fields: value.fields && typeof value.fields === "object" ? value.fields : {}
+    };
+  } else if (value.kind === "blob") {
+    display = {
+      type: value.type || "application/octet-stream",
+      size: Math.max(0, Number(value.length) || 0)
+    };
+  } else if (value.kind === "encoded-data") {
+    display = {
+      type: value.mimeType || value.type || "encoded data",
+      length: Math.max(0, Number(value.length) || 0),
+      preview: String(value.preview || "")
+    };
+  } else {
+    display = value;
+  }
+  return `<pre class="protection-return-value">${escapeHtml(JSON.stringify(display, null, 2))}</pre>`;
+}
+
+function protectionEventCopy(event) {
+  const surface = event?.surface;
+  if (event?.technique) {
+    return {
+      title: String(event.technique),
+      description: String(event.explanation || `${surface || "Fingerprint data"} was protected before the website received it.`)
+    };
+  }
   const normalized = String(surface || "").toLowerCase();
   if (normalized.includes("canvas")) {
     return {
@@ -483,18 +545,26 @@ function protectionEventCopy(surface) {
   };
 }
 
-function protectionEventMarkup(event) {
+function protectionEventMarkup(event, expanded = false) {
   const count = Math.max(1, Number(event?.count) || 1);
-  const copy = protectionEventCopy(event?.surface);
+  const copy = protectionEventCopy(event);
   return `
-    <article class="protection-event-card">
-      <span class="protection-event-icon" aria-hidden="true">✓</span>
-      <div class="protection-event-copy">
-        <strong>${escapeHtml(copy.title)}</strong>
-        <span>${escapeHtml(copy.description)}</span>
+    <details class="protection-event-card" data-protection-key="${escapeHtml(event.key || "")}"${expanded ? " open" : ""}>
+      <summary class="protection-event-summary">
+        <span class="protection-event-icon" aria-hidden="true">✓</span>
+        <span class="protection-event-copy">
+          <strong>${escapeHtml(copy.title)}</strong>
+          <span>${escapeHtml(copy.description)}</span>
+        </span>
+        <span class="protection-event-count">${count.toLocaleString()}×</span>
+        <span class="protection-event-chevron" aria-hidden="true">⌄</span>
+      </summary>
+      <div class="protection-returned-data">
+        <span class="label">Returned to website</span>
+        ${returnedValueMarkup(event.returnedValue)}
+        <p>Large pixel and audio buffers show a bounded sample; the website received the full protected value.</p>
       </div>
-      <span class="protection-event-count">${count.toLocaleString()}×</span>
-    </article>`;
+    </details>`;
 }
 
 function renderProtections(state = currentLiveState, settings = currentProtectionSettings) {
@@ -511,15 +581,21 @@ function renderProtections(state = currentLiveState, settings = currentProtectio
   elements.protectionStateBadge.className = `protection-state ${enabled ? "on" : "off"}`;
   elements.protectionSummary.textContent = enabled
     ? total > 0
-      ? `Veilance Shield randomized Canvas fingerprint data ${total.toLocaleString()} time${total === 1 ? "" : "s"} before this website could read it.`
-      : "Veilance Shield is on. Canvas fingerprint data will be randomized before websites read it. The page will still look the same."
-    : "Fingerprint Shield is off. Turn it on to randomize Canvas fingerprint data before websites read it.";
+      ? `Veilance Shield protected fingerprint data ${total.toLocaleString()} time${total === 1 ? "" : "s"} before this website received it.`
+      : `Veilance Shield is on with ${Math.max(0, Number(settings?.activeRuleCount) || 0).toLocaleString()} active protection rules.`
+    : "Fingerprint Shield is off. Turn it on to protect supported fingerprint surfaces.";
   if (!enabled) {
     elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Veilance Shield is off</strong><p>Turn it on in Settings, then reload the page.</p></div>';
   } else if (!stackedEvents.length) {
-    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Nothing shielded yet</strong><p>This page has not tried a supported Canvas fingerprint read.</p></div>';
+    elements.protectionEvents.innerHTML = '<div class="protection-empty-state"><strong>Nothing shielded yet</strong><p>This page has not tried a supported fingerprint read.</p></div>';
   } else {
-    elements.protectionEvents.innerHTML = stackedEvents.map(protectionEventMarkup).join("");
+    const expanded = new Set(
+      [...elements.protectionEvents.querySelectorAll("details[data-protection-key][open]")]
+        .map((entry) => entry.dataset.protectionKey)
+    );
+    elements.protectionEvents.innerHTML = stackedEvents
+      .map((event) => protectionEventMarkup(event, expanded.has(event.key)))
+      .join("");
   }
 }
 

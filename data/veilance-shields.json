@@ -1,0 +1,751 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-01T16:03:11.240Z",
+  "revision": "92916963c1fa2112cafad8ff33e67178b4f9e73dd9dab114084df439f210fe21",
+  "records": [
+    {
+      "schemaVersion": 1,
+      "id": "audio-analyser-byte-frequency",
+      "name": "Audio byte-frequency farbling",
+      "category": "Web Audio",
+      "description": "Applies small, session-consistent changes to selected byte-frequency values after an analyser copies them into the page's buffer.",
+      "surface": "Web Audio analyser",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "audio",
+        "api": "AnalyserNode",
+        "actions": [
+          "get-byte-frequency-data"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "typed-array-farbling",
+        "parameters": {
+          "maximumEdits": 8,
+          "delta": 1
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "audio-analyser-byte-time-domain",
+      "name": "Audio byte-waveform farbling",
+      "category": "Web Audio",
+      "description": "Applies small, session-consistent changes to selected byte waveform values after an analyser copies them into the page's buffer.",
+      "surface": "Web Audio analyser",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "audio",
+        "api": "AnalyserNode",
+        "actions": [
+          "get-byte-time-domain-data"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "typed-array-farbling",
+        "parameters": {
+          "maximumEdits": 8,
+          "delta": 1
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "audio-analyser-float-frequency",
+      "name": "Audio frequency-spectrum farbling",
+      "category": "Web Audio",
+      "description": "Applies tiny, session-consistent changes to selected floating-point frequency values returned through an analyser buffer.",
+      "surface": "Web Audio analyser",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "audio",
+        "api": "AnalyserNode",
+        "actions": [
+          "get-float-frequency-data"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "float-array-farbling",
+        "parameters": {
+          "maximumEdits": 8,
+          "epsilon": 0.0001
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "audio-analyser-float-time-domain",
+      "name": "Audio waveform farbling",
+      "category": "Web Audio",
+      "description": "Applies tiny, session-consistent changes to selected floating-point waveform values returned through an analyser buffer.",
+      "surface": "Web Audio analyser",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "audio",
+        "api": "AnalyserNode",
+        "actions": [
+          "get-float-time-domain-data"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "float-array-farbling",
+        "parameters": {
+          "maximumEdits": 8,
+          "epsilon": 0.0001
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "audio-copy-from-channel",
+      "name": "Audio copy readback farbling",
+      "category": "Web Audio",
+      "description": "Applies very small, deterministic changes after audio samples are copied into a page-provided buffer.",
+      "surface": "Web Audio",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "audio",
+        "api": "AudioBuffer",
+        "actions": [
+          "copy-from-channel"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "float-array-farbling",
+        "parameters": {
+          "maximumEdits": 8,
+          "epsilon": 1e-7
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "audio-get-channel-data",
+      "name": "Audio channel readback farbling",
+      "category": "Web Audio",
+      "description": "Returns a protected copy of audio channel samples with very small, deterministic changes to selected values.",
+      "surface": "Web Audio",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "audio",
+        "api": "AudioBuffer",
+        "actions": [
+          "get-channel-data"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "float-array-farbling",
+        "parameters": {
+          "maximumEdits": 8,
+          "epsilon": 1e-7
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "canvas-get-image-data",
+      "name": "Canvas pixel readback farbling",
+      "category": "Canvas",
+      "description": "Changes a small, deterministic set of invisible color-channel values when a page reads Canvas 2D pixels.",
+      "surface": "Canvas 2D",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "canvas",
+        "api": "Canvas",
+        "actions": [
+          "readback"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "canvas-pixel-farbling",
+        "parameters": {
+          "maximumEdits": 8,
+          "delta": 1
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "canvas-measure-text",
+      "name": "Canvas text-metric farbling",
+      "category": "Font measurement",
+      "description": "Applies a tiny, session-consistent offset to numeric Canvas text metrics used for font fingerprinting.",
+      "surface": "Canvas text metrics",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "font-probing",
+        "api": "Canvas2D",
+        "actions": [
+          "measure-text"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "text-metrics-farbling",
+        "parameters": {
+          "epsilon": 0.0001
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "canvas-to-blob",
+      "name": "Canvas blob export farbling",
+      "category": "Canvas",
+      "description": "Creates canvas blobs from a protected copy containing a small, deterministic pixel perturbation.",
+      "surface": "Canvas export",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "canvas",
+        "api": "Canvas",
+        "actions": [
+          "export-blob"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "canvas-pixel-farbling",
+        "parameters": {
+          "maximumEdits": 8,
+          "delta": 1
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "canvas-to-data-url",
+      "name": "Canvas data URL export farbling",
+      "category": "Canvas",
+      "description": "Exports a protected copy of a canvas with a small, deterministic pixel perturbation instead of exporting the original fingerprint surface.",
+      "surface": "Canvas export",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "canvas",
+        "api": "Canvas",
+        "actions": [
+          "export-data-url"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "canvas-pixel-farbling",
+        "parameters": {
+          "maximumEdits": 8,
+          "delta": 1
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "navigator-device-memory",
+      "name": "Device memory normalization",
+      "category": "Device characteristics",
+      "description": "Reports a common device-memory value instead of exposing the browser's original memory bucket.",
+      "surface": "Device memory",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "navigator-characteristics",
+        "api": "Navigator",
+        "actions": [
+          "read-device-memory"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "replace-number",
+        "parameters": {
+          "value": 4
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "navigator-hardware-concurrency",
+      "name": "CPU thread count bucketing",
+      "category": "Device characteristics",
+      "description": "Rounds the reported logical processor count to a common even value and caps unusually high values.",
+      "surface": "CPU characteristics",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "navigator-characteristics",
+        "api": "Navigator",
+        "actions": [
+          "read-hardware-concurrency"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "bucket-number",
+        "parameters": {
+          "step": 2,
+          "minimum": 2,
+          "maximum": 8,
+          "rounding": "nearest",
+          "preserveZero": false
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "navigator-max-touch-points",
+      "name": "Touch-point normalization",
+      "category": "Device characteristics",
+      "description": "Preserves whether touch is available while replacing the exact positive touch-point count with a common value.",
+      "surface": "Touch capabilities",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "navigator-characteristics",
+        "api": "Navigator",
+        "actions": [
+          "read-max-touch-points"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "binary-number",
+        "parameters": {
+          "zeroValue": 0,
+          "nonZeroValue": 5
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "screen-color-depth",
+      "name": "Color-depth normalization",
+      "category": "Screen characteristics",
+      "description": "Reports a common 24-bit color depth for both colorDepth and pixelDepth reads.",
+      "surface": "Display color depth",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "screen-characteristics",
+        "api": "Screen",
+        "actions": [
+          "read-color-depth",
+          "read-pixel-depth"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "replace-number",
+        "parameters": {
+          "value": 24
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "screen-height",
+      "name": "Screen height bucketing",
+      "category": "Screen characteristics",
+      "description": "Rounds screen and available-screen height values to the nearest 100 CSS pixels within a compatibility-safe range.",
+      "surface": "Screen geometry",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "screen-characteristics",
+        "api": "Screen",
+        "actions": [
+          "read-height",
+          "read-avail-height"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "bucket-number",
+        "parameters": {
+          "step": 100,
+          "minimum": 320,
+          "maximum": 2160,
+          "rounding": "nearest",
+          "preserveZero": true
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "screen-width",
+      "name": "Screen width bucketing",
+      "category": "Screen characteristics",
+      "description": "Rounds screen and available-screen width values to the nearest 100 CSS pixels within a compatibility-safe range.",
+      "surface": "Screen geometry",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "screen-characteristics",
+        "api": "Screen",
+        "actions": [
+          "read-width",
+          "read-avail-width"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "bucket-number",
+        "parameters": {
+          "step": 100,
+          "minimum": 320,
+          "maximum": 3840,
+          "rounding": "nearest",
+          "preserveZero": true
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-max-combined-texture-image-units",
+      "name": "Combined texture-unit cap",
+      "category": "WebGL capabilities",
+      "description": "Caps the reported combined texture-unit limit at a common value without ever overstating the device's actual capability.",
+      "surface": "WebGL capabilities",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "capability-query"
+        ],
+        "detail": {
+          "parameter": "MAX_COMBINED_TEXTURE_IMAGE_UNITS"
+        }
+      },
+      "protection": {
+        "strategy": "cap-number",
+        "parameters": {
+          "maximum": 32
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-max-cube-map-texture-size",
+      "name": "Cube-map texture-size cap",
+      "category": "WebGL capabilities",
+      "description": "Caps the reported cube-map texture size at a common value without ever overstating the device's actual capability.",
+      "surface": "WebGL capabilities",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "capability-query"
+        ],
+        "detail": {
+          "parameter": "MAX_CUBE_MAP_TEXTURE_SIZE"
+        }
+      },
+      "protection": {
+        "strategy": "cap-number",
+        "parameters": {
+          "maximum": 2048
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-max-fragment-uniform-vectors",
+      "name": "Fragment uniform-vector cap",
+      "category": "WebGL capabilities",
+      "description": "Caps the reported fragment uniform-vector limit at a common value without ever overstating the device's actual capability.",
+      "surface": "WebGL capabilities",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "capability-query"
+        ],
+        "detail": {
+          "parameter": "MAX_FRAGMENT_UNIFORM_VECTORS"
+        }
+      },
+      "protection": {
+        "strategy": "cap-number",
+        "parameters": {
+          "maximum": 224
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-max-renderbuffer-size",
+      "name": "Renderbuffer-size cap",
+      "category": "WebGL capabilities",
+      "description": "Caps the reported renderbuffer size at a common value without ever overstating the device's actual capability.",
+      "surface": "WebGL capabilities",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "capability-query"
+        ],
+        "detail": {
+          "parameter": "MAX_RENDERBUFFER_SIZE"
+        }
+      },
+      "protection": {
+        "strategy": "cap-number",
+        "parameters": {
+          "maximum": 4096
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-max-texture-image-units",
+      "name": "Fragment texture-unit cap",
+      "category": "WebGL capabilities",
+      "description": "Caps the reported fragment texture-unit limit at a common value without ever overstating the device's actual capability.",
+      "surface": "WebGL capabilities",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "capability-query"
+        ],
+        "detail": {
+          "parameter": "MAX_TEXTURE_IMAGE_UNITS"
+        }
+      },
+      "protection": {
+        "strategy": "cap-number",
+        "parameters": {
+          "maximum": 16
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-max-texture-size",
+      "name": "Texture-size cap",
+      "category": "WebGL capabilities",
+      "description": "Caps the reported two-dimensional texture size at a common value without ever overstating the device's actual capability.",
+      "surface": "WebGL capabilities",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "capability-query"
+        ],
+        "detail": {
+          "parameter": "MAX_TEXTURE_SIZE"
+        }
+      },
+      "protection": {
+        "strategy": "cap-number",
+        "parameters": {
+          "maximum": 4096
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-max-varying-vectors",
+      "name": "Varying-vector cap",
+      "category": "WebGL capabilities",
+      "description": "Caps the reported varying-vector limit at a common value without ever overstating the device's actual capability.",
+      "surface": "WebGL capabilities",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "capability-query"
+        ],
+        "detail": {
+          "parameter": "MAX_VARYING_VECTORS"
+        }
+      },
+      "protection": {
+        "strategy": "cap-number",
+        "parameters": {
+          "maximum": 16
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-max-vertex-attribs",
+      "name": "Vertex-attribute cap",
+      "category": "WebGL capabilities",
+      "description": "Caps the reported vertex-attribute limit at a common value without ever overstating the device's actual capability.",
+      "surface": "WebGL capabilities",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "capability-query"
+        ],
+        "detail": {
+          "parameter": "MAX_VERTEX_ATTRIBS"
+        }
+      },
+      "protection": {
+        "strategy": "cap-number",
+        "parameters": {
+          "maximum": 16
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-max-vertex-texture-image-units",
+      "name": "Vertex texture-unit cap",
+      "category": "WebGL capabilities",
+      "description": "Caps the reported vertex texture-unit limit at a common value without ever overstating the device's actual capability.",
+      "surface": "WebGL capabilities",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "capability-query"
+        ],
+        "detail": {
+          "parameter": "MAX_VERTEX_TEXTURE_IMAGE_UNITS"
+        }
+      },
+      "protection": {
+        "strategy": "cap-number",
+        "parameters": {
+          "maximum": 16
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-max-vertex-uniform-vectors",
+      "name": "Vertex uniform-vector cap",
+      "category": "WebGL capabilities",
+      "description": "Caps the reported vertex uniform-vector limit at a common value without ever overstating the device's actual capability.",
+      "surface": "WebGL capabilities",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "capability-query"
+        ],
+        "detail": {
+          "parameter": "MAX_VERTEX_UNIFORM_VECTORS"
+        }
+      },
+      "protection": {
+        "strategy": "cap-number",
+        "parameters": {
+          "maximum": 256
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-read-pixels",
+      "name": "WebGL pixel readback farbling",
+      "category": "WebGL",
+      "description": "Changes a small, deterministic set of values after WebGL pixels are copied into a page-provided typed array.",
+      "surface": "WebGL pixels",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "read-pixels"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "typed-array-farbling",
+        "parameters": {
+          "maximumEdits": 8,
+          "delta": 1
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-unmasked-renderer",
+      "name": "WebGL renderer normalization",
+      "category": "WebGL",
+      "description": "Returns a generic software renderer profile when a page requests the unmasked graphics renderer.",
+      "surface": "WebGL renderer",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "renderer-query"
+        ],
+        "detail": {
+          "parameter": "UNMASKED_RENDERER_WEBGL"
+        }
+      },
+      "protection": {
+        "strategy": "replace-string",
+        "parameters": {
+          "value": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)"
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "webgl-unmasked-vendor",
+      "name": "WebGL vendor normalization",
+      "category": "WebGL",
+      "description": "Returns a generic WebGL vendor value when a page requests the unmasked graphics vendor.",
+      "surface": "WebGL vendor",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "webgl",
+        "api": "WebGL",
+        "actions": [
+          "renderer-query"
+        ],
+        "detail": {
+          "parameter": "UNMASKED_VENDOR_WEBGL"
+        }
+      },
+      "protection": {
+        "strategy": "replace-string",
+        "parameters": {
+          "value": "Google Inc. (Google)"
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "window-device-pixel-ratio",
+      "name": "Device-pixel-ratio bucketing",
+      "category": "Screen characteristics",
+      "description": "Rounds the reported device pixel ratio to a common quarter-step value and caps unusually high ratios.",
+      "surface": "Display pixel ratio",
+      "defaultEnabled": true,
+      "match": {
+        "indicatorId": "screen-characteristics",
+        "api": "Screen",
+        "actions": [
+          "read-device-pixel-ratio"
+        ],
+        "detail": {}
+      },
+      "protection": {
+        "strategy": "bucket-number",
+        "parameters": {
+          "step": 0.25,
+          "minimum": 1,
+          "maximum": 3,
+          "rounding": "nearest",
+          "preserveZero": false
+        }
+      }
+    }
+  ]
+}

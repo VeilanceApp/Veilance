@@ -20,6 +20,7 @@
   const buffer = [];
   const signalCounts = new Map();
   let enabledIndicatorIds = new Set();
+  let shieldRuleIndex = new Map();
   let configured = false;
   let drained = false;
 
@@ -49,22 +50,346 @@
     return x >>> 0;
   }
 
-  function farbleImageData(imageData) {
-    if (!fingerprintProtectionEnabled() || !imageData?.data || !imageData.data.length) return imageData;
+  function ruleSeed(ruleId) {
+    let hash = fingerprintSeedBytes[0] >>> 0;
+    for (const character of String(ruleId || "")) {
+      hash ^= character.charCodeAt(0);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return mixFingerprintSeed(hash);
+  }
+
+  function runtimeRule(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const id = typeof value.id === "string" ? value.id.slice(0, 80) : "";
+    const name = typeof value.name === "string" ? value.name.slice(0, 100) : "";
+    const surface = typeof value.surface === "string" ? value.surface.slice(0, 80) : "";
+    const description = typeof value.description === "string" ? value.description.slice(0, 400) : "";
+    const match = value.match;
+    const protection = value.protection;
+    if (!id || !name || !surface || !description || !match || !protection) return null;
+    const indicatorId = typeof match.indicatorId === "string" ? match.indicatorId.slice(0, 80) : "";
+    const api = typeof match.api === "string" ? match.api.slice(0, 80) : "";
+    const actions = Array.isArray(match.actions)
+      ? [...new Set(match.actions.slice(0, 8).map((action) => String(action).slice(0, 80)).filter(Boolean))]
+      : [];
+    if (!indicatorId || !api || !actions.length) return null;
+    const detail = {};
+    if (match.detail && typeof match.detail === "object" && !Array.isArray(match.detail)) {
+      for (const [key, detailValue] of Object.entries(match.detail).slice(0, 8)) {
+        if (
+          typeof detailValue === "string" ||
+          typeof detailValue === "boolean" ||
+          (typeof detailValue === "number" && Number.isFinite(detailValue))
+        ) detail[String(key).slice(0, 80)] = detailValue;
+      }
+    }
+    const strategy = typeof protection.strategy === "string" ? protection.strategy.slice(0, 64) : "";
+    if (![
+      "binary-number", "bucket-number", "cap-number", "canvas-pixel-farbling", "float-array-farbling",
+      "replace-number", "replace-string", "text-metrics-farbling", "typed-array-farbling"
+    ].includes(strategy)) return null;
+    const parameters = protection.parameters && typeof protection.parameters === "object" && !Array.isArray(protection.parameters)
+      ? { ...protection.parameters }
+      : {};
+    return {
+      id,
+      name,
+      surface,
+      description,
+      match: { indicatorId, api, actions, detail },
+      protection: { strategy, parameters }
+    };
+  }
+
+  function configureShieldRules(values) {
+    const next = new Map();
+    for (const value of Array.isArray(values) ? values.slice(0, 500) : []) {
+      const rule = runtimeRule(value);
+      if (!rule) continue;
+      for (const action of rule.match.actions) {
+        const key = `${rule.match.indicatorId}\u0000${rule.match.api}\u0000${action}`;
+        const rules = next.get(key) || [];
+        rules.push(rule);
+        next.set(key, rules);
+      }
+    }
+    shieldRuleIndex = next;
+  }
+
+  function shieldRuleFor(indicatorId, api, action, detail = {}) {
+    if (!fingerprintProtectionEnabled()) return null;
+    const key = `${indicatorId}\u0000${api}\u0000${action}`;
+    for (const rule of shieldRuleIndex.get(key) || []) {
+      const expected = rule.match.detail || {};
+      if (Object.entries(expected).every(([name, value]) => detail?.[name] === value)) return rule;
+    }
+    return null;
+  }
+
+  function signatureFor(value) {
+    let hash = 0x811c9dc5;
+    const text = `${typeof value}:${String(value)}`;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  }
+
+  function returnedValuePreview(value, { fields, sensitiveString = false, type } = {}) {
+    if (fields && typeof fields === "object" && !Array.isArray(fields)) {
+      const cleanFields = {};
+      for (const [name, fieldValue] of Object.entries(fields).slice(0, 16)) {
+        if (
+          typeof fieldValue === "string" ||
+          typeof fieldValue === "boolean" ||
+          (typeof fieldValue === "number" && Number.isFinite(fieldValue)) ||
+          fieldValue === null
+        ) cleanFields[String(name).slice(0, 80)] = fieldValue;
+      }
+      return {
+        kind: "object",
+        type: String(type || value?.constructor?.name || "Object").slice(0, 80),
+        fields: cleanFields
+      };
+    }
+    if (value === null) return { kind: "scalar", type: "null", value: null };
+    if (["number", "boolean"].includes(typeof value)) {
+      return Number.isFinite(value) || typeof value === "boolean"
+        ? { kind: "scalar", type: typeof value, value }
+        : null;
+    }
+    if (typeof value === "string") {
+      if (sensitiveString || /^data:/i.test(value)) {
+        const mimeType = /^data:([^;,]+)/i.exec(value)?.[1] || "application/octet-stream";
+        return {
+          kind: "encoded-data",
+          type: "string",
+          length: value.length,
+          mimeType: mimeType.slice(0, 80),
+          preview: `${value.slice(0, 80)}${value.length > 80 ? "…" : ""}`
+        };
+      }
+      return { kind: "scalar", type: "string", value: value.slice(0, 200) };
+    }
+    if (typeof Blob !== "undefined" && value instanceof Blob) {
+      return {
+        kind: "blob",
+        type: String(value.type || "application/octet-stream").slice(0, 80),
+        length: Math.max(0, Number(value.size) || 0)
+      };
+    }
+    const array = value?.data && Number.isFinite(value.data.length) ? value.data : value;
+    if (array && Number.isFinite(array.length) && typeof array !== "function") {
+      const length = Math.max(0, Math.floor(Number(array.length) || 0));
+      const sample = [];
+      for (let index = 0; index < Math.min(16, length); index += 1) {
+        const item = array[index];
+        if (typeof item === "number" && Number.isFinite(item)) sample.push(item);
+        else if (typeof item === "string" || typeof item === "boolean" || item === null) sample.push(item);
+        else break;
+      }
+      return {
+        kind: "array",
+        type: String(array?.constructor?.name || type || "Array").slice(0, 80),
+        length,
+        sample,
+        truncated: length > sample.length
+      };
+    }
+    return null;
+  }
+
+  function reportShieldProtection(rule, action, originalValue, protectedValue, changedUnits = 1, returnedValue = null) {
+    if (!rule || Object.is(originalValue, protectedValue) || changedUnits <= 0) return;
+    dispatchProtection({
+      ruleId: rule.id,
+      surface: rule.surface,
+      action,
+      technique: rule.name,
+      beforeSignature: signatureFor(originalValue),
+      afterSignature: signatureFor(protectedValue),
+      changedUnits,
+      returnedValue: returnedValue || returnedValuePreview(protectedValue),
+      explanation: rule.description,
+      timestamp: Date.now()
+    });
+  }
+
+  function applyScalarProtection(rule, value) {
+    if (!rule) return value;
+    const strategy = rule.protection.strategy;
+    const parameters = rule.protection.parameters || {};
+    if (strategy === "replace-string") {
+      return typeof value === "string" && typeof parameters.value === "string"
+        ? parameters.value.slice(0, 160)
+        : value;
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) return value;
+    if (strategy === "replace-number") {
+      return Number.isFinite(parameters.value) ? Number(parameters.value) : value;
+    }
+    if (strategy === "binary-number") {
+      const replacement = value === 0 ? parameters.zeroValue : parameters.nonZeroValue;
+      return Number.isFinite(replacement) ? Number(replacement) : value;
+    }
+    if (strategy === "cap-number") {
+      return Number.isFinite(parameters.maximum)
+        ? Math.min(value, Number(parameters.maximum))
+        : value;
+    }
+    if (strategy !== "bucket-number") return value;
+    const step = Number(parameters.step);
+    const minimum = Number(parameters.minimum);
+    const maximum = Number(parameters.maximum);
+    if (!(step > 0) || !Number.isFinite(minimum) || !Number.isFinite(maximum) || minimum > maximum) return value;
+    if (parameters.preserveZero === true && value === 0) return value;
+    const round = parameters.rounding === "floor"
+      ? Math.floor
+      : parameters.rounding === "ceil"
+        ? Math.ceil
+        : Math.round;
+    const bucketed = round(value / step) * step;
+    return Math.max(minimum, Math.min(maximum, Number(bucketed.toFixed(10))));
+  }
+
+  function shieldScalar(indicatorId, api, action, value, detail = {}) {
+    const rule = shieldRuleFor(indicatorId, api, action, detail);
+    const protectedValue = applyScalarProtection(rule, value);
+    reportShieldProtection(rule, action, value, protectedValue);
+    return protectedValue;
+  }
+
+  function arraySignature(value) {
+    if (!value || !Number.isFinite(value.length)) return "00000000";
+    let hash = 0x811c9dc5;
+    const length = Math.max(0, Math.floor(value.length));
+    const samples = Math.min(32, length);
+    for (let index = 0; index < samples; index += 1) {
+      const offset = samples === length ? index : Math.floor(index * length / samples);
+      const text = String(value[offset]);
+      for (let character = 0; character < text.length; character += 1) {
+        hash ^= text.charCodeAt(character);
+        hash = Math.imul(hash, 0x01000193);
+      }
+    }
+    hash ^= length;
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  }
+
+  function reportArrayProtection(rule, action, beforeSignature, value, changedUnits) {
+    if (!rule || changedUnits <= 0) return;
+    dispatchProtection({
+      ruleId: rule.id,
+      surface: rule.surface,
+      action,
+      technique: rule.name,
+      beforeSignature,
+      afterSignature: arraySignature(value),
+      changedUnits,
+      returnedValue: returnedValuePreview(value),
+      explanation: rule.description,
+      timestamp: Date.now()
+    });
+  }
+
+  function integerArrayBounds(value) {
+    const name = String(value?.constructor?.name || "");
+    if (name === "Uint8Array" || name === "Uint8ClampedArray") return [0, 255];
+    if (name === "Int8Array") return [-128, 127];
+    if (name === "Uint16Array") return [0, 65535];
+    if (name === "Int16Array") return [-32768, 32767];
+    if (name === "Uint32Array") return [0, 4294967295];
+    if (name === "Int32Array") return [-2147483648, 2147483647];
+    return null;
+  }
+
+  function farbleIntegerArray(rule, value, startOffset = 0) {
+    const bounds = integerArrayBounds(value);
+    const length = Math.max(0, Number(value?.length) || 0);
+    const start = Math.max(0, Math.min(length, Math.floor(Number(startOffset) || 0)));
+    if (!rule || !bounds || start >= length) return { value, changedUnits: 0, beforeSignature: arraySignature(value) };
+    const beforeSignature = arraySignature(value);
+    const maximumEdits = Math.max(1, Math.min(64, Number(rule.protection?.parameters?.maximumEdits) || 8));
+    const delta = Math.max(1, Math.min(8, Number(rule.protection?.parameters?.delta) || 1));
+    const count = Math.min(maximumEdits, length - start);
+    const seed = ruleSeed(rule.id);
+    const changedOffsets = new Set();
+    for (let attempt = 0; changedOffsets.size < count && attempt < count * 4; attempt += 1) {
+      const mixed = mixFingerprintSeed(seed ^ Math.imul(attempt + 1, 0x9e3779b1));
+      const offset = start + (mixed % (length - start));
+      if (changedOffsets.has(offset)) continue;
+      const original = Number(value[offset]);
+      if (!Number.isFinite(original)) continue;
+      const direction = (mixed & 1) === 0 ? -1 : 1;
+      let next = original + direction * delta;
+      if (next < bounds[0] || next > bounds[1]) next = original - direction * delta;
+      next = Math.max(bounds[0], Math.min(bounds[1], next));
+      if (next === original) continue;
+      value[offset] = next;
+      changedOffsets.add(offset);
+    }
+    return { value, changedUnits: changedOffsets.size, beforeSignature };
+  }
+
+  function farbleFloatArray(rule, value, { copy = false } = {}) {
+    const name = String(value?.constructor?.name || "");
+    const length = Math.max(0, Number(value?.length) || 0);
+    if (!rule || !["Float32Array", "Float64Array"].includes(name) || !length) {
+      return { value, changedUnits: 0, beforeSignature: arraySignature(value) };
+    }
+    let output = value;
+    if (copy) {
+      try {
+        output = value.slice();
+      } catch {
+        return { value, changedUnits: 0, beforeSignature: arraySignature(value) };
+      }
+    }
+    const beforeSignature = arraySignature(value);
+    const maximumEdits = Math.max(1, Math.min(64, Number(rule.protection?.parameters?.maximumEdits) || 8));
+    const epsilon = Math.max(0.000000001, Math.min(0.001, Number(rule.protection?.parameters?.epsilon) || 0.0000001));
+    const count = Math.min(maximumEdits, length);
+    const seed = ruleSeed(rule.id);
+    const changedOffsets = new Set();
+    for (let attempt = 0; changedOffsets.size < count && attempt < count * 4; attempt += 1) {
+      const mixed = mixFingerprintSeed(seed ^ Math.imul(attempt + 1, 0x9e3779b1));
+      const offset = mixed % length;
+      if (changedOffsets.has(offset)) continue;
+      const original = Number(output[offset]);
+      if (!Number.isFinite(original)) continue;
+      const next = original + ((mixed & 1) === 0 ? -epsilon : epsilon);
+      if (Object.is(next, original)) continue;
+      output[offset] = next;
+      if (Object.is(Number(output[offset]), original)) continue;
+      changedOffsets.add(offset);
+    }
+    return { value: output, changedUnits: changedOffsets.size, beforeSignature };
+  }
+
+  function farbleImageData(imageData, rule) {
+    if (!rule || !fingerprintProtectionEnabled() || !imageData?.data || !imageData.data.length) return imageData;
     const copy = new Uint8ClampedArray(imageData.data);
     const pixelCount = Math.max(1, Math.floor(copy.length / 4));
-    const edits = Math.min(8, pixelCount);
+    const maximumEdits = Math.max(1, Math.min(64, Number(rule.protection?.parameters?.maximumEdits) || 8));
+    const deltaMagnitude = Math.max(1, Math.min(8, Number(rule.protection?.parameters?.delta) || 1));
+    const edits = Math.min(maximumEdits, pixelCount);
+    const seed = ruleSeed(rule.id);
     let beforeHash = 0x811c9dc5;
     let afterHash = 0x811c9dc5;
     let changedPixels = 0;
     for (let index = 0; index < edits; index += 1) {
-      const mixed = mixFingerprintSeed(fingerprintSeedBytes[0] ^ Math.imul(index + 1, 0x9e3779b1));
+      const mixed = mixFingerprintSeed(seed ^ Math.imul(index + 1, 0x9e3779b1));
       const pixel = mixed % pixelCount;
       const channel = (mixed >>> 8) % 3;
       const offset = pixel * 4 + channel;
       const originalValue = copy[offset];
-      const delta = (mixed & 1) === 0 ? -1 : 1;
-      const protectedValue = Math.max(0, Math.min(255, originalValue + delta));
+      const delta = (mixed & 1) === 0 ? -deltaMagnitude : deltaMagnitude;
+      let protectedValue = Math.max(0, Math.min(255, originalValue + delta));
+      if (protectedValue === originalValue) {
+        protectedValue = Math.max(0, Math.min(255, originalValue - delta));
+      }
       copy[offset] = protectedValue;
       beforeHash ^= originalValue;
       beforeHash = Math.imul(beforeHash, 0x01000193);
@@ -92,6 +417,69 @@
       // Metadata is only used for Veilance's local protection explanation.
     }
     return result;
+  }
+
+  const TEXT_METRIC_PROPERTIES = Object.freeze([
+    "width",
+    "actualBoundingBoxLeft",
+    "actualBoundingBoxRight",
+    "fontBoundingBoxAscent",
+    "fontBoundingBoxDescent",
+    "actualBoundingBoxAscent",
+    "actualBoundingBoxDescent",
+    "emHeightAscent",
+    "emHeightDescent",
+    "hangingBaseline",
+    "alphabeticBaseline",
+    "ideographicBaseline"
+  ]);
+
+  function protectTextMetrics(rule, metrics) {
+    if (!rule || rule.protection?.strategy !== "text-metrics-farbling" || !metrics) return metrics;
+    const epsilon = Math.max(0.000001, Math.min(0.1, Number(rule.protection?.parameters?.epsilon) || 0.0001));
+    const protectedValues = new Map();
+    const before = [];
+    const after = [];
+    for (const property of TEXT_METRIC_PROPERTIES) {
+      let original;
+      try {
+        original = Reflect.get(metrics, property, metrics);
+      } catch {
+        continue;
+      }
+      if (typeof original !== "number" || !Number.isFinite(original)) continue;
+      const mixed = ruleSeed(`${rule.id}:${property}`);
+      const protectedValue = Number((original + ((mixed & 1) === 0 ? -epsilon : epsilon)).toFixed(6));
+      if (Object.is(original, protectedValue)) continue;
+      protectedValues.set(property, protectedValue);
+      before.push(`${property}:${original}`);
+      after.push(`${property}:${protectedValue}`);
+    }
+    if (!protectedValues.size) return metrics;
+    let protectedMetrics;
+    try {
+      protectedMetrics = new Proxy(metrics, {
+        get(target, property) {
+          if (protectedValues.has(property)) return protectedValues.get(property);
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    } catch {
+      return metrics;
+    }
+    reportShieldProtection(
+      rule,
+      "Canvas text measurement",
+      before.join("|"),
+      after.join("|"),
+      protectedValues.size,
+      returnedValuePreview(protectedMetrics, {
+        type: "TextMetrics",
+        fields: Object.fromEntries(protectedValues)
+      })
+    );
+    return protectedMetrics;
   }
 
   function safeHost(value) {
@@ -128,18 +516,20 @@
     }
   }
 
-  function reportCanvasProtection(action, original, protectedData) {
-    if (!fingerprintProtectionEnabled() || !original?.data || !protectedData?.data) return;
+  function reportCanvasProtection(rule, action, original, protectedData, returnedValue = null) {
+    if (!rule || !fingerprintProtectionEnabled() || !original?.data || !protectedData?.data) return;
     const metadata = farbleMetadata.get(protectedData);
     if (!metadata || metadata.changedPixels <= 0 || metadata.beforeSignature === metadata.afterSignature) return;
     dispatchProtection({
-      surface: "Canvas 2D",
+      ruleId: rule.id,
+      surface: rule.surface,
       action,
-      technique: "Session-specific pixel farbling",
+      technique: rule.name,
       beforeSignature: metadata.beforeSignature,
       afterSignature: metadata.afterSignature,
       changedUnits: metadata.changedPixels,
-      explanation: "Veilance changed a few invisible canvas pixel values before the website could read them, producing a different fingerprint without changing what you see.",
+      returnedValue: returnedValue || returnedValuePreview(protectedData),
+      explanation: rule.description,
       timestamp: Date.now()
     });
   }
@@ -164,7 +554,7 @@
     if (configured && enabledIndicatorIds.has(indicatorId)) dispatch(event);
   }
 
-  function wrapMethod(target, method, beforeCall) {
+  function wrapMethod(target, method, beforeCall, afterCall) {
     if (!target) return;
     let descriptor;
     try {
@@ -182,7 +572,13 @@
       } catch {
         // Instrumentation must never break the host page.
       }
-      return Reflect.apply(original, this, args);
+      const result = Reflect.apply(original, this, args);
+      if (typeof afterCall !== "function") return result;
+      try {
+        return afterCall.call(this, result, args);
+      } catch {
+        return result;
+      }
     }
 
     try {
@@ -197,7 +593,7 @@
     }
   }
 
-  function observeMethodAccess(target, method, onAccess, protectedMethod = null) {
+  function observeMethodAccess(target, method, onAccess, protectedMethod = null, shouldProtect = fingerprintProtectionEnabled) {
     if (!target) return;
     let descriptor;
     try {
@@ -222,7 +618,13 @@
       }
       // Return the native method directly when protection is off so browser
       // diagnostics created by the call remain attributed to the website.
-      if (protectedMethod && fingerprintProtectionEnabled()) return protectedMethod;
+      if (protectedMethod) {
+        try {
+          if (shouldProtect.call(this)) return protectedMethod;
+        } catch {
+          // Fall through to the native method when protection lookup fails.
+        }
+      }
       return original;
     }
 
@@ -262,7 +664,7 @@
     }
   }
 
-  function wrapAccessor(target, property, beforeGet, beforeSet) {
+  function wrapAccessor(target, property, beforeGet, beforeSet, afterGet) {
     if (!target) return;
     let descriptor;
     try {
@@ -288,7 +690,13 @@
         } catch {
           // Instrumentation must never break the host page.
         }
-        return Reflect.apply(originalGet, this, []);
+        const value = Reflect.apply(originalGet, this, []);
+        if (typeof afterGet !== "function") return value;
+        try {
+          return afterGet.call(this, value);
+        } catch {
+          return value;
+        }
       };
       try {
         Object.defineProperty(wrappedGet, WRAPPED_FLAG, { value: true });
@@ -515,8 +923,8 @@
     return replacement;
   }
 
-  function protectedCanvasCopy(source) {
-    if (!fingerprintProtectionEnabled()) return null;
+  function protectedCanvasCopy(source, rule) {
+    if (!rule || !fingerprintProtectionEnabled()) return null;
     const width = Number(source?.width) || 0;
     const height = Number(source?.height) || 0;
     if (width <= 0 || height <= 0 || width * height > 16777216) return null;
@@ -528,7 +936,7 @@
     if (!context) return null;
     Reflect.apply(nativeDrawImage, context, [source, 0, 0]);
     const originalPixels = Reflect.apply(nativeGetImageData, context, [0, 0, width, height]);
-    const protectedPixels = farbleImageData(originalPixels);
+    const protectedPixels = farbleImageData(originalPixels, rule);
     Reflect.apply(nativePutImageData, context, [protectedPixels, 0, 0]);
     return { copy, originalPixels, protectedPixels };
   }
@@ -536,10 +944,18 @@
   if (typeof nativeCanvasToDataURL === "function") {
     const protectedToDataURL = nativeLike(nativeCanvasToDataURL, function (...args) {
       try {
-        const result = protectedCanvasCopy(this);
+        const rule = shieldRuleFor("canvas", "Canvas", "export-data-url");
+        const result = protectedCanvasCopy(this, rule);
         if (result?.copy) {
-          reportCanvasProtection("Canvas export", result.originalPixels, result.protectedPixels);
-          return Reflect.apply(nativeCanvasToDataURL, result.copy, args);
+          const protectedUrl = Reflect.apply(nativeCanvasToDataURL, result.copy, args);
+          reportCanvasProtection(
+            rule,
+            "Canvas data URL export",
+            result.originalPixels,
+            result.protectedPixels,
+            returnedValuePreview(protectedUrl, { sensitiveString: true })
+          );
+          return protectedUrl;
         }
       } catch {
         // Preserve native behavior for tainted or unsupported canvases.
@@ -548,16 +964,29 @@
     });
     observeMethodAccess(canvasPrototype, "toDataURL", function () {
       emit("canvas", "fingerprinting", "Canvas", "export");
-      if (fingerprintProtectionEnabled()) return protectedToDataURL;
-    }, protectedToDataURL);
+    }, protectedToDataURL, () => Boolean(shieldRuleFor("canvas", "Canvas", "export-data-url")));
   }
 
   if (typeof nativeCanvasToBlob === "function") {
     const protectedToBlob = nativeLike(nativeCanvasToBlob, function (...args) {
       try {
-        const result = protectedCanvasCopy(this);
+        const rule = shieldRuleFor("canvas", "Canvas", "export-blob");
+        const result = protectedCanvasCopy(this, rule);
         if (result?.copy) {
-          reportCanvasProtection("Canvas export", result.originalPixels, result.protectedPixels);
+          const callback = args[0];
+          if (typeof callback === "function") {
+            const protectedCallback = function (blob) {
+              reportCanvasProtection(
+                rule,
+                "Canvas blob export",
+                result.originalPixels,
+                result.protectedPixels,
+                returnedValuePreview(blob)
+              );
+              return Reflect.apply(callback, this, [blob]);
+            };
+            return Reflect.apply(nativeCanvasToBlob, result.copy, [protectedCallback, ...args.slice(1)]);
+          }
           return Reflect.apply(nativeCanvasToBlob, result.copy, args);
         }
       } catch {
@@ -567,30 +996,44 @@
     });
     observeMethodAccess(canvasPrototype, "toBlob", function () {
       emit("canvas", "fingerprinting", "Canvas", "export");
-    }, protectedToBlob);
+    }, protectedToBlob, () => Boolean(shieldRuleFor("canvas", "Canvas", "export-blob")));
   }
 
   if (typeof nativeGetImageData === "function") {
     const protectedGetImageData = nativeLike(nativeGetImageData, function (...args) {
       const originalPixels = Reflect.apply(nativeGetImageData, this, args);
-      const protectedPixels = farbleImageData(originalPixels);
-      reportCanvasProtection("Pixel readback", originalPixels, protectedPixels);
+      const rule = shieldRuleFor("canvas", "Canvas", "readback");
+      const protectedPixels = farbleImageData(originalPixels, rule);
+      reportCanvasProtection(rule, "Pixel readback", originalPixels, protectedPixels);
       return protectedPixels;
     });
     observeMethodAccess(canvas2dPrototype, "getImageData", function () {
       emit("canvas", "fingerprinting", "Canvas", "readback");
-    }, protectedGetImageData);
+    }, protectedGetImageData, () => Boolean(shieldRuleFor("canvas", "Canvas", "readback")));
   }
   wrapMethod(globalThis.CanvasRenderingContext2D?.prototype, "measureText", () => {
     emit("font-probing", "fingerprinting", "Canvas2D", "measure-text");
+  }, (metrics) => {
+    const rule = shieldRuleFor("font-probing", "Canvas2D", "measure-text");
+    return protectTextMetrics(rule, metrics);
   });
 
   const interestingWebGlParameters = new Map([
-    [37445, "UNMASKED_VENDOR_WEBGL"],
-    [37446, "UNMASKED_RENDERER_WEBGL"],
-    [7936, "VENDOR"],
-    [7937, "RENDERER"],
-    [35724, "SHADING_LANGUAGE_VERSION"]
+    [37445, { action: "renderer-query", label: "UNMASKED_VENDOR_WEBGL" }],
+    [37446, { action: "renderer-query", label: "UNMASKED_RENDERER_WEBGL" }],
+    [7936, { action: "renderer-query", label: "VENDOR" }],
+    [7937, { action: "renderer-query", label: "RENDERER" }],
+    [35724, { action: "renderer-query", label: "SHADING_LANGUAGE_VERSION" }],
+    [3379, { action: "capability-query", label: "MAX_TEXTURE_SIZE" }],
+    [34076, { action: "capability-query", label: "MAX_CUBE_MAP_TEXTURE_SIZE" }],
+    [34024, { action: "capability-query", label: "MAX_RENDERBUFFER_SIZE" }],
+    [34921, { action: "capability-query", label: "MAX_VERTEX_ATTRIBS" }],
+    [34930, { action: "capability-query", label: "MAX_TEXTURE_IMAGE_UNITS" }],
+    [35660, { action: "capability-query", label: "MAX_VERTEX_TEXTURE_IMAGE_UNITS" }],
+    [35661, { action: "capability-query", label: "MAX_COMBINED_TEXTURE_IMAGE_UNITS" }],
+    [36348, { action: "capability-query", label: "MAX_VARYING_VECTORS" }],
+    [36347, { action: "capability-query", label: "MAX_VERTEX_UNIFORM_VECTORS" }],
+    [36349, { action: "capability-query", label: "MAX_FRAGMENT_UNIFORM_VECTORS" }]
   ]);
 
   function instrumentWebGl(prototype) {
@@ -602,11 +1045,21 @@
     });
     wrapMethod(prototype, "getParameter", (args) => {
       const parameter = Number(args[0]);
-      const label = interestingWebGlParameters.get(parameter);
-      if (label) emit("webgl", "fingerprinting", "WebGL", "renderer-query", { parameter: label });
+      const entry = interestingWebGlParameters.get(parameter);
+      if (entry) emit("webgl", "fingerprinting", "WebGL", entry.action, { parameter: entry.label });
+    }, (value, args) => {
+      const entry = interestingWebGlParameters.get(Number(args[0]));
+      return entry
+        ? shieldScalar("webgl", "WebGL", entry.action, value, { parameter: entry.label })
+        : value;
     });
     wrapMethod(prototype, "readPixels", () => {
       emit("webgl", "fingerprinting", "WebGL", "read-pixels");
+    }, (result, args) => {
+      const rule = shieldRuleFor("webgl", "WebGL", "read-pixels");
+      const protectedArray = farbleIntegerArray(rule, args[6], args[7]);
+      reportArrayProtection(rule, "WebGL pixel readback", protectedArray.beforeSignature, protectedArray.value, protectedArray.changedUnits);
+      return result;
     });
   }
 
@@ -628,10 +1081,44 @@
   });
   wrapMethod(globalThis.AudioBuffer?.prototype, "getChannelData", () => {
     emit("audio", "fingerprinting", "AudioBuffer", "read-buffer");
+  }, (value) => {
+    const rule = shieldRuleFor("audio", "AudioBuffer", "get-channel-data");
+    const protectedArray = farbleFloatArray(rule, value, { copy: true });
+    reportArrayProtection(rule, "Audio channel readback", protectedArray.beforeSignature, protectedArray.value, protectedArray.changedUnits);
+    return protectedArray.value;
   });
   wrapMethod(globalThis.AudioBuffer?.prototype, "copyFromChannel", () => {
     emit("audio", "fingerprinting", "AudioBuffer", "read-buffer");
+  }, (result, args) => {
+    const rule = shieldRuleFor("audio", "AudioBuffer", "copy-from-channel");
+    const protectedArray = farbleFloatArray(rule, args[0]);
+    reportArrayProtection(rule, "Audio copy readback", protectedArray.beforeSignature, protectedArray.value, protectedArray.changedUnits);
+    return result;
   });
+  for (const [method, floating] of [
+    ["getFloatFrequencyData", true],
+    ["getFloatTimeDomainData", true],
+    ["getByteFrequencyData", false],
+    ["getByteTimeDomainData", false]
+  ]) {
+    const action = hyphenate(method);
+    wrapMethod(globalThis.AnalyserNode?.prototype, method, () => {
+      emit("audio", "fingerprinting", "AnalyserNode", action);
+    }, (result, args) => {
+      const rule = shieldRuleFor("audio", "AnalyserNode", action);
+      const protectedArray = floating
+        ? farbleFloatArray(rule, args[0])
+        : farbleIntegerArray(rule, args[0]);
+      reportArrayProtection(
+        rule,
+        `Audio analyser ${floating ? "floating-point" : "byte"} readback`,
+        protectedArray.beforeSignature,
+        protectedArray.value,
+        protectedArray.changedUnits
+      );
+      return result;
+    });
+  }
 
   // Browser and device characteristics commonly combined into fingerprints.
   for (const property of [
@@ -640,9 +1127,14 @@
     "languages", "plugins", "mimeTypes", "pdfViewerEnabled", "doNotTrack",
     "globalPrivacyControl", "webdriver"
   ]) {
-    wrapAccessor(globalThis.Navigator?.prototype, property, () => {
-      emit("navigator-characteristics", "fingerprinting", "Navigator", `read-${hyphenate(property)}`);
-    });
+    const action = `read-${hyphenate(property)}`;
+    wrapAccessor(
+      globalThis.Navigator?.prototype,
+      property,
+      () => emit("navigator-characteristics", "fingerprinting", "Navigator", action),
+      undefined,
+      (value) => shieldScalar("navigator-characteristics", "Navigator", action, value)
+    );
   }
   const userAgentDataPrototype = globalThis.NavigatorUAData?.prototype || optionalPrototypes.userAgentData;
   wrapMethod(userAgentDataPrototype, "getHighEntropyValues", () => {
@@ -652,26 +1144,40 @@
     emit("navigator-characteristics", "fingerprinting", "ClientHints", "serialize");
   });
   for (const property of ["brands", "mobile", "platform"]) {
-    wrapAccessor(userAgentDataPrototype, property, () => {
-      emit("navigator-characteristics", "fingerprinting", "ClientHints", `read-${hyphenate(property)}`);
-    });
+    const action = `read-${hyphenate(property)}`;
+    wrapAccessor(
+      userAgentDataPrototype,
+      property,
+      () => emit("navigator-characteristics", "fingerprinting", "ClientHints", action),
+      undefined,
+      (value) => shieldScalar("navigator-characteristics", "ClientHints", action, value)
+    );
   }
 
   for (const property of [
     "width", "height", "availWidth", "availHeight", "colorDepth", "pixelDepth", "isExtended"
   ]) {
-    wrapAccessor(globalThis.Screen?.prototype, property, () => {
-      emit("screen-characteristics", "fingerprinting", "Screen", `read-${hyphenate(property)}`);
-    });
+    const action = `read-${hyphenate(property)}`;
+    wrapAccessor(
+      globalThis.Screen?.prototype,
+      property,
+      () => emit("screen-characteristics", "fingerprinting", "Screen", action),
+      undefined,
+      (value) => shieldScalar("screen-characteristics", "Screen", action, value)
+    );
   }
   for (const property of ["type", "angle"]) {
     wrapAccessor(globalThis.ScreenOrientation?.prototype, property, () => {
       emit("screen-characteristics", "fingerprinting", "ScreenOrientation", `read-${property}`);
     });
   }
-  wrapAccessor(globalThis.Window?.prototype, "devicePixelRatio", () => {
-    emit("screen-characteristics", "fingerprinting", "Screen", "read-device-pixel-ratio");
-  });
+  wrapAccessor(
+    globalThis.Window?.prototype,
+    "devicePixelRatio",
+    () => emit("screen-characteristics", "fingerprinting", "Screen", "read-device-pixel-ratio"),
+    undefined,
+    (value) => shieldScalar("screen-characteristics", "Screen", "read-device-pixel-ratio", value)
+  );
 
   wrapMethod(globalThis.Date?.prototype, "getTimezoneOffset", () => {
     emit("locale-timezone", "fingerprinting", "Locale", "timezone-offset");
@@ -933,6 +1439,7 @@
         ? event.detail.enabledIndicatorIds.slice(0, 200)
         : [];
       enabledIndicatorIds = new Set(values.map((value) => String(value).slice(0, 80)));
+      configureShieldRules(event.detail.shieldRules);
       configured = true;
       for (let index = buffer.length - 1; index >= 0; index -= 1) {
         if (!enabledIndicatorIds.has(buffer[index].indicatorId)) buffer.splice(index, 1);

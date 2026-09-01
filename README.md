@@ -1,4 +1,4 @@
-# Veilance Browser Extension v0.6.13
+# Veilance Browser Extension v0.6.19
 
 Veilance is a local-first browser privacy observability extension. It shows what
 a website requests from browser APIs and which network hosts it contacts while
@@ -26,6 +26,8 @@ disabled.
 * A tabbed Settings page
 * Individual enable/disable controls for every built-in indicator
 * A bundled, automatically updated tracker database enabled by default
+* A bundled, automatically updated Shield rule database with Fingerprint Shield
+  enabled by default and an explicit off control
 * Declarative custom indicator rules loaded from a user-selected folder
 * A locally generated Ed25519 Solana wallet and explicit private-key export
 * Automatic visit-payload export removed; explicit local snapshot downloads use
@@ -153,8 +155,10 @@ Open the popup and select **Settings**. Each built-in indicator can be enabled
 or disabled separately. A change affects new observations immediately; it does
 not rewrite existing history.
 
-Veilance observes enabled signals. It does not block, spoof, or modify browser
-fingerprints or website behavior.
+Veilance observes enabled signals independently of protection. Fingerprint
+Shield modifies supported fingerprint values before a website receives them.
+It is enabled by default; users can turn it off at any time without disabling
+detection.
 
 ## Tracker database updates
 
@@ -167,6 +171,33 @@ Each successful update is validated completely before it replaces the last
 known-good database. A failed download or invalid archive leaves the active
 tracker set unchanged and adds the error to the visible update log. Tracker
 updates are declarative JSON and cannot execute code.
+
+## Veilance Shield database updates
+
+The Fingerprint Shield uses a bundled offline starter pack and validated
+data-only updates from `VeilanceApp/Veilance-Shield-DB`. **Enable downloaded
+Shield rules** controls whether the local database may activate, **Automatic
+updates** controls the eight-hour alarm, and **Check now** performs a manual
+refresh. The separate Fingerprint Shield master switch is on by default and
+preserves an explicitly saved off preference.
+
+Each rule matches a supported indicator/API/action hook and selects a packaged
+strategy such as pixel farbling, numeric bucketing, capability capping, text
+metric farbling, or value normalization.
+Remote rules cannot contain or execute JavaScript. A new browser API hook or a
+new strategy still requires an extension release; existing hooks and strategy
+parameters can be maintained entirely through the Shield DB.
+
+Veilance validates the complete candidate set before replacement. An empty,
+invalid, or unexpectedly truncated update leaves the last known good rules in
+place and records the failure in Settings. Current coverage includes Canvas
+pixels and text metrics, WebGL pixels and capability limits, Web Audio buffers
+and analyser output, Navigator device characteristics, and Screen characteristics.
+
+The popup's **Shielded** tab groups protected activity by rule. Each item can be
+expanded to inspect what the website received. Scalar returns are shown exactly;
+large Canvas, WebGL, and audio buffers show their type, full length, and a bounded
+sample so the popup does not retain or render megabytes of page data.
 
 ## Load indicators from a folder
 
@@ -499,20 +530,22 @@ resetting the visit.
 ### `storage`
 
 Keeps active visit state, indicator settings, the serialized SQLite database,
-custom indicator definitions, managed tracker definitions, the tracker update
-log, the automatic-capture preference, local snapshot upload consent, the
+custom indicator definitions, managed tracker and Shield definitions, their
+update logs, the automatic-capture preference, local snapshot upload consent, the
 automatic-upload preference, the stable pseudonymous telemetry client identity,
 the shared appearance preference, and local wallet material.
 
 ### `unlimitedStorage`
 
-Allows the full managed tracker database and future database growth to remain in
-extension-local storage without displacing visit history or user rules.
+Allows the full managed tracker and Shield databases and future database growth
+to remain in extension-local storage without displacing visit history or user
+rules.
 
 ### `alarms`
 
-Schedules tracker database checks every eight hours. In an upload-enabled build,
-it also wakes privacy-delayed queued snapshot batches and retries. If the
+Schedules tracker, detection, and Shield database checks every eight hours. In
+an upload-enabled build, it also wakes privacy-delayed queued snapshot batches
+and retries. If the
 browser is closed or the extension service worker is asleep, Chromium delivers
 the missed alarm when the extension next wakes.
 
@@ -539,6 +572,13 @@ To rebuild the bundled tracker snapshot from a sibling checkout of
 npm run build:trackers
 ```
 
+To rebuild the bundled Shield snapshot from a sibling checkout of
+`Veilance-Shield-DB`:
+
+```bash
+npm run build:shields
+```
+
 To exercise browser APIs manually:
 
 ```bash
@@ -553,6 +593,10 @@ controls, and inspect the Live and History tabs.
 * Chromium Manifest V3 only
 * Top-level frames only; embedded-frame API calls are not instrumented
 * Main-world wrappers can be detected, bypassed, or changed by a hostile page
+* Shield rules can configure only hooks and strategies packaged in the installed
+  extension; new browser surfaces still require an extension release
+* Fingerprint protection can affect specialized graphics, audio, font-measurement,
+  or responsive applications; it is a default-on beta that can be disabled in Settings
 * Browser caching may prevent some requests from appearing through
   `webRequest`
 * Third-party classification uses a compact suffix list rather than the full

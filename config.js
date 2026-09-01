@@ -31,3 +31,9 @@ export const DETECTION_DATABASE_REPOSITORY = "https://github.com/VeilanceApp/Vei
 export const DETECTION_DATABASE_ARCHIVE = "https://codeload.github.com/VeilanceApp/Veilance-Detection-DB/tar.gz/refs/heads/main";
 export const DETECTION_DATABASE_FOLDER = "veilance-json-detections";
 export const DETECTION_UPDATE_INTERVAL_MINUTES = 8 * 60;
+
+export const SHIELD_DATABASE_REPOSITORY = "https://github.com/VeilanceApp/Veilance-Shield-DB";
+export const SHIELD_DATABASE_ARCHIVE = "https://codeload.github.com/VeilanceApp/Veilance-Shield-DB/tar.gz/refs/heads/main";
+export const SHIELD_DATABASE_BUNDLE = "data/veilance-shields.json";
+export const SHIELD_DATABASE_FOLDER = "veilance-json-shields";
+export const SHIELD_UPDATE_INTERVAL_MINUTES = 8 * 60;

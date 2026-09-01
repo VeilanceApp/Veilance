@@ -32,10 +32,20 @@ import {
   parseManagedTrackerRecords
 } from "./lib/indicators.js";
 import {
+  parseManagedShieldDocuments,
+  parseManagedShieldRecords,
+  runtimeShieldRules
+} from "./lib/shield-rules.js";
+import {
   DETECTION_DATABASE_ARCHIVE,
   DETECTION_DATABASE_FOLDER,
   DETECTION_DATABASE_REPOSITORY,
   DETECTION_UPDATE_INTERVAL_MINUTES,
+  SHIELD_DATABASE_ARCHIVE,
+  SHIELD_DATABASE_BUNDLE,
+  SHIELD_DATABASE_FOLDER,
+  SHIELD_DATABASE_REPOSITORY,
+  SHIELD_UPDATE_INTERVAL_MINUTES,
   TRACKER_DATABASE_ARCHIVE,
   TRACKER_DATABASE_BUNDLE,
   TRACKER_DATABASE_REPOSITORY,
@@ -67,9 +77,12 @@ const MANAGED_TRACKERS_KEY = "veilanceManagedTrackersV1";
 const TRACKER_DATABASE_STATE_KEY = "veilanceTrackerDatabaseStateV1";
 const MANAGED_DETECTIONS_KEY = "veilanceManagedDetectionsV1";
 const DETECTION_DATABASE_STATE_KEY = "veilanceDetectionDatabaseStateV1";
+const MANAGED_SHIELD_RULES_KEY = "veilanceManagedShieldRulesV1";
+const SHIELD_DATABASE_STATE_KEY = "veilanceShieldDatabaseStateV1";
 const WALLET_STORAGE_KEY = "veilanceSolanaWalletV1";
 const TRACKER_UPDATE_ALARM = "veilanceTrackerDatabaseUpdateV1";
 const DETECTION_UPDATE_ALARM = "veilanceDetectionDatabaseUpdateV1";
+const SHIELD_UPDATE_ALARM = "veilanceShieldDatabaseUpdateV1";
 const SNAPSHOT_UPLOAD_ALARM = "veilanceTelemetrySnapshotUploadV1";
 const SNAPSHOT_UPLOAD_CONSENT_KEY = "veilanceTelemetrySnapshotConsentV1";
 const SNAPSHOT_AUTOMATIC_UPLOAD_KEY = "veilanceTelemetryAutomaticUploadV1";
@@ -78,6 +91,7 @@ const FINGERPRINT_PROTECTION_ENABLED_KEY = "veilanceFingerprintProtectionEnabled
 const FINGERPRINT_PROTECTION_SCRIPT_ID = "veilance-fingerprint-protection-v1";
 const MAX_TRACKER_UPDATE_LOG = 50;
 const MAX_DETECTION_UPDATE_LOG = 50;
+const MAX_SHIELD_UPDATE_LOG = 50;
 const HISTORY_FLUSH_DELAY_MS = 200;
 const SNAPSHOT_UPLOAD_DELAY_MIN_MS = 5 * 60 * 1000;
 const SNAPSHOT_UPLOAD_DELAY_MAX_MS = 15 * 60 * 1000;
@@ -94,18 +108,21 @@ let historyFlushTimer = null;
 let customIndicators = [];
 let managedTrackers = [];
 let managedDetections = [];
+let managedShieldRules = [];
 let indicatorSettings = mergeIndicatorSettings(null);
 let trackerDatabaseState = normalizeTrackerDatabaseState(null);
 let detectionDatabaseState = normalizeDetectionDatabaseState(null);
+let shieldDatabaseState = normalizeShieldDatabaseState(null);
 let trackerSyncPromise = null;
 let detectionSyncPromise = null;
+let shieldSyncPromise = null;
 let wallet = null;
 let walletError = null;
 let historyStore = null;
 let snapshotUploadConsent = false;
 let snapshotAutomaticUpload = false;
 let snapshotAutomaticCapture = false;
-let fingerprintProtectionEnabled = false;
+let fingerprintProtectionEnabled = true;
 let telemetryClientId = null;
 let snapshotUploadPromise = null;
 let snapshotUploadAbortController = null;
@@ -180,10 +197,18 @@ function publicProtectionState() {
   return {
     fingerprintEnabled: Boolean(fingerprintProtectionEnabled),
     fingerprintLabel: "Fingerprint Shield (Beta)",
-    fingerprintDescription: "Randomizes common canvas fingerprint readback so websites receive a session-specific result instead of a stable canvas fingerprint.",
+    fingerprintDescription: "Applies the active Shield database rules to supported Canvas, font-metric, WebGL, Web Audio, Navigator, and Screen fingerprint surfaces.",
+    activeRuleCount: fingerprintProtectionEnabled && shieldDatabaseState.databaseEnabled
+      ? managedShieldRules.filter((rule) => rule.defaultEnabled !== false).length
+      : 0,
     trackerEnabled: false,
     trackerAvailable: false
   };
+}
+
+function activeRuntimeShieldRules() {
+  if (!fingerprintProtectionEnabled || !shieldDatabaseState.databaseEnabled) return [];
+  return runtimeShieldRules(managedShieldRules);
 }
 
 async function configureFingerprintProtectionScript() {
@@ -463,6 +488,62 @@ function publicDetectionDatabaseState() {
   };
 }
 
+function cleanShieldLogEntry(value) {
+  return {
+    timestamp: Number.isFinite(value?.timestamp) ? value.timestamp : Date.now(),
+    trigger: String(value?.trigger || "automatic").slice(0, 24),
+    status: String(value?.status || "unknown").slice(0, 24),
+    message: String(value?.message || "").slice(0, 500),
+    ruleCount: Math.max(0, Number(value?.ruleCount) || 0),
+    added: Math.max(0, Number(value?.added) || 0),
+    updated: Math.max(0, Number(value?.updated) || 0),
+    removed: Math.max(0, Number(value?.removed) || 0),
+    skipped: Math.max(0, Number(value?.skipped) || 0),
+    warnings: Math.max(0, Number(value?.warnings) || 0),
+    revision: String(value?.revision || "").slice(0, 128)
+  };
+}
+
+function normalizeShieldDatabaseState(value, ruleCount = 0) {
+  const state = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    databaseEnabled: state.databaseEnabled !== false,
+    autoUpdateEnabled: state.autoUpdateEnabled !== false,
+    ruleCount: Math.max(0, Number(state.ruleCount) || ruleCount || 0),
+    sourceCount: Math.max(0, Number(state.sourceCount) || ruleCount || 0),
+    skippedCount: Math.max(0, Number(state.skippedCount) || 0),
+    warningCount: Math.max(0, Number(state.warningCount) || 0),
+    lastCheckAt: Number.isFinite(state.lastCheckAt) ? state.lastCheckAt : null,
+    lastSuccessAt: Number.isFinite(state.lastSuccessAt) ? state.lastSuccessAt : null,
+    lastStatus: String(state.lastStatus || "bundled").slice(0, 32),
+    lastError: String(state.lastError || "").slice(0, 500),
+    sourceRevision: String(state.sourceRevision || "").slice(0, 128),
+    sourceEtag: String(state.sourceEtag || "").slice(0, 160),
+    archiveSha256: String(state.archiveSha256 || "").slice(0, 64),
+    bundledRevision: String(state.bundledRevision || "").slice(0, 128),
+    sourceGeneratedAt: String(state.sourceGeneratedAt || "").slice(0, 64),
+    updateLog: Array.isArray(state.updateLog)
+      ? state.updateLog.slice(0, MAX_SHIELD_UPDATE_LOG).map(cleanShieldLogEntry)
+      : []
+  };
+}
+
+function addShieldUpdateLog(entry) {
+  shieldDatabaseState.updateLog = [
+    cleanShieldLogEntry(entry),
+    ...shieldDatabaseState.updateLog
+  ].slice(0, MAX_SHIELD_UPDATE_LOG);
+}
+
+function publicShieldDatabaseState() {
+  return {
+    ...shieldDatabaseState,
+    repository: SHIELD_DATABASE_REPOSITORY,
+    intervalMinutes: SHIELD_UPDATE_INTERVAL_MINUTES,
+    updateInProgress: Boolean(shieldSyncPromise)
+  };
+}
+
 async function loadBundledTrackerDatabase() {
   const response = await fetch(chrome.runtime.getURL(TRACKER_DATABASE_BUNDLE));
   if (!response.ok) throw new Error(`Bundled tracker database returned HTTP ${response.status}`);
@@ -504,6 +585,52 @@ async function installBundledTrackerDatabase() {
   await chrome.storage.local.set({
     [MANAGED_TRACKERS_KEY]: managedTrackers,
     [TRACKER_DATABASE_STATE_KEY]: trackerDatabaseState
+  });
+}
+
+async function loadBundledShieldDatabase() {
+  const response = await fetch(chrome.runtime.getURL(SHIELD_DATABASE_BUNDLE));
+  if (!response.ok) throw new Error(`Bundled Shield database returned HTTP ${response.status}`);
+  const bundle = await response.json();
+  if (bundle?.schemaVersion !== 1 || !Array.isArray(bundle.records)) {
+    throw new Error("Bundled Shield database has an unsupported format");
+  }
+  return { bundle, parsed: parseManagedShieldRecords(bundle.records) };
+}
+
+async function installBundledShieldDatabase() {
+  const { bundle, parsed } = await loadBundledShieldDatabase();
+  if (!parsed.rules.length || parsed.errors.length) {
+    throw new Error("Bundled Shield database has no complete, usable rule set");
+  }
+  managedShieldRules = parsed.rules;
+  const now = Date.now();
+  shieldDatabaseState = normalizeShieldDatabaseState({
+    ...shieldDatabaseState,
+    ruleCount: managedShieldRules.length,
+    sourceCount: parsed.sourceCount,
+    skippedCount: parsed.skippedCount,
+    warningCount: parsed.warningCount,
+    lastSuccessAt: now,
+    lastStatus: "bundled",
+    lastError: "",
+    sourceRevision: bundle.revision,
+    bundledRevision: bundle.revision,
+    sourceGeneratedAt: bundle.generatedAt
+  }, managedShieldRules.length);
+  addShieldUpdateLog({
+    timestamp: now,
+    trigger: "bundled",
+    status: "installed",
+    message: `Installed ${managedShieldRules.length.toLocaleString()} bundled Shield rules.`,
+    ruleCount: managedShieldRules.length,
+    skipped: parsed.skippedCount,
+    warnings: parsed.warningCount,
+    revision: bundle.revision
+  });
+  await chrome.storage.local.set({
+    [MANAGED_SHIELD_RULES_KEY]: managedShieldRules,
+    [SHIELD_DATABASE_STATE_KEY]: shieldDatabaseState
   });
 }
 
@@ -774,6 +901,8 @@ const ready = (async () => {
       TRACKER_DATABASE_STATE_KEY,
       MANAGED_DETECTIONS_KEY,
       DETECTION_DATABASE_STATE_KEY,
+      MANAGED_SHIELD_RULES_KEY,
+      SHIELD_DATABASE_STATE_KEY,
       WALLET_STORAGE_KEY,
       SNAPSHOT_UPLOAD_CONSENT_KEY,
       SNAPSHOT_AUTOMATIC_UPLOAD_KEY,
@@ -789,7 +918,11 @@ const ready = (async () => {
   snapshotUploadConsent = localStored?.[SNAPSHOT_UPLOAD_CONSENT_KEY] === true;
   snapshotAutomaticUpload = localStored?.[SNAPSHOT_AUTOMATIC_UPLOAD_KEY] === true;
   snapshotAutomaticCapture = localStored?.[SNAPSHOT_AUTOMATIC_CAPTURE_KEY] === true;
-  fingerprintProtectionEnabled = localStored?.[FINGERPRINT_PROTECTION_ENABLED_KEY] === true;
+  const storedFingerprintProtectionPreference = localStored?.[FINGERPRINT_PROTECTION_ENABLED_KEY];
+  fingerprintProtectionEnabled = storedFingerprintProtectionPreference !== false;
+  if (storedFingerprintProtectionPreference !== true && storedFingerprintProtectionPreference !== false) {
+    await chrome.storage.local.set({ [FINGERPRINT_PROTECTION_ENABLED_KEY]: true });
+  }
   await configureFingerprintProtectionScript();
   await initializeTelemetryClientId(localStored);
   await historyStore.recoverInterruptedSnapshotUploads();
@@ -838,6 +971,38 @@ const ready = (async () => {
     await chrome.storage.local.set({ [DETECTION_DATABASE_STATE_KEY]: detectionDatabaseState });
   }
 
+  const savedManagedShieldRules = localStored?.[MANAGED_SHIELD_RULES_KEY];
+  managedShieldRules = [];
+  if (Array.isArray(savedManagedShieldRules) && savedManagedShieldRules.length) {
+    const parsedSavedRules = parseManagedShieldRecords(savedManagedShieldRules.slice(0, 500), "Cached Shield database");
+    if (!parsedSavedRules.errors.length) managedShieldRules = parsedSavedRules.rules;
+  }
+  shieldDatabaseState = normalizeShieldDatabaseState(
+    localStored?.[SHIELD_DATABASE_STATE_KEY],
+    managedShieldRules.length
+  );
+  if (!managedShieldRules.length) {
+    try {
+      await installBundledShieldDatabase();
+    } catch (error) {
+      const now = Date.now();
+      shieldDatabaseState.lastStatus = "error";
+      shieldDatabaseState.lastError = String(error?.message || error).slice(0, 500);
+      addShieldUpdateLog({
+        timestamp: now,
+        trigger: "bundled",
+        status: "error",
+        message: shieldDatabaseState.lastError,
+        ruleCount: 0
+      });
+      await chrome.storage.local.set({ [SHIELD_DATABASE_STATE_KEY]: shieldDatabaseState });
+      console.error("Veilance could not load its bundled Shield database", error);
+    }
+  } else if (shieldDatabaseState.ruleCount !== managedShieldRules.length) {
+    shieldDatabaseState.ruleCount = managedShieldRules.length;
+    await chrome.storage.local.set({ [SHIELD_DATABASE_STATE_KEY]: shieldDatabaseState });
+  }
+
   const sessionValue = sessionStored?.[SESSION_STORAGE_KEY];
   if (sessionValue && typeof sessionValue === "object") {
     for (const [tabId, savedState] of Object.entries(sessionValue)) {
@@ -869,6 +1034,7 @@ const ready = (async () => {
   if (pendingHistory.size) await flushHistory();
   await configureTrackerAlarm();
   await configureDetectionAlarm();
+  await configureShieldAlarm();
   await configureSnapshotUploadAlarm();
   if (snapshotAutomaticCapture) {
     for (const [tabId, state] of states) maybeScheduleAutomaticSnapshot(tabId, state);
@@ -900,6 +1066,20 @@ async function configureDetectionAlarm() {
   chrome.alarms.create(DETECTION_UPDATE_ALARM, {
     delayInMinutes: existing ? DETECTION_UPDATE_INTERVAL_MINUTES : 5,
     periodInMinutes: DETECTION_UPDATE_INTERVAL_MINUTES
+  });
+}
+
+async function configureShieldAlarm() {
+  if (!chrome.alarms) return;
+  if (!shieldDatabaseState.autoUpdateEnabled) {
+    await chrome.alarms.clear(SHIELD_UPDATE_ALARM);
+    return;
+  }
+  const existing = await chrome.alarms.get(SHIELD_UPDATE_ALARM);
+  if (existing?.periodInMinutes === SHIELD_UPDATE_INTERVAL_MINUTES) return;
+  chrome.alarms.create(SHIELD_UPDATE_ALARM, {
+    delayInMinutes: existing ? SHIELD_UPDATE_INTERVAL_MINUTES : 5,
+    periodInMinutes: SHIELD_UPDATE_INTERVAL_MINUTES
   });
 }
 
@@ -1293,6 +1473,111 @@ function syncDetectionDatabase(trigger = "automatic") {
   return detectionSyncPromise;
 }
 
+function shieldUpdateMessage(parsed, changes) {
+  const changeText = `${changes.added} added, ${changes.updated} updated, ${changes.removed} removed`;
+  const validationText = parsed.skippedCount || parsed.warningCount
+    ? ` ${parsed.skippedCount} skipped; ${parsed.warningCount} warnings.`
+    : "";
+  return `${parsed.rules.length.toLocaleString()} Shield rules active (${changeText}).${validationText}`;
+}
+
+async function performShieldSync(trigger) {
+  const checkedAt = Date.now();
+  try {
+    const downloaded = await fetchJsonDatabaseArchive(
+      SHIELD_DATABASE_ARCHIVE,
+      SHIELD_DATABASE_FOLDER
+    );
+    if (downloaded.archiveSha256 === shieldDatabaseState.archiveSha256) {
+      shieldDatabaseState.lastCheckAt = checkedAt;
+      shieldDatabaseState.lastSuccessAt = checkedAt;
+      shieldDatabaseState.lastStatus = "up-to-date";
+      shieldDatabaseState.lastError = "";
+      addShieldUpdateLog({
+        timestamp: checkedAt,
+        trigger,
+        status: "up-to-date",
+        message: `${managedShieldRules.length.toLocaleString()} Shield rules are already current.`,
+        ruleCount: managedShieldRules.length,
+        skipped: shieldDatabaseState.skippedCount,
+        warnings: shieldDatabaseState.warningCount,
+        revision: shieldDatabaseState.sourceRevision
+      });
+      await chrome.storage.local.set({ [SHIELD_DATABASE_STATE_KEY]: shieldDatabaseState });
+      return publicShieldDatabaseState();
+    }
+
+    const parsed = parseManagedShieldDocuments(downloaded.documents);
+    if (!parsed.rules.length) throw new Error("The Shield update contained no usable protection rules");
+    if (parsed.errorCount > 0) {
+      throw new Error(`Shield update rejected because ${parsed.errorCount} rules failed validation`);
+    }
+    if (managedShieldRules.length >= 10 && parsed.rules.length < managedShieldRules.length / 2) {
+      throw new Error("Shield update rejected because it would remove more than half of the active database");
+    }
+
+    const comparableRules = (rules) => rules.map(({ sourceName: _sourceName, ...rule }) => rule);
+    const changes = diffTrackerSets(comparableRules(managedShieldRules), comparableRules(parsed.rules));
+    managedShieldRules = parsed.rules;
+    const changed = changes.added > 0 || changes.updated > 0 || changes.removed > 0;
+    shieldDatabaseState = normalizeShieldDatabaseState({
+      ...shieldDatabaseState,
+      ruleCount: managedShieldRules.length,
+      sourceCount: parsed.sourceCount,
+      skippedCount: parsed.skippedCount,
+      warningCount: parsed.warningCount,
+      lastCheckAt: checkedAt,
+      lastSuccessAt: checkedAt,
+      lastStatus: changed ? "updated" : "up-to-date",
+      lastError: "",
+      sourceRevision: downloaded.archiveSha256,
+      sourceEtag: downloaded.etag,
+      archiveSha256: downloaded.archiveSha256
+    }, managedShieldRules.length);
+    addShieldUpdateLog({
+      timestamp: checkedAt,
+      trigger,
+      status: changed ? "updated" : "up-to-date",
+      message: shieldUpdateMessage(parsed, changes),
+      ruleCount: managedShieldRules.length,
+      ...changes,
+      skipped: parsed.skippedCount,
+      warnings: parsed.warningCount,
+      revision: downloaded.archiveSha256
+    });
+    await chrome.storage.local.set({
+      [MANAGED_SHIELD_RULES_KEY]: managedShieldRules,
+      [SHIELD_DATABASE_STATE_KEY]: shieldDatabaseState
+    });
+    await broadcastIndicatorConfig();
+    return publicShieldDatabaseState();
+  } catch (error) {
+    shieldDatabaseState.lastCheckAt = checkedAt;
+    shieldDatabaseState.lastStatus = "error";
+    shieldDatabaseState.lastError = String(error?.message || error).slice(0, 500);
+    addShieldUpdateLog({
+      timestamp: checkedAt,
+      trigger,
+      status: "error",
+      message: shieldDatabaseState.lastError,
+      ruleCount: managedShieldRules.length,
+      skipped: shieldDatabaseState.skippedCount,
+      warnings: shieldDatabaseState.warningCount,
+      revision: shieldDatabaseState.sourceRevision
+    });
+    await chrome.storage.local.set({ [SHIELD_DATABASE_STATE_KEY]: shieldDatabaseState });
+    throw error;
+  }
+}
+
+function syncShieldDatabase(trigger = "automatic") {
+  if (shieldSyncPromise) return shieldSyncPromise;
+  shieldSyncPromise = performShieldSync(trigger).finally(() => {
+    shieldSyncPromise = null;
+  });
+  return shieldSyncPromise;
+}
+
 function scheduleSessionPersist() {
   clearTimeout(sessionPersistTimer);
   sessionPersistTimer = setTimeout(async () => {
@@ -1426,7 +1711,8 @@ function contentState(sender, message) {
 async function broadcastIndicatorConfig() {
   const message = {
     type: "VEILANCE_INDICATOR_CONFIG_CHANGED",
-    enabledIndicatorIds: enabledIndicatorIds()
+    enabledIndicatorIds: enabledIndicatorIds(),
+    shieldRules: activeRuntimeShieldRules()
   };
   const tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] }).catch(() => []);
   await Promise.all(tabs.map((tab) =>
@@ -1453,6 +1739,12 @@ if (chrome.alarms?.onAlarm) {
       void ready
         .then(() => detectionDatabaseState.autoUpdateEnabled && syncDetectionDatabase("scheduled"))
         .catch((error) => console.error("Veilance detection update failed", error));
+      return;
+    }
+    if (alarm?.name === SHIELD_UPDATE_ALARM) {
+      void ready
+        .then(() => shieldDatabaseState.autoUpdateEnabled && syncShieldDatabase("scheduled"))
+        .catch((error) => console.error("Veilance Shield update failed", error));
       return;
     }
     if (alarm?.name === SNAPSHOT_UPLOAD_ALARM) {
@@ -1553,7 +1845,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     await ready;
     switch (message?.type) {
       case "VEILANCE_GET_INDICATOR_CONFIG":
-        return { ok: true, enabledIndicatorIds: enabledIndicatorIds() };
+        return {
+          ok: true,
+          enabledIndicatorIds: enabledIndicatorIds(),
+          shieldRules: activeRuntimeShieldRules()
+        };
 
       case "VEILANCE_PAGE_EVENT": {
         const tabId = sender.tab?.id;
@@ -1830,6 +2126,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           indicatorSettings,
           trackerDatabase: publicTrackerDatabaseState(),
           detectionDatabase: publicDetectionDatabaseState(),
+          shieldDatabase: publicShieldDatabaseState(),
           wallet: publicWalletRecord(wallet),
           walletError,
           database: await historyStore.info(),
@@ -1844,6 +2141,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         fingerprintProtectionEnabled = Boolean(message.enabled);
         await chrome.storage.local.set({ [FINGERPRINT_PROTECTION_ENABLED_KEY]: fingerprintProtectionEnabled });
         await configureFingerprintProtectionScript();
+        await broadcastIndicatorConfig();
         return { ok: true, protections: publicProtectionState() };
       }
 
@@ -1899,6 +2197,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!isSettingsPage(sender)) throw new Error("Detection updates are available only from Veilance Settings");
         await syncDetectionDatabase("manual");
         return { ok: true, detectionDatabase: publicDetectionDatabaseState() };
+
+      case "VEILANCE_SET_SHIELD_DATABASE_ENABLED":
+        if (!isSettingsPage(sender)) throw new Error("Shield database controls are available only from Veilance Settings");
+        shieldDatabaseState.databaseEnabled = Boolean(message.enabled);
+        await chrome.storage.local.set({ [SHIELD_DATABASE_STATE_KEY]: shieldDatabaseState });
+        await broadcastIndicatorConfig();
+        return {
+          ok: true,
+          shieldDatabase: publicShieldDatabaseState(),
+          protections: publicProtectionState()
+        };
+
+      case "VEILANCE_SET_SHIELD_AUTO_UPDATE":
+        if (!isSettingsPage(sender)) throw new Error("Shield update controls are available only from Veilance Settings");
+        shieldDatabaseState.autoUpdateEnabled = Boolean(message.enabled);
+        await chrome.storage.local.set({ [SHIELD_DATABASE_STATE_KEY]: shieldDatabaseState });
+        await configureShieldAlarm();
+        return { ok: true, shieldDatabase: publicShieldDatabaseState() };
+
+      case "VEILANCE_CHECK_SHIELD_UPDATES":
+        if (!isSettingsPage(sender)) throw new Error("Shield updates are available only from Veilance Settings");
+        await syncShieldDatabase("manual");
+        return {
+          ok: true,
+          shieldDatabase: publicShieldDatabaseState(),
+          protections: publicProtectionState()
+        };
 
       case "VEILANCE_IMPORT_INDICATORS": {
         const parsed = parseIndicatorDocuments(message.documents);
@@ -1964,6 +2289,11 @@ chrome.runtime.onInstalled.addListener(() => {
     if (detectionDatabaseState.autoUpdateEnabled) {
       await syncDetectionDatabase("install").catch((error) => {
         console.error("Veilance install-time detection update failed", error);
+      });
+    }
+    if (shieldDatabaseState.autoUpdateEnabled) {
+      await syncShieldDatabase("install").catch((error) => {
+        console.error("Veilance install-time Shield update failed", error);
       });
     }
   }).catch((error) => console.error("Veilance install initialization failed", error));

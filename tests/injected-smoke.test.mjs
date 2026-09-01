@@ -287,3 +287,171 @@ test("non-Windows WebGPU calls preserve the power preference", async () => {
   assert.equal(gpu.receivedOptions, requestedOptions);
   assert.equal(gpu.receivedOptions.powerPreference, "low-power");
 });
+
+test("downloaded Shield rules drive packaged Canvas, WebGL, audio, Navigator, and Screen protections", async () => {
+  class ShieldNavigator {
+    get hardwareConcurrency() { return 16; }
+    get deviceMemory() { return 8; }
+    get maxTouchPoints() { return 10; }
+    get platform() { return "Linux x86_64"; }
+  }
+
+  class ShieldScreen {
+    get width() { return 1920; }
+    get height() { return 1080; }
+    get colorDepth() { return 30; }
+  }
+
+  class ShieldImageData {
+    constructor(data, width, height) {
+      this.data = data;
+      this.width = width;
+      this.height = height;
+      this.colorSpace = "srgb";
+    }
+  }
+
+  class ShieldCanvasContext {
+    getImageData() {
+      return new ShieldImageData(new Uint8ClampedArray([128, 128, 128, 255, 128, 128, 128, 255]), 2, 1);
+    }
+
+    measureText() {
+      return {
+        width: 42.5,
+        actualBoundingBoxLeft: 1,
+        actualBoundingBoxRight: 41.5,
+        actualBoundingBoxAscent: 10,
+        actualBoundingBoxDescent: 2
+      };
+    }
+  }
+
+  class ShieldWebGl {
+    getParameter(parameter) {
+      if (parameter === 37445) return "Original GPU Vendor";
+      if (parameter === 37446) return "Original GPU Renderer";
+      if (parameter === 3379) return 16384;
+      return null;
+    }
+
+    readPixels(_x, _y, _width, _height, _format, _type, destination) {
+      destination.fill(128);
+    }
+  }
+
+  class ShieldAudioBuffer {
+    getChannelData() {
+      return new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]);
+    }
+
+    copyFromChannel(destination) {
+      destination.set([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]);
+    }
+  }
+
+  class ShieldAnalyserNode {
+    getFloatFrequencyData(destination) { destination.fill(-42.5); }
+    getFloatTimeDomainData(destination) { destination.fill(0.25); }
+    getByteFrequencyData(destination) { destination.fill(128); }
+    getByteTimeDomainData(destination) { destination.fill(128); }
+  }
+
+  const document = new FakeDocument();
+  const pageEvents = new TinyEventTarget();
+  const sandbox = {
+    console,
+    crypto: { randomUUID: () => "shield-session" },
+    URL,
+    Uint8Array,
+    Uint8ClampedArray,
+    Float32Array,
+    ImageData: ShieldImageData,
+    location: { href: "https://example.com/", origin: "https://example.com" },
+    CustomEvent: TinyCustomEvent,
+    EventTarget: TinyEventTarget,
+    Document: FakeDocument,
+    document,
+    Navigator: ShieldNavigator,
+    navigator: new ShieldNavigator(),
+    Screen: ShieldScreen,
+    screen: new ShieldScreen(),
+    CanvasRenderingContext2D: ShieldCanvasContext,
+    WebGLRenderingContext: ShieldWebGl,
+    AudioBuffer: ShieldAudioBuffer,
+    AnalyserNode: ShieldAnalyserNode,
+    addEventListener: pageEvents.addEventListener.bind(pageEvents),
+    window: null
+  };
+  sandbox.window = sandbox;
+  sandbox[Symbol.for("veilance.fingerprint-protection-enabled.v1")] = true;
+  vm.createContext(sandbox);
+
+  const [source, shieldBundleText] = await Promise.all([
+    readFile(new URL("../injected.js", import.meta.url), "utf8"),
+    readFile(new URL("../data/veilance-shields.json", import.meta.url), "utf8")
+  ]);
+  vm.runInContext(source, sandbox, { filename: "injected.js" });
+  const shieldRules = JSON.parse(shieldBundleText).records;
+  const protectedEvents = [];
+  document.addEventListener("__veilance_protection_event_v1__", (event) => protectedEvents.push(event.detail));
+  document.dispatchEvent(new TinyCustomEvent("__veilance_control_v1__", {
+    detail: {
+      action: "configure",
+      enabledIndicatorIds: ["canvas", "font-probing", "webgl", "audio", "navigator-characteristics", "screen-characteristics"],
+      shieldRules
+    }
+  }));
+
+  assert.equal(sandbox.navigator.hardwareConcurrency, 8);
+  assert.equal(sandbox.navigator.deviceMemory, 4);
+  assert.equal(sandbox.navigator.maxTouchPoints, 5);
+  assert.equal(sandbox.screen.width, 1900);
+  assert.equal(sandbox.screen.height, 1100);
+  assert.equal(sandbox.screen.colorDepth, 24);
+
+  const gl = new sandbox.WebGLRenderingContext();
+  assert.equal(gl.getParameter(37445), "Google Inc. (Google)");
+  assert.match(gl.getParameter(37446), /SwiftShader/);
+  assert.equal(gl.getParameter(3379), 4096);
+  const pixels = new Uint8Array(16);
+  gl.readPixels(0, 0, 2, 2, 0, 0, pixels);
+  assert.ok([...pixels].some((value) => value !== 128));
+
+  const audio = new sandbox.AudioBuffer();
+  const baselineSamples = new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]);
+  const protectedSamples = audio.getChannelData(0);
+  assert.ok([...protectedSamples].some((value, index) => value !== baselineSamples[index]));
+  const copiedSamples = new Float32Array(8);
+  audio.copyFromChannel(copiedSamples, 0);
+  assert.ok([...copiedSamples].some((value, index) => value !== baselineSamples[index]));
+
+  const analyser = new sandbox.AnalyserNode();
+  const floatFrequency = new Float32Array(16);
+  analyser.getFloatFrequencyData(floatFrequency);
+  assert.ok([...floatFrequency].some((value) => value !== -42.5));
+  const floatWaveform = new Float32Array(16);
+  analyser.getFloatTimeDomainData(floatWaveform);
+  assert.ok([...floatWaveform].some((value) => value !== 0.25));
+  const byteFrequency = new Uint8Array(16);
+  analyser.getByteFrequencyData(byteFrequency);
+  assert.ok([...byteFrequency].some((value) => value !== 128));
+  const byteWaveform = new Uint8Array(16);
+  analyser.getByteTimeDomainData(byteWaveform);
+  assert.ok([...byteWaveform].some((value) => value !== 128));
+
+  const canvasContext = new sandbox.CanvasRenderingContext2D();
+  const canvasPixels = canvasContext.getImageData(0, 0, 2, 1);
+  assert.ok([...canvasPixels.data].some((value, index) => index % 4 !== 3 && value !== 128));
+  const textMetrics = canvasContext.measureText("fingerprint");
+  assert.notEqual(textMetrics.width, 42.5);
+  assert.ok(protectedEvents.length >= 16);
+  assert.ok(protectedEvents.every((event) => event.ruleId && event.technique && event.explanation));
+  assert.ok(protectedEvents.every((event) => event.returnedValue));
+  const textureCap = protectedEvents.find((event) => event.ruleId === "webgl-max-texture-size");
+  assert.equal(textureCap.returnedValue.value, 4096);
+  const audioPreview = protectedEvents.find((event) => event.ruleId === "audio-analyser-float-frequency");
+  assert.equal(audioPreview.returnedValue.type, "Float32Array");
+  assert.equal(audioPreview.returnedValue.length, 16);
+  assert.equal(audioPreview.returnedValue.sample.length, 16);
+});

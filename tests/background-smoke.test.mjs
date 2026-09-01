@@ -150,6 +150,13 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(settings.detectionDatabase.detectionCount, 0);
   assert.equal(settings.detectionDatabase.databaseEnabled, true);
   assert.equal(settings.detectionDatabase.autoUpdateEnabled, true);
+  assert.equal(settings.shieldDatabase.ruleCount, 30);
+  assert.equal(settings.shieldDatabase.databaseEnabled, true);
+  assert.equal(settings.shieldDatabase.autoUpdateEnabled, true);
+  assert.equal(settings.shieldDatabase.updateLog[0].status, "installed");
+  assert.equal(settings.protections.fingerprintEnabled, true);
+  assert.equal(settings.protections.activeRuleCount, 30);
+  assert.equal(localBacking.veilanceFingerprintProtectionEnabledV1, true);
   assert.equal(settings.snapshotUpload.available, true);
   assert.equal(settings.snapshotUpload.automatic, false);
   assert.equal(settings.snapshotCapture.automatic, false);
@@ -164,6 +171,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(settings.database.snapshotCount, 0);
   assert.equal(alarms.get("veilanceTrackerDatabaseUpdateV1").periodInMinutes, 480);
   assert.equal(alarms.get("veilanceDetectionDatabaseUpdateV1").periodInMinutes, 480);
+  assert.equal(alarms.get("veilanceShieldDatabaseUpdateV1").periodInMinutes, 480);
   assert.ok(settings.wallet.publicKey.length >= 32);
   assert.equal("secretKeyBase64" in settings.wallet, false);
 
@@ -198,6 +206,33 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(detectionUpdatesDisabled.ok, true);
   assert.equal(detectionUpdatesDisabled.detectionDatabase.autoUpdateEnabled, false);
   assert.equal(alarms.has("veilanceDetectionDatabaseUpdateV1"), false);
+
+  const shieldUpdatesDisabled = await dispatch(
+    { type: "VEILANCE_SET_SHIELD_AUTO_UPDATE", enabled: false },
+    { url: "chrome-extension://veilance-test/settings.html" }
+  );
+  assert.equal(shieldUpdatesDisabled.ok, true);
+  assert.equal(shieldUpdatesDisabled.shieldDatabase.autoUpdateEnabled, false);
+  assert.equal(alarms.has("veilanceShieldDatabaseUpdateV1"), false);
+
+  const shieldBeforeDisable = await dispatch({ type: "VEILANCE_GET_INDICATOR_CONFIG" });
+  assert.equal(shieldBeforeDisable.shieldRules.length, 30);
+  const shieldDisabled = await dispatch(
+    { type: "VEILANCE_SET_FINGERPRINT_PROTECTION", enabled: false },
+    { url: "chrome-extension://veilance-test/settings.html" }
+  );
+  assert.equal(shieldDisabled.ok, true);
+  assert.equal(shieldDisabled.protections.activeRuleCount, 0);
+  const disabledShieldConfig = await dispatch({ type: "VEILANCE_GET_INDICATOR_CONFIG" });
+  assert.deepEqual(disabledShieldConfig.shieldRules, []);
+  const shieldEnabled = await dispatch(
+    { type: "VEILANCE_SET_FINGERPRINT_PROTECTION", enabled: true },
+    { url: "chrome-extension://veilance-test/settings.html" }
+  );
+  assert.equal(shieldEnabled.ok, true);
+  assert.equal(shieldEnabled.protections.activeRuleCount, 30);
+  const shieldConfig = await dispatch({ type: "VEILANCE_GET_INDICATOR_CONFIG" });
+  assert.equal(shieldConfig.shieldRules.length, 30);
 
   chrome.webNavigation.onBeforeNavigate.listeners[0]({
     tabId: 7,

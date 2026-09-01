@@ -345,6 +345,8 @@ main {
 
 .settings-tab-panel { min-height: 220px; }
 
+#settingsPanelProtections > .settings-card + .settings-card { margin-top: 18px; }
+
 .settings-card {
   margin-top: 16px;
   overflow: hidden;

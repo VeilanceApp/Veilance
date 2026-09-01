@@ -56,18 +56,58 @@
     if (clean) safeSend({ type: "VEILANCE_PAGE_EVENT", event: clean });
   });
 
+  function sanitizeReturnedValue(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const kind = String(value.kind || "").slice(0, 32);
+    const type = String(value.type || "unknown").slice(0, 80);
+    if (!kind) return null;
+    const clean = { kind, type };
+    if (
+      typeof value.value === "string" ||
+      typeof value.value === "boolean" ||
+      (typeof value.value === "number" && Number.isFinite(value.value)) ||
+      value.value === null
+    ) clean.value = typeof value.value === "string" ? value.value.slice(0, 200) : value.value;
+    if (Number.isFinite(value.length)) clean.length = Math.max(0, Math.min(100000000, Math.floor(value.length)));
+    if (typeof value.mimeType === "string") clean.mimeType = value.mimeType.slice(0, 80);
+    if (typeof value.preview === "string") clean.preview = value.preview.slice(0, 200);
+    if (typeof value.truncated === "boolean") clean.truncated = value.truncated;
+    if (Array.isArray(value.sample)) {
+      clean.sample = value.sample.slice(0, 16).filter((item) => (
+        typeof item === "string" ||
+        typeof item === "boolean" ||
+        (typeof item === "number" && Number.isFinite(item)) ||
+        item === null
+      )).map((item) => typeof item === "string" ? item.slice(0, 120) : item);
+    }
+    if (value.fields && typeof value.fields === "object" && !Array.isArray(value.fields)) {
+      clean.fields = {};
+      for (const [name, fieldValue] of Object.entries(value.fields).slice(0, 16)) {
+        if (
+          typeof fieldValue === "string" ||
+          typeof fieldValue === "boolean" ||
+          (typeof fieldValue === "number" && Number.isFinite(fieldValue)) ||
+          fieldValue === null
+        ) clean.fields[String(name).slice(0, 80)] = typeof fieldValue === "string" ? fieldValue.slice(0, 120) : fieldValue;
+      }
+    }
+    return clean;
+  }
+
   document.addEventListener(PROTECTION_EVENT_NAME, (event) => {
     const detail = event?.detail;
     if (!detail || typeof detail !== "object") return;
     safeSend({
       type: "VEILANCE_PROTECTION_EVENT",
       event: {
+        ruleId: String(detail.ruleId || "").slice(0, 80),
         surface: String(detail.surface || "Protected surface").slice(0, 80),
         action: String(detail.action || "Protected").slice(0, 80),
         technique: String(detail.technique || "Fingerprint Shield").slice(0, 120),
         beforeSignature: String(detail.beforeSignature || "").slice(0, 32),
         afterSignature: String(detail.afterSignature || "").slice(0, 32),
         changedUnits: Math.max(0, Math.min(1000000, Number(detail.changedUnits) || 0)),
+        returnedValue: sanitizeReturnedValue(detail.returnedValue),
         explanation: String(detail.explanation || "").slice(0, 300),
         timestamp: Number.isFinite(detail.timestamp) ? detail.timestamp : Date.now()
       }
@@ -209,11 +249,25 @@
   }
   startObserver();
 
-  function configureMainWorld(ids, drain = false) {
+  function sanitizedShieldRules(value) {
+    if (!Array.isArray(value)) return [];
+    return value.slice(0, 500).filter((rule) => (
+      rule && typeof rule === "object" && !Array.isArray(rule) &&
+      typeof rule.id === "string" && rule.id.length <= 80 &&
+      rule.match && typeof rule.match === "object" &&
+      rule.protection && typeof rule.protection === "object"
+    ));
+  }
+
+  function configureMainWorld(ids, shieldRules = [], drain = false) {
     enabledIndicatorIds = new Set(Array.isArray(ids) ? ids.map(String) : []);
     configured = true;
     document.dispatchEvent(new CustomEvent(CONTROL_NAME, {
-      detail: { action: "configure", enabledIndicatorIds: [...enabledIndicatorIds] }
+      detail: {
+        action: "configure",
+        enabledIndicatorIds: [...enabledIndicatorIds],
+        shieldRules: sanitizedShieldRules(shieldRules)
+      }
     }));
     if (drain) {
       document.dispatchEvent(new CustomEvent(CONTROL_NAME, { detail: { action: "drain" } }));
@@ -223,7 +277,7 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === "VEILANCE_INDICATOR_CONFIG_CHANGED") {
-      configureMainWorld(message.enabledIndicatorIds, false);
+      configureMainWorld(message.enabledIndicatorIds, message.shieldRules, false);
       return undefined;
     }
     if (message?.type !== "VEILANCE_CAPTURE_REDACTED_DOCUMENT") return undefined;
@@ -249,10 +303,10 @@
         type: "VEILANCE_GET_INDICATOR_CONFIG",
         pageSessionId
       });
-      configureMainWorld(response?.enabledIndicatorIds || [], true);
+      configureMainWorld(response?.enabledIndicatorIds || [], response?.shieldRules || [], true);
     } catch {
       // Keep collection off if the extension was reloaded or configuration is unavailable.
-      configureMainWorld([], true);
+      configureMainWorld([], [], true);
     }
   })();
 })();

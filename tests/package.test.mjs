@@ -7,6 +7,9 @@ import {
   DETECTION_DATABASE_FOLDER,
   DETECTION_UPDATE_INTERVAL_MINUTES,
   PAYOUTS_ENABLED,
+  SHIELD_DATABASE_ARCHIVE,
+  SHIELD_DATABASE_FOLDER,
+  SHIELD_UPDATE_INTERVAL_MINUTES,
   TELEMETRY_IP_ADDRESS_ENDPOINT,
   TELEMETRY_UPLOAD_ALLOW_INSECURE_HTTP,
   TELEMETRY_UPLOAD_ENABLED,
@@ -88,10 +91,14 @@ test("popup groups protection activity and keeps the explanation simple", async 
   assert.match(html, /Veilance Shield/i);
   assert.match(html, /Shielded activity/i);
   assert.match(html, /Tracker Shield/i);
-  assert.match(html, /randomize Canvas fingerprint data before websites read it/i);
+  assert.match(html, /protecting supported fingerprint surfaces/i);
+  assert.match(html, /Click an item to inspect the protected value returned to the website/i);
   assert.match(source, /function stackProtectionEvents/);
+  assert.match(source, /function returnedValueMarkup/);
+  assert.match(source, /Returned to website/);
   assert.match(source, /Canvas fingerprint shielded/);
-  assert.doesNotMatch(html, /Website would receive|Original local signature|protected signature|pixel values/i);
+  assert.match(source, /activeRuleCount/);
+  assert.doesNotMatch(html, /Original local signature|protected signature/i);
   assert.doesNotMatch(html, /protection-flow|signature-difference|fingerprintProtectionStatus|protection-feature-card/i);
 });
 
@@ -126,8 +133,13 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /private\/internal hosts/i);
   assert.match(html, /data-settings-tab="protections"[^>]*>Veilance Shield<\/button>/i);
   assert.match(html, /Fingerprint Shield/i);
+  assert.match(html, /On by default/i);
   assert.match(html, /Tracker Shield/i);
   assert.match(html, /id="fingerprintProtectionEnabled"/);
+  assert.match(html, /VeilanceApp\/Veilance-Shield-DB/);
+  assert.match(html, /id="shieldDatabaseEnabled"/);
+  assert.match(html, /id="shieldAutoUpdateEnabled"/);
+  assert.match(html, /id="checkShieldUpdatesButton"/);
   assert.match(html, /id="trackerProtectionEnabled"[^>]*disabled/);
   assert.match(html, /Contributor UUID/i);
   assert.match(html, /https:\/\/veilance\.org\/leaderboard/i);
@@ -189,7 +201,7 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.6.17");
+  assert.equal(manifest.version, "0.6.19");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));
@@ -222,6 +234,16 @@ test("detection fingerprints update from the official database every eight hours
   assert.match(html, /VeilanceApp\/Veilance-Detection-DB/);
   assert.match(html, /id="detectionAutoUpdateEnabled"/);
   assert.match(html, /id="checkDetectionUpdatesButton"/);
+});
+
+test("Shield rules update from the official data-only database every eight hours", async () => {
+  assert.equal(SHIELD_UPDATE_INTERVAL_MINUTES, 480);
+  assert.equal(SHIELD_DATABASE_FOLDER, "veilance-json-shields");
+  assert.match(SHIELD_DATABASE_ARCHIVE, /^https:\/\/codeload\.github\.com\/VeilanceApp\/Veilance-Shield-DB\//);
+  const bundle = JSON.parse(await readFile(new URL("../data/veilance-shields.json", import.meta.url), "utf8"));
+  assert.equal(bundle.schemaVersion, 1);
+  assert.equal(bundle.records.length, 30);
+  assert.match(bundle.revision, /^[a-f0-9]{64}$/);
 });
 
 test("official SQLite runtime assets are bundled locally", async () => {

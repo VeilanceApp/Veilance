@@ -1,3 +1,22 @@
+## 0.6.19 - Expanded default-on Shield
+
+- Enabled Fingerprint Shield by default while preserving an explicitly saved off preference.
+- Expanded the bundled Shield database from 15 to 30 rules.
+- Added four Web Audio analyser protections for byte and floating-point frequency and waveform readback.
+- Added session-consistent Canvas text-metric farbling for font-fingerprinting resistance.
+- Added ten WebGL capability-limit rules that only cap values downward and never overstate hardware support.
+- Added packaged `cap-number` and `text-metrics-farbling` strategies with strict bounded validation.
+- Made Shielded activity expandable so users can inspect the protected value returned to a website; large buffers use bounded previews.
+
+## 0.6.18 - Managed Veilance Shield rules
+
+- Added a bundled, data-only Shield rule database with automatic checks against `VeilanceApp/Veilance-Shield-DB` every eight hours.
+- Added strict rule validation, archive limits, last-known-good caching, truncation protection, manual refresh, update controls, and a visible update log.
+- Added 15 initial protection rules for Canvas, WebGL, Web Audio, Navigator device characteristics, and Screen characteristics.
+- Added packaged strategies for pixel/array farbling, number bucketing, number normalization, capability normalization, and string normalization.
+- Kept detection independent from protection so Veilance still records supported fingerprint attempts while Shield changes the values returned to the website.
+- Kept remote updates declarative: downloaded rules can select only packaged hooks and strategies and cannot execute code.
+
 ## 0.6.17 - Veilance Shield branding
 
 - Rebranded the user-facing Protections feature as **Veilance Shield**.
