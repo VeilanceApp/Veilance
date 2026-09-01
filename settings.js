@@ -32,6 +32,18 @@ const elements = {
   detectionUpdateError: document.querySelector("#detectionUpdateError"),
   detectionRepositoryLink: document.querySelector("#detectionRepositoryLink"),
   detectionUpdateLog: document.querySelector("#detectionUpdateLog"),
+  shieldDatabaseStatus: document.querySelector("#shieldDatabaseStatus"),
+  shieldDatabaseEnabled: document.querySelector("#shieldDatabaseEnabled"),
+  shieldAutoUpdateEnabled: document.querySelector("#shieldAutoUpdateEnabled"),
+  checkShieldUpdatesButton: document.querySelector("#checkShieldUpdatesButton"),
+  shieldRuleCount: document.querySelector("#shieldRuleCount"),
+  shieldSchedule: document.querySelector("#shieldSchedule"),
+  shieldLastChecked: document.querySelector("#shieldLastChecked"),
+  shieldRevision: document.querySelector("#shieldRevision"),
+  shieldUpdateError: document.querySelector("#shieldUpdateError"),
+  shieldRepositoryLink: document.querySelector("#shieldRepositoryLink"),
+  shieldUpdateLog: document.querySelector("#shieldUpdateLog"),
+  activeShieldRuleCount: document.querySelector("#activeShieldRuleCount"),
   fingerprintProtectionEnabled: document.querySelector("#fingerprintProtectionEnabled"),
   trackerProtectionEnabled: document.querySelector("#trackerProtectionEnabled"),
   resetIndicatorsButton: document.querySelector("#resetIndicatorsButton"),
@@ -539,9 +551,55 @@ function renderDetectionDatabase() {
   }).join("");
 }
 
+function renderShieldDatabase() {
+  const database = settingsData.shieldDatabase || {};
+  const ruleCount = Math.max(0, Number(database.ruleCount) || 0);
+  const intervalHours = Math.max(1, (Number(database.intervalMinutes) || 480) / 60);
+  const revision = String(database.sourceRevision || database.bundledRevision || "");
+  elements.shieldDatabaseEnabled.checked = database.databaseEnabled !== false;
+  elements.shieldAutoUpdateEnabled.checked = database.autoUpdateEnabled !== false;
+  elements.shieldRuleCount.textContent = ruleCount.toLocaleString();
+  elements.shieldSchedule.textContent = database.autoUpdateEnabled === false
+    ? "Disabled"
+    : `Every ${intervalHours.toLocaleString()} hours`;
+  elements.shieldLastChecked.textContent = formatTrackerDate(database.lastCheckAt);
+  elements.shieldRevision.textContent = revision ? revision.slice(0, 12) : "Unavailable";
+  elements.shieldRevision.title = revision;
+  elements.shieldDatabaseStatus.textContent = database.databaseEnabled === false
+    ? `${ruleCount.toLocaleString()} downloaded · disabled`
+    : `${ruleCount.toLocaleString()} active`;
+  elements.shieldRepositoryLink.href = database.repository || elements.shieldRepositoryLink.href;
+  elements.shieldUpdateError.hidden = !database.lastError;
+  elements.shieldUpdateError.textContent = database.lastError || "";
+
+  const entries = Array.isArray(database.updateLog) ? database.updateLog : [];
+  if (!entries.length) {
+    elements.shieldUpdateLog.innerHTML = '<div class="empty-state">No Shield update checks recorded yet.</div>';
+    return;
+  }
+  elements.shieldUpdateLog.innerHTML = entries.map((entry) => {
+    const status = ["installed", "updated", "up-to-date", "error"].includes(entry.status)
+      ? entry.status
+      : "unknown";
+    return `
+      <div class="tracker-log-entry">
+        <span class="tracker-log-status ${escapeHtml(status)}">${escapeHtml(status)}</span>
+        <div class="tracker-log-copy">
+          <strong>${escapeHtml(entry.message || "Shield database check completed.")}</strong>
+          <p>${escapeHtml((Number(entry.ruleCount) || 0).toLocaleString())} active Shield rule${Number(entry.ruleCount) === 1 ? "" : "s"}</p>
+          <div class="tracker-log-meta">
+            ${trackerLogMeta(entry).map((value) => `<span>${escapeHtml(value)}</span>`).join("")}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
 function renderProtections() {
   const protections = settingsData?.protections || {};
   elements.fingerprintProtectionEnabled.checked = protections.fingerprintEnabled === true;
+  elements.activeShieldRuleCount.textContent = Math.max(0, Number(protections.activeRuleCount) || 0).toLocaleString();
   elements.trackerProtectionEnabled.checked = false;
   elements.trackerProtectionEnabled.disabled = true;
 }
@@ -806,6 +864,7 @@ async function loadSettings() {
   renderCustomIndicators();
   renderTrackerDatabase();
   renderDetectionDatabase();
+  renderShieldDatabase();
   renderProtections();
   renderWallet();
   renderDatabase();
@@ -982,6 +1041,24 @@ async function saveDetectionToggle(input, messageType, enabledMessage, disabledM
   }
 }
 
+async function saveShieldToggle(input, messageType, enabledMessage, disabledMessage) {
+  const previous = !input.checked;
+  input.disabled = true;
+  try {
+    const response = await send({ type: messageType, enabled: input.checked });
+    settingsData.shieldDatabase = response.shieldDatabase;
+    if (response.protections) settingsData.protections = response.protections;
+    renderShieldDatabase();
+    renderProtections();
+    showSaveStatus(input.checked ? enabledMessage : disabledMessage);
+  } catch (error) {
+    input.checked = previous;
+    showSaveStatus(error.message, true);
+  } finally {
+    input.disabled = false;
+  }
+}
+
 elements.trackerDatabaseEnabled.addEventListener("change", () => {
   void saveTrackerToggle(
     elements.trackerDatabaseEnabled,
@@ -1049,6 +1126,43 @@ elements.checkDetectionUpdatesButton.addEventListener("click", async () => {
   } finally {
     elements.checkDetectionUpdatesButton.disabled = false;
     elements.checkDetectionUpdatesButton.textContent = "Check now";
+  }
+});
+
+elements.shieldDatabaseEnabled.addEventListener("change", () => {
+  void saveShieldToggle(
+    elements.shieldDatabaseEnabled,
+    "VEILANCE_SET_SHIELD_DATABASE_ENABLED",
+    "Managed Shield rules enabled. Reload open websites before testing protection.",
+    "Managed Shield rules disabled. Downloaded rules remain stored locally."
+  );
+});
+
+elements.shieldAutoUpdateEnabled.addEventListener("change", () => {
+  void saveShieldToggle(
+    elements.shieldAutoUpdateEnabled,
+    "VEILANCE_SET_SHIELD_AUTO_UPDATE",
+    "Automatic Shield updates enabled. Veilance will check every eight hours.",
+    "Automatic Shield updates disabled. Manual checks remain available."
+  );
+});
+
+elements.checkShieldUpdatesButton.addEventListener("click", async () => {
+  elements.checkShieldUpdatesButton.disabled = true;
+  elements.checkShieldUpdatesButton.textContent = "Checking…";
+  try {
+    const response = await send({ type: "VEILANCE_CHECK_SHIELD_UPDATES" });
+    settingsData.shieldDatabase = response.shieldDatabase;
+    if (response.protections) settingsData.protections = response.protections;
+    renderShieldDatabase();
+    renderProtections();
+    showSaveStatus("Shield database check completed.");
+  } catch (error) {
+    await loadSettings().catch(() => {});
+    showSaveStatus(error.message, true);
+  } finally {
+    elements.checkShieldUpdatesButton.disabled = false;
+    elements.checkShieldUpdatesButton.textContent = "Check now";
   }
 });
 
@@ -1315,6 +1429,10 @@ void loadSettings().catch((error) => {
   elements.detectionUpdateError.hidden = false;
   elements.detectionUpdateError.textContent = "Veilance settings could not be loaded. Reload this page or restart the extension.";
   elements.checkDetectionUpdatesButton.disabled = true;
+  elements.shieldDatabaseStatus.textContent = "Unavailable";
+  elements.shieldUpdateError.hidden = false;
+  elements.shieldUpdateError.textContent = "Veilance settings could not be loaded. Reload this page or restart the extension.";
+  elements.checkShieldUpdatesButton.disabled = true;
   elements.clearSnapshotsButton.disabled = true;
   elements.clearHistoryButton.disabled = true;
   showSaveStatus(message, true);

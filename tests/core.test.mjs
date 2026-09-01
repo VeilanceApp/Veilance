@@ -93,11 +93,13 @@ test("duplicate protection events are stacked by fingerprint surface", () => {
   addProtectionEvent(state, {
     surface: "Canvas 2D",
     action: "Canvas export",
+    returnedValue: { kind: "array", type: "Uint8ClampedArray", length: 8, sample: [1, 2, 3, 4], truncated: true },
     timestamp: 1100
   }, 1100);
   addProtectionEvent(state, {
     surface: "Canvas 2D",
     action: "Pixel readback",
+    returnedValue: { kind: "scalar", type: "number", value: 24 },
     timestamp: 1200
   }, 1200);
   addProtectionEvent(state, {
@@ -112,6 +114,31 @@ test("duplicate protection events are stacked by fingerprint surface", () => {
   assert.equal(canvas.count, 2);
   assert.equal(canvas.firstProtectedAt, 1100);
   assert.equal(canvas.lastProtectedAt, 1200);
+  assert.deepEqual(canvas.returnedValue, { kind: "scalar", type: "number", value: 24 });
+});
+
+test("different Shield rules on one surface keep separate activity entries", () => {
+  const state = createEmptyState(12, "https://example.com", 1000);
+  addProtectionEvent(state, {
+    ruleId: "canvas-to-data-url",
+    surface: "Canvas export",
+    technique: "Canvas data URL export farbling",
+    explanation: "Protected a data URL export.",
+    timestamp: 1100
+  }, 1100);
+  addProtectionEvent(state, {
+    ruleId: "canvas-to-blob",
+    surface: "Canvas export",
+    technique: "Canvas blob export farbling",
+    explanation: "Protected a blob export.",
+    timestamp: 1200
+  }, 1200);
+  assert.equal(state.protections.events.length, 2);
+  assert.deepEqual(new Set(state.protections.events.map((event) => event.ruleId)), new Set([
+    "canvas-to-data-url",
+    "canvas-to-blob"
+  ]));
+  assert.ok(state.protections.events.every((event) => event.explanation));
 });
 
 test("event detail removes sensitive values", () => {
