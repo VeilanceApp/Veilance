@@ -1,4 +1,4 @@
-# Veilance Browser Extension v0.7
+# Veilance Browser Extension v0.8
 
 Veilance is a local-first browser privacy observability extension. It shows what
 a website requests from browser APIs and which network hosts it contacts while
