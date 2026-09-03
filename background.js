@@ -2,6 +2,8 @@ import {
   addNetworkRequest,
   addPageSignal,
   addProtectionEvent,
+  ACTIVITY_TIMELINE_BUCKET_MS,
+  ACTIVITY_TIMELINE_MAX_EVENTS,
   applyPageIdentity,
   applyPageSnapshot,
   applyResponseHeaders,
@@ -88,6 +90,8 @@ const SNAPSHOT_UPLOAD_CONSENT_KEY = "veilanceTelemetrySnapshotConsentV1";
 const SNAPSHOT_AUTOMATIC_UPLOAD_KEY = "veilanceTelemetryAutomaticUploadV1";
 const SNAPSHOT_AUTOMATIC_CAPTURE_KEY = "veilanceTelemetryAutomaticCaptureV1";
 const FINGERPRINT_PROTECTION_ENABLED_KEY = "veilanceFingerprintProtectionEnabledV1";
+const ONBOARDING_STATE_KEY = "veilanceOnboardingStateV1";
+const PRIVACY_POLICY_VERSION = "2026-09-03";
 const FINGERPRINT_PROTECTION_SCRIPT_ID = "veilance-fingerprint-protection-v1";
 const MAX_TRACKER_UPDATE_LOG = 50;
 const MAX_DETECTION_UPDATE_LOG = 50;
@@ -123,6 +127,7 @@ let snapshotUploadConsent = false;
 let snapshotAutomaticUpload = false;
 let snapshotAutomaticCapture = false;
 let fingerprintProtectionEnabled = true;
+let onboardingState = normalizeOnboardingState(null);
 let telemetryClientId = null;
 let snapshotUploadPromise = null;
 let snapshotUploadAbortController = null;
@@ -206,6 +211,28 @@ function publicProtectionState() {
   };
 }
 
+function normalizeOnboardingState(value) {
+  const completed = value?.completed === true && value?.privacyPolicyAccepted === true;
+  return {
+    schemaVersion: 1,
+    completed,
+    accountMode: "guest",
+    privacyPolicyAccepted: completed,
+    privacyPolicyVersion: completed ? String(value?.privacyPolicyVersion || "") : null,
+    privacyPolicyAcceptedAt: completed && Number.isFinite(Number(value?.privacyPolicyAcceptedAt))
+      ? Number(value.privacyPolicyAcceptedAt)
+      : null,
+    telemetryEnabled: completed && value?.telemetryEnabled === true,
+    completedAt: completed && Number.isFinite(Number(value?.completedAt))
+      ? Number(value.completedAt)
+      : null
+  };
+}
+
+function publicOnboardingState() {
+  return { ...onboardingState };
+}
+
 function activeRuntimeShieldRules() {
   if (!fingerprintProtectionEnabled || !shieldDatabaseState.databaseEnabled) return [];
   return runtimeShieldRules(managedShieldRules);
@@ -263,6 +290,7 @@ function trackerObservationsFor(state) {
     if (!id) continue;
     observations.set(id, {
       id,
+      label: String(entry?.label || id).slice(0, 120),
       category: String(entry?.category || "unknown").slice(0, 64),
       requests: Math.max(0, Number(entry?.count) || 0)
     });
@@ -289,6 +317,7 @@ function trackerObservationsFor(state) {
     }
     observations.set(tracker.id, {
       id: tracker.id,
+      label: String(tracker.name || tracker.id).slice(0, 120),
       category: String(tracker.category || "unknown").slice(0, 64),
       requests: Math.max(1, requests)
     });
@@ -324,6 +353,18 @@ function normalizeRestoredState(tabId, state) {
     state.protections = { total: 0, lastProtectedAt: null, events: [] };
   }
   if (!Array.isArray(state.protections.events)) state.protections.events = [];
+  const activityTimeline = state.activityTimeline && typeof state.activityTimeline === "object"
+    ? state.activityTimeline
+    : {};
+  state.activityTimeline = {
+    bucketMs: ACTIVITY_TIMELINE_BUCKET_MS,
+    maximumEvents: ACTIVITY_TIMELINE_MAX_EVENTS,
+    startedOffsetMs: Number.isFinite(activityTimeline.startedOffsetMs) ? Math.max(0, activityTimeline.startedOffsetMs) : null,
+    droppedEvents: Math.max(0, Math.floor(Number(activityTimeline.droppedEvents) || 0)),
+    events: Array.isArray(activityTimeline.events)
+      ? activityTimeline.events.slice(0, ACTIVITY_TIMELINE_MAX_EVENTS)
+      : []
+  };
   const automaticSnapshot = state.automaticSnapshot;
   if (
     automaticSnapshot?.status === "captured" &&
@@ -643,6 +684,61 @@ function summaryFor(state) {
   };
 }
 
+async function snapshotForReportState(state) {
+  if (!state) return null;
+  const linkedSnapshotId = String(state.automaticSnapshot?.snapshotId || "");
+  if (linkedSnapshotId) {
+    const linked = await historyStore.getSnapshot(linkedSnapshotId);
+    if (linked) return linked;
+  }
+  return state.visitId ? historyStore.getSnapshotForVisit(state.visitId) : null;
+}
+
+async function privacyReportFor(message) {
+  let state = null;
+  const visitId = typeof message?.visitId === "string" ? message.visitId.slice(0, 100) : "";
+  const tabId = Number(message?.tabId);
+  if (Number.isInteger(tabId) && tabId >= 0) {
+    await waitForTab(tabId);
+    state = states.get(tabId) || null;
+  }
+  if (!state && visitId) state = await historyStore.get(visitId);
+  if (!state) throw new Error("This privacy report is no longer available");
+
+  const { findings, summary, interest } = summaryFor(state);
+  const snapshot = await snapshotForReportState(state);
+  const endpoint = telemetryEndpoint();
+  const payloadPreview = snapshot?.payload || buildSanitizedPayload(
+    state,
+    chrome.runtime.getManifest().version,
+    Date.now(),
+    {
+      eventId: `preview-${String(state.visitId || newId()).slice(0, 88)}`,
+      trackers: trackerObservationsFor(state)
+    }
+  );
+  return {
+    ok: true,
+    state,
+    findings,
+    summary,
+    interest,
+    snapshot,
+    payloadPreview,
+    trackers: trackerObservationsFor(state),
+    protections: publicProtectionState(),
+    telemetry: {
+      ...publicSnapshotUploadState(),
+      automaticCapture: snapshotAutomaticCapture,
+      endpoint: endpoint?.href || null,
+      ipLookupEndpoint: telemetryIpEndpoint()?.href || null,
+      clientId: telemetryClientId,
+      walletAddress: wallet?.publicKey || null,
+      privacyPolicyUrl: "https://veilance.org/privacy"
+    }
+  };
+}
+
 function enabledIndicatorIds() {
   return Object.entries(indicatorSettings)
     .filter(([, enabled]) => enabled)
@@ -863,6 +959,7 @@ async function captureTelemetrySnapshotForTab(tabId, options = {}) {
 
   await historyStore.upsertSnapshot({
     snapshotId,
+    visitId: state.visitId,
     hostname: page.hostname,
     createdAt,
     payload
@@ -908,6 +1005,7 @@ const ready = (async () => {
       SNAPSHOT_AUTOMATIC_UPLOAD_KEY,
       SNAPSHOT_AUTOMATIC_CAPTURE_KEY,
       FINGERPRINT_PROTECTION_ENABLED_KEY,
+      ONBOARDING_STATE_KEY,
       TELEMETRY_CLIENT_ID_STORAGE_KEY,
       LEGACY_TELEMETRY_CONTRIBUTOR_ID_STORAGE_KEY
     ]),
@@ -918,6 +1016,7 @@ const ready = (async () => {
   snapshotUploadConsent = localStored?.[SNAPSHOT_UPLOAD_CONSENT_KEY] === true;
   snapshotAutomaticUpload = localStored?.[SNAPSHOT_AUTOMATIC_UPLOAD_KEY] === true;
   snapshotAutomaticCapture = localStored?.[SNAPSHOT_AUTOMATIC_CAPTURE_KEY] === true;
+  onboardingState = normalizeOnboardingState(localStored?.[ONBOARDING_STATE_KEY]);
   const storedFingerprintProtectionPreference = localStored?.[FINGERPRINT_PROTECTION_ENABLED_KEY];
   fingerprintProtectionEnabled = storedFingerprintProtectionPreference !== false;
   if (storedFingerprintProtectionPreference !== true && storedFingerprintProtectionPreference !== false) {
@@ -1105,14 +1204,39 @@ function retryAt(attempts, now = Date.now()) {
   return now + Math.floor(delay * jitter);
 }
 
-async function encodedSnapshotBatch(records, ipAddress) {
-  return buildTelemetryMultipartUpload({
+async function encodedSnapshotBatch(records, ipAddress, endpoint) {
+  const batchId = newId();
+  const walletAddress = wallet?.publicKey;
+  const request = await buildTelemetryMultipartUpload({
     records,
     clientId: telemetryClientId,
-    walletAddress: wallet?.publicKey,
-    batchId: newId(),
+    walletAddress,
+    batchId,
     ipAddress
   });
+  return {
+    ...request,
+    receipt: {
+      schemaVersion: "veilance.telemetry-upload-receipt.v1",
+      endpoint: String(endpoint || ""),
+      method: "POST",
+      transport: "HTTPS multipart/form-data",
+      telemetryEncoding: "gzip JSON",
+      telemetryFilename: "telemetry.bin",
+      batchSchemaVersion: "veilance.telemetry-snapshot-batch.v1",
+      batchId,
+      observationCount: records.length,
+      clientId: telemetryClientId,
+      contributorId: telemetryClientId,
+      walletAddress,
+      domainName: normalizeHostname(records[0]?.payload?.site?.hostname),
+      ipAddress,
+      compressedBytes: request.compressedBytes,
+      uncompressedBytes: request.uncompressedBytes,
+      attemptedAt: Date.now(),
+      outcome: "pending"
+    }
+  };
 }
 
 async function performSnapshotUploads(trigger = "scheduled") {
@@ -1193,8 +1317,14 @@ async function performSnapshotUploads(trigger = "scheduled") {
     }
 
     for (const records of batchesByDomain.values()) {
+      let request = null;
       try {
-        const request = await encodedSnapshotBatch(records, ipAddress);
+        request = await encodedSnapshotBatch(records, ipAddress, endpoint.href);
+        for (const record of records) {
+          await historyStore.updateSnapshotUpload(record.snapshotId, {
+            receipt: request.receipt
+          });
+        }
         const response = await fetch(endpoint.href, {
           method: "POST",
           body: request.body,
@@ -1204,14 +1334,21 @@ async function performSnapshotUploads(trigger = "scheduled") {
           referrerPolicy: "no-referrer",
           signal: controller.signal
         });
-        await requireSuccessfulTelemetryUpload(response);
+        const uploadReport = await requireSuccessfulTelemetryUpload(response);
         const uploadedAt = Date.now();
+        const receipt = {
+          ...request.receipt,
+          outcome: "accepted",
+          uploadedAt,
+          apiRequestId: String(uploadReport?.metadata?.request_id || "").slice(0, 160) || null
+        };
         for (const record of records) {
           await historyStore.updateSnapshotUpload(record.snapshotId, {
             status: "uploaded",
             nextAttemptAt: null,
             uploadedAt,
-            lastError: null
+            lastError: null,
+            receipt
           });
         }
         uploaded += records.length;
@@ -1219,11 +1356,18 @@ async function performSnapshotUploads(trigger = "scheduled") {
         firstError ||= error;
         const message = String(error?.message || error).slice(0, 500);
         const now = Date.now();
+        const receipt = request?.receipt ? {
+          ...request.receipt,
+          outcome: "not-confirmed",
+          failedAt: now,
+          error: message
+        } : undefined;
         for (const record of records) {
           await historyStore.updateSnapshotUpload(record.snapshotId, {
             status: "failed",
             nextAttemptAt: retryAt(record.nextAttempts, now),
-            lastError: message
+            lastError: message,
+            receipt
           });
         }
       }
@@ -1912,10 +2056,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           findings,
           summary,
           interest,
+          trackers: trackerObservationsFor(state),
           snapshotCapture: publicSnapshotCaptureState(),
           protections: publicProtectionState()
         };
       }
+
+      case "VEILANCE_GET_PRIVACY_REPORT":
+        if (!isExtensionPage(sender, ["report.html"])) {
+          throw new Error("Privacy reports are available only from the Veilance report page");
+        }
+        return privacyReportFor(message);
 
       case "VEILANCE_GET_PAYLOAD": {
         const state = states.get(Number(message.tabId)) || null;
@@ -2118,6 +2269,84 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return { ok: true, queued, uploaded: result?.uploaded || 0 };
       }
 
+      case "VEILANCE_GET_ONBOARDING_STATE": {
+        if (!isExtensionPage(sender, ["onboarding.html"])) {
+          throw new Error("Onboarding state is available only from Veilance setup");
+        }
+        return {
+          ok: true,
+          onboarding: publicOnboardingState(),
+          snapshotCapture: publicSnapshotCaptureState(),
+          snapshotUpload: publicSnapshotUploadState(),
+          protections: publicProtectionState()
+        };
+      }
+
+      case "VEILANCE_COMPLETE_ONBOARDING": {
+        if (!isExtensionPage(sender, ["onboarding.html"])) {
+          throw new Error("Setup choices can be saved only from Veilance onboarding");
+        }
+        if (message.accountMode !== "guest") {
+          throw new Error("Account sign-in is not available in this release");
+        }
+        if (message.privacyAccepted !== true) {
+          throw new Error("Accept the Veilance Privacy Policy to finish setup");
+        }
+
+        const telemetryEnabled = message.telemetryEnabled === true;
+        if (telemetryEnabled && !snapshotUploadingAvailable()) {
+          throw new Error("Automatic telemetry is unavailable in this build");
+        }
+        if (telemetryEnabled && !wallet?.publicKey) {
+          throw new Error("The local payout wallet is unavailable. Restart Veilance and try again");
+        }
+
+        const firstCompletion = onboardingState.completed !== true;
+        snapshotUploadConsent = telemetryEnabled;
+        snapshotAutomaticUpload = telemetryEnabled;
+        if (telemetryEnabled) snapshotAutomaticCapture = true;
+        else if (firstCompletion) snapshotAutomaticCapture = false;
+        if (!telemetryEnabled) snapshotUploadAbortController?.abort();
+        if (telemetryEnabled && !telemetryClientId) await initializeTelemetryClientId();
+
+        const now = Date.now();
+        onboardingState = normalizeOnboardingState({
+          completed: true,
+          accountMode: "guest",
+          privacyPolicyAccepted: true,
+          privacyPolicyVersion: PRIVACY_POLICY_VERSION,
+          privacyPolicyAcceptedAt: now,
+          telemetryEnabled,
+          completedAt: now
+        });
+
+        await chrome.storage.local.set({
+          [ONBOARDING_STATE_KEY]: onboardingState,
+          [SNAPSHOT_UPLOAD_CONSENT_KEY]: snapshotUploadConsent,
+          [SNAPSHOT_AUTOMATIC_UPLOAD_KEY]: snapshotAutomaticUpload,
+          [SNAPSHOT_AUTOMATIC_CAPTURE_KEY]: snapshotAutomaticCapture
+        });
+
+        let queued = 0;
+        if (telemetryEnabled) {
+          queued = await historyStore.queueAllSnapshots(now + randomSnapshotDelay());
+        }
+        if (snapshotAutomaticCapture) {
+          for (const [tabId, state] of states) maybeScheduleAutomaticSnapshot(tabId, state);
+        } else {
+          cancelAllAutomaticSnapshotTimers();
+        }
+        await configureSnapshotUploadAlarm();
+
+        return {
+          ok: true,
+          queued,
+          onboarding: publicOnboardingState(),
+          snapshotCapture: publicSnapshotCaptureState(),
+          snapshotUpload: publicSnapshotUploadState()
+        };
+      }
+
       case "VEILANCE_GET_SETTINGS":
         return {
           ok: true,
@@ -2133,6 +2362,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           snapshotCapture: publicSnapshotCaptureState(),
           snapshotUpload: publicSnapshotUploadState(),
           protections: publicProtectionState(),
+          onboarding: publicOnboardingState(),
           telemetryClientId
         };
 
@@ -2278,9 +2508,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details = {}) => {
   void ready.then(async () => {
     console.info(`Veilance v${chrome.runtime.getManifest().version} installed. Collection and history remain local.`);
+    if (
+      details.reason === "install" &&
+      onboardingState.completed !== true &&
+      typeof chrome.tabs?.create === "function"
+    ) {
+      await chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") }).catch((error) => {
+        console.error("Veilance could not open first-run setup", error);
+      });
+    }
     if (trackerDatabaseState.autoUpdateEnabled) {
       await syncTrackerDatabase("install").catch((error) => {
         console.error("Veilance install-time tracker update failed", error);

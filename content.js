@@ -101,6 +101,12 @@
       type: "VEILANCE_PROTECTION_EVENT",
       event: {
         ruleId: String(detail.ruleId || "").slice(0, 80),
+        indicatorId: String(detail.indicatorId || "").slice(0, 80),
+        api: String(detail.api || "").slice(0, 120),
+        matchedActions: (Array.isArray(detail.matchedActions) ? detail.matchedActions : [])
+          .slice(0, 12)
+          .map((action) => String(action || "").slice(0, 80))
+          .filter(Boolean),
         surface: String(detail.surface || "Protected surface").slice(0, 80),
         action: String(detail.action || "Protected").slice(0, 80),
         technique: String(detail.technique || "Fingerprint Shield").slice(0, 120),

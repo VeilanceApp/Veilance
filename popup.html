@@ -41,30 +41,29 @@
   </nav>
 
   <main>
+    <section id="setupNotice" class="setup-notice" aria-labelledby="setupNoticeTitle" hidden>
+      <span class="setup-notice-mark" aria-hidden="true">!</span>
+      <div><strong id="setupNoticeTitle">Finish setting up Veilance</strong><p>Review the privacy policy and choose whether to enable automatic telemetry.</p></div>
+      <button id="finishSetupButton" type="button">Open setup</button>
+    </section>
+
     <section id="liveView" class="view">
       <section id="unsupportedPage" class="unsupported-page" aria-labelledby="unsupportedTitle" hidden>
-        <div class="unsupported-stage" aria-hidden="true">
-          <span class="unsupported-orbit"></span>
-          <span class="unsupported-spark spark-one"></span>
-          <span class="unsupported-spark spark-two"></span>
-          <div class="unsupported-logo"><img src="assets/icon-128.png" alt=""></div>
-          <div class="unsupported-door">
-            <span>BACKSTAGE</span>
-            <i></i>
-          </div>
+        <div class="unsupported-symbol" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M16 3 6.5 7v8c0 6.1 4 11.1 9.5 14 5.5-2.9 9.5-7.9 9.5-14V7L16 3Z"></path><path d="M11.5 15.5h9M16 11v9"></path></svg>
         </div>
-        <span id="unsupportedKind" class="unsupported-kicker">Browser backstage</span>
+        <span id="unsupportedKind" class="unsupported-kicker">Protected browser page</span>
         <h1 id="unsupportedTitle">Veilance doesn’t support this page</h1>
-        <p id="unsupportedDescription">The browser keeps this area behind the velvet rope, so the privacy detective is waiting outside.</p>
+        <p id="unsupportedDescription">Browsers do not allow extensions to inspect internal pages. Veilance will resume automatically on a regular website.</p>
         <div class="unsupported-reassurance">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5.5 5.7v5.5c0 4.2 2.7 7.7 6.5 9.8 3.8-2.1 6.5-5.6 6.5-9.8V5.7L12 3Z"></path><path d="m9 12 2 2 4-4"></path></svg>
-          <div><strong>Nothing was collected from this page.</strong><span>No snooping, no snapshot, no tiny trench coat required.</span></div>
+          <div><strong>Nothing was collected from this page.</strong><span>Internal pages stay outside Veilance’s observation boundary.</span></div>
         </div>
         <div class="unsupported-actions">
           <button id="unsupportedRetryButton" class="unsupported-primary" type="button">Check again</button>
           <button id="unsupportedSettingsButton" class="unsupported-secondary" type="button">Open settings</button>
         </div>
-        <p class="unsupported-footnote">Veilance works on regular <code>http://</code> and <code>https://</code> pages.</p>
+        <p class="unsupported-footnote">Supported pages use a standard <code>http://</code> or <code>https://</code> address.</p>
       </section>
 
       <div id="liveDashboard">
@@ -78,79 +77,64 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"></path></svg>
           </button>
         </div>
-        <button id="statusPill" class="status quiet" type="button" aria-controls="findingsPanel" title="Waiting for page activity" disabled>
+        <button id="statusPill" class="status quiet" type="button" aria-describedby="statusExplanation" title="Waiting for page activity" disabled>
           <span id="statusPillText">Waiting for page activity</span>
         </button>
+        <p id="statusExplanation" class="status-explanation">Veilance is checking this page. Nothing is blocked just because it was observed.</p>
         <p id="visitTiming" class="visit-timing">Preparing on-device monitoring…</p>
         <p id="liveMessage" class="inline-message" role="status" aria-live="polite"></p>
       </section>
 
-      <div class="metrics-context">
-        <span class="label">Activity volume</span>
-      </div>
-      <section class="metrics overview-metrics" aria-label="Live visit activity volume">
-        <article id="thirdPartyHostsCard">
-          <div class="metric-value-row"><strong id="thirdPartyHosts">0</strong><span id="thirdPartyHostsLevel" class="metric-level pending">Checking</span></div>
-          <span>third-party hosts</span>
-        </article>
-        <article id="requestCountCard">
-          <div class="metric-value-row"><strong id="requestCount">0</strong><span id="requestCountLevel" class="metric-level pending">Checking</span></div>
-          <span>requests observed</span>
-        </article>
-        <article id="signalCountCard">
-          <div class="metric-value-row"><strong id="signalCount">0</strong><span id="signalCountLevel" class="metric-level pending">Checking</span></div>
-          <span title="Calls to browser features such as canvas, storage, media, and device APIs.">browser API calls</span>
-        </article>
-        <article id="storageCountCard">
-          <div class="metric-value-row"><strong id="storageCount">0</strong><span id="storageCountLevel" class="metric-level pending">Checking</span></div>
-          <span>storage events</span>
-        </article>
-      </section>
-      <p class="metrics-note">Counts build throughout the visit. High volume alone does not mean harmful behavior.</p>
-
-      <section id="findingsPanel" class="panel">
-        <div class="panel-head">
-          <div><span class="label">Visit assessment</span><h2>Notable activity</h2></div>
-          <span id="findingCount" class="count" aria-label="0 findings" aria-live="polite">0 findings</span>
+      <section class="activity-panel" aria-labelledby="activityTitle">
+        <div class="activity-heading">
+          <div><span class="label">Simple overview</span><h2 id="activityTitle">What happened here</h2></div>
         </div>
-        <div id="findings" class="findings">
-          <div class="empty">No privacy-relevant activity has been observed yet.</div>
+        <p class="overview-intro">These are observations, not accusations. A website can contact outside services for normal features as well as advertising or analytics.</p>
+        <div id="activityBreakdown" class="activity-breakdown" aria-live="polite">
+          <div class="activity-loading">Checking page activity…</div>
         </div>
+        <button id="openReportButton" class="report-button" type="button">
+          <span><strong>Open the privacy report</strong><small>Charts, plain-English explanations, and Shield details</small></span>
+          <span class="report-button-arrow" aria-hidden="true">→</span>
+        </button>
       </section>
 
-      <details id="liveDetailPanel" class="details-panel">
-        <summary>Technical details <span>Network requests, browser APIs, page structure, and response headers</span></summary>
-        <div id="liveDetails" class="telemetry-details"></div>
-      </details>
-
-      <section class="snapshot-card">
-        <div class="snapshot-card-heading">
-          <div>
-            <span class="label">Evidence snapshot</span>
-            <strong>Save a redacted copy</strong>
-            <p>Eligible visits are saved on this device as counts and inert redacted HTML. Text, form values, URL paths, and secrets are removed.</p>
-          </div>
-        </div>
-        <div id="snapshotInterest" class="interest-meter routine" role="meter" aria-label="Interest score" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-          <div class="interest-meter-head">
-            <div class="interest-meter-copy">
-              <span>Interest score</span>
-              <small id="snapshotInterestLabel">25 points until ready</small>
+      <details class="more-options">
+        <summary>
+          <span><strong>More options</strong><small>Research snapshots, payouts, and reset</small></span>
+          <span class="more-options-chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div class="more-options-body">
+          <section class="snapshot-card">
+            <div class="snapshot-card-heading">
+              <div>
+                <span class="label">Contribute to privacy research</span>
+                <strong>Save a redacted snapshot</strong>
+                <p>Veilance removes text, form entries, URL paths, and secrets. Saving stays local unless you separately allow an upload.</p>
+              </div>
             </div>
-            <strong><b id="snapshotInterestScore">0</b><span>/100</span></strong>
-          </div>
-          <div class="interest-meter-track" aria-hidden="true"><i></i></div>
+            <div id="snapshotInterest" class="interest-meter routine" role="meter" aria-label="Snapshot eligibility" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div class="interest-meter-head">
+                <div class="interest-meter-copy">
+                  <span>Snapshot eligibility</span>
+                  <small id="snapshotInterestLabel">25 points until ready</small>
+                </div>
+                <strong><b id="snapshotInterestScore">0</b><span>/100</span></strong>
+              </div>
+              <div class="interest-meter-track" aria-hidden="true"><i></i></div>
+            </div>
+            <button id="snapshotButton" class="snapshot-button" type="button" aria-describedby="snapshotStatus">Save snapshot</button>
+            <p id="snapshotStatus" class="snapshot-status" role="status" aria-live="polite"></p>
+          </section>
+
+          <button id="payoutSettingsButton" class="payout-settings-button" type="button">
+            <span><small>Optional research rewards</small><strong>Wallet &amp; payouts</strong></span>
+            <span class="payout-settings-action">Manage <span aria-hidden="true">→</span></span>
+          </button>
+
+          <button id="clearButton" class="clear-button" type="button" title="Discard the current visit data and begin monitoring again">Reset current visit</button>
         </div>
-        <button id="snapshotButton" class="snapshot-button" type="button" aria-describedby="snapshotStatus">Save snapshot</button>
-        <p id="snapshotStatus" class="snapshot-status" role="status" aria-live="polite"></p>
-      </section>
-
-      <button id="payoutSettingsButton" class="payout-settings-button" type="button">
-        <span><small>Solana</small><strong>Wallet &amp; payouts</strong></span>
-        <span class="payout-settings-action">Manage <span aria-hidden="true">→</span></span>
-      </button>
-
-      <button id="clearButton" class="clear-button" type="button" title="Discard the current visit data and begin monitoring again">Reset current visit</button>
+      </details>
       </div>
     </section>
 
@@ -217,7 +201,7 @@
     </section>
   </main>
 
-  <footer><span>Visits stay local. Consented snapshots upload only through your chosen manual or automatic setting.</span><span id="version"></span></footer>
+  <footer><span>Activity stays on this device unless you choose to share a redacted snapshot.</span><span id="version"></span></footer>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

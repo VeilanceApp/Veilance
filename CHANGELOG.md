@@ -1,3 +1,39 @@
+## 0.8 - First-run setup and privacy-focused interface
+
+- Added a four-step onboarding page that opens once on a fresh installation.
+- Added an honest no-account path while account services remain unavailable.
+- Added required, versioned acceptance of the linked Veilance Privacy Policy.
+- Kept automatic telemetry off by default and added one explicit choice that
+  enables automatic local capture, upload consent, and delayed uploads together.
+- Added plain-language disclosure of uploaded identifiers, public IP address,
+  redacted snapshot contents, exclusions, and non-guaranteed VLNC rewards.
+- Added setup recovery from the popup and a **Review setup** action in Settings.
+- Matched onboarding, the popup, reports, and Settings to the Veilance website's
+  restrained navy/blue visual system, with a professional light counterpart.
+- Restored the supplied Veilance logo across the interface and browser icon sizes.
+- Corrected the visible snapshot threshold from 20/100 to the enforced 25/100.
+- Replaced the dense Overview counters with three plain-language summaries for
+  website connections, browser and storage access, and actual Shield changes.
+- Moved research snapshots, payouts, and reset controls into a collapsed
+  **More options** area so the everyday view stays focused.
+- Added one unified activity timeline for site requests, outside services, known
+  trackers, browser features, storage and permissions, and Shield changes. It has
+  selectable timeframes, hover/focus/tap explanations, live updates, and a matching list.
+- Added bounded local event timing with destinations, request methods, resource
+  categories, browser actions, and Shield correlation without retaining URL paths or bodies.
+- Replaced uneven expanding evidence panels with focused modal windows that teach
+  what each category means, why it matters, what users can do, and the exact evidence.
+- Added Shield correlation showing the browser action, protection method, changed
+  units, protected result, and its related observed signal.
+- Removed raw telemetry JSON from the privacy report and replaced it with a clear
+  data-sharing status, included/excluded data lists, and optional delivery details.
+- Added an explicit telemetry state model that distinguishes previewed, saved,
+  queued, failed, blocked, and API-confirmed uploads.
+- Added local upload receipts containing the exact transport metadata and API
+  confirmation needed to explain what was sent, how it was sent, and when.
+- Removed Veilance instrumentation frames from native browser exceptions so
+  expected website API failures are not misreported as extension stack errors.
+
 ## 0.6.19 - Expanded default-on Shield
 
 - Enabled Fingerprint Shield by default while preserving an explicitly saved off preference.

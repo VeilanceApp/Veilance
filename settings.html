@@ -15,6 +15,7 @@
         <div><strong>Veilance</strong><span>Settings</span></div>
       </div>
       <div class="page-tools">
+        <button id="reviewSetupButton" class="header-setup-button" type="button">Review setup</button>
         <div class="theme-control" role="group" aria-label="Appearance">
           <button type="button" data-theme-option="system" aria-pressed="true">System</button>
           <button type="button" data-theme-option="light" aria-pressed="false">Light</button>
@@ -28,9 +29,9 @@
   <main>
     <section class="intro">
       <div class="intro-copy">
-        <span class="eyebrow">Settings</span>
-        <h1>Control what Veilance observes and stores.</h1>
-        <p>Choose the behaviors Veilance watches, review local data, and manage the wallet created for this browser. Veilance reports enabled signals and shields supported fingerprinting surfaces by default.</p>
+        <span class="eyebrow">Privacy settings</span>
+        <h1>Veilance settings</h1>
+        <p>Manage detection, Shield, telemetry, and data stored by this browser.</p>
       </div>
       <aside class="local-note" aria-label="Local data notice">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z"></path></svg>
@@ -39,10 +40,10 @@
     </section>
 
     <nav class="settings-tabs" role="tablist" aria-label="Settings sections">
-      <button id="settingsTabTrackers" class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settingsPanelTrackers" data-settings-tab="trackers">Tracker database</button>
+      <button id="settingsTabTrackers" class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settingsPanelTrackers" data-settings-tab="trackers">Trackers</button>
       <button id="settingsTabIndicators" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelIndicators" data-settings-tab="indicators" tabindex="-1">Detection</button>
-      <button id="settingsTabProtections" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelProtections" data-settings-tab="protections" tabindex="-1">Veilance Shield</button>
-      <button id="settingsTabSnapshots" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelSnapshots" data-settings-tab="snapshots" tabindex="-1">Snapshots</button>
+      <button id="settingsTabProtections" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelProtections" data-settings-tab="protections" tabindex="-1">Shield</button>
+      <button id="settingsTabSnapshots" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelSnapshots" data-settings-tab="snapshots" tabindex="-1">Telemetry</button>
       <button id="settingsTabWallet" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelWallet" data-settings-tab="wallet" tabindex="-1">Wallet</button>
       <button id="settingsTabData" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelData" data-settings-tab="data" tabindex="-1">Local data</button>
     </nav>
@@ -354,15 +355,15 @@
       <section class="settings-card snapshot-section">
       <header class="card-header">
         <div>
-          <span class="eyebrow">Snapshots</span>
-          <h2>Saved evidence</h2>
-          <p>Use <strong>Save snapshot</strong> in the popup to preserve a redacted copy of an eligible public-site visit. Veilance keeps up to 20 snapshots on this device.</p>
+          <span class="eyebrow">Telemetry</span>
+          <h2>Saved privacy snapshots</h2>
+          <p>Review locally saved, redacted evidence and decide if any of it can be uploaded. Veilance keeps up to 20 snapshots on this device.</p>
         </div>
         <span id="snapshotCount" class="count-badge" aria-label="Stored snapshot count">0 / 20</span>
       </header>
 
       <div class="snapshot-interest-policy">
-        <div><span>Capture threshold</span><strong>20 / 100</strong></div>
+        <div><span>Capture threshold</span><strong>25 / 100</strong></div>
         <p>High-risk actions add 25 points, medium findings add 10, and low findings add 2. Repeated allowed API activity can add 5–10 points. Routine visits below 25 are never snapshotted.</p>
       </div>
 
@@ -393,7 +394,7 @@
         <div>
           <strong>Allow pseudonymous snapshot uploads</strong>
           <p id="snapshotUploadDescription">Checking telemetry upload availability…</p>
-          <small>Each request sends the stable contributor ID as <code>client_id</code>, the generated public Solana address as <code>wallet_address</code>, and the exact website hostname—including subdomains—as <code>domain_name</code>. Paths, queries, fragments, and the private wallet key are never sent in these fields.</small>
+          <small>Each request sends the stable contributor ID as <code>client_id</code>, the generated public Solana address as <code>wallet_address</code>, the exact website hostname—including subdomains—as <code>domain_name</code>, and the public IP address observed by the Veilance API. Paths, queries, fragments, and the private wallet key are never sent.</small>
         </div>
         <label class="switch" title="Allow or pause pseudonymous snapshot uploads">
           <input id="snapshotUploadConsent" type="checkbox" aria-label="Allow pseudonymous snapshot uploads" disabled>

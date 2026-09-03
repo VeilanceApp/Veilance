@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Veilance",
-  "version": "0.7",
-  "description": "Observe privacy-relevant browser activity and create locally stored, redacted telemetry snapshots.",
+  "version": "0.8",
+  "description": "Understand browser privacy activity, shield supported fingerprinting signals, and control redacted telemetry.",
   "minimum_chrome_version": "111",
   "permissions": [
     "storage",

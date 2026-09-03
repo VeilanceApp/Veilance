@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Set up Veilance</title>
+  <link rel="stylesheet" href="onboarding.css">
+</head>
+<body>
+  <div class="setup-shell">
+    <aside class="setup-rail" aria-label="Setup progress">
+      <div class="brand">
+        <img src="assets/icon-48.png" alt="">
+        <div><strong>Veilance</strong><span>Privacy monitor</span></div>
+      </div>
+
+      <div class="rail-copy">
+        <span>Initial setup</span>
+        <p>Four short steps. Your choices can be changed later in Settings.</p>
+      </div>
+
+      <ol class="progress-list">
+        <li class="active" data-progress-step="0"><span>01</span><div><strong>Welcome</strong><small>What Veilance does</small></div></li>
+        <li data-progress-step="1"><span>02</span><div><strong>Access</strong><small>Account choice</small></div></li>
+        <li data-progress-step="2"><span>03</span><div><strong>Privacy</strong><small>Policy acceptance</small></div></li>
+        <li data-progress-step="3"><span>04</span><div><strong>Telemetry</strong><small>Optional contribution</small></div></li>
+      </ol>
+
+      <div class="rail-assurance">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z"></path></svg>
+        <div><strong>Local first</strong><span>Visit history and private wallet keys remain in this browser.</span></div>
+      </div>
+    </aside>
+
+    <main class="setup-main">
+      <header class="utility-bar">
+        <span id="stepCounter">Step 1 of 4</span>
+        <button id="themeToggle" class="theme-button" type="button" aria-label="Switch appearance" title="Switch appearance">
+          <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path></svg>
+          <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 15.2A8.5 8.5 0 0 1 8.8 3.8a8.5 8.5 0 1 0 11.4 11.4Z"></path></svg>
+        </button>
+      </header>
+
+      <section class="setup-step active" data-step="0" aria-labelledby="welcomeTitle">
+        <span class="eyebrow">Welcome to Veilance</span>
+        <h1 id="welcomeTitle">See what a website does in your browser.</h1>
+        <p class="lead">Veilance records privacy-relevant activity on this device. It reports what happened; it does not label a site safe or malicious, and it does not block ads.</p>
+
+        <div class="feature-list">
+          <div class="feature-row">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg></span>
+            <div><strong>Review the active site</strong><p>See network contacts, browser features, storage use, and matched privacy rules.</p></div>
+          </div>
+          <div class="feature-row">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 5.5 5.7v5.5c0 4.2 2.7 7.7 6.5 9.8 3.8-2.1 6.5-5.6 6.5-9.8V5.7L12 3Z"></path><path d="m9 12 2 2 4-4"></path></svg></span>
+            <div><strong>Limit fingerprinting</strong><p>Veilance Shield changes supported fingerprint values while still recording the attempt.</p></div>
+          </div>
+          <div class="feature-row">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"></path><path d="M8 8h8M8 12h8M8 16h5"></path></svg></span>
+            <div><strong>Inspect the evidence</strong><p>Open technical details, redacted snapshots, rules, and local history when you need them.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="setup-step" data-step="1" aria-labelledby="accessTitle" hidden>
+        <span class="eyebrow">Access</span>
+        <h1 id="accessTitle">Choose how to continue.</h1>
+        <p class="lead">Veilance works without an account. Account services are not active in this release.</p>
+
+        <fieldset class="choice-group">
+          <legend>Choose how to continue</legend>
+          <label class="choice-card">
+            <input type="radio" name="accountMode" value="guest" checked>
+            <span class="choice-indicator" aria-hidden="true"></span>
+            <span class="choice-copy"><strong>Continue without an account</strong><small>Use every currently available feature. No email address or profile is collected.</small></span>
+            <span class="choice-tag">Available</span>
+          </label>
+          <label class="choice-card unavailable" aria-disabled="true">
+            <input type="radio" name="accountMode" value="account" disabled>
+            <span class="choice-indicator" aria-hidden="true"></span>
+            <span class="choice-copy"><strong>Sign in to Veilance</strong><small>Account-based sync and recovery will be added in a future release.</small></span>
+            <span class="choice-tag muted">Coming soon</span>
+          </label>
+        </fieldset>
+
+        <div class="plain-notice">
+          <strong>Your browser still receives a contributor ID.</strong>
+          <p>Veilance creates a pseudonymous ID and a Solana wallet locally. Neither requires an account, and the wallet private key is never uploaded.</p>
+        </div>
+      </section>
+
+      <section class="setup-step" data-step="2" aria-labelledby="privacyTitle" hidden>
+        <span class="eyebrow">Privacy</span>
+        <h1 id="privacyTitle">Review the privacy policy.</h1>
+        <p class="lead">Monitoring and history stay in this browser by default. Accepting the policy does not turn on telemetry.</p>
+
+        <a class="policy-link" href="https://veilance.org/privacy" target="_blank" rel="noreferrer">
+          <span class="policy-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 5.5 5.7v5.5c0 4.2 2.7 7.7 6.5 9.8 3.8-2.1 6.5-5.6 6.5-9.8V5.7L12 3Z"></path></svg></span>
+          <span><strong>Veilance Privacy Policy</strong><small>veilance.org/privacy</small></span>
+          <span class="external-arrow" aria-hidden="true">↗</span>
+        </a>
+
+        <ul class="privacy-summary">
+          <li><span></span><div><strong>Visits stay local</strong><p>Complete visit sessions are stored only in this browser and limited to the 20 most recent visits.</p></div></li>
+          <li><span></span><div><strong>Uploads require a separate choice</strong><p>Accepting the policy does not enable telemetry. You decide that on the next screen.</p></div></li>
+          <li><span></span><div><strong>Private keys stay private</strong><p>The locally generated Solana wallet keypair is not synced or sent to Veilance.</p></div></li>
+        </ul>
+
+        <label class="accept-row">
+          <input id="privacyAcceptance" type="checkbox">
+          <span class="check-box" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7"></path></svg></span>
+          <span>I have read and accept the <a href="https://veilance.org/privacy" target="_blank" rel="noreferrer">Veilance Privacy Policy</a>.</span>
+        </label>
+      </section>
+
+      <section class="setup-step" data-step="3" aria-labelledby="telemetryTitle" hidden>
+        <span class="eyebrow">Optional telemetry</span>
+        <h1 id="telemetryTitle">Choose whether to share telemetry.</h1>
+        <p class="lead">Telemetry is off unless you enable it. This choice does not affect local monitoring or Veilance Shield.</p>
+
+        <fieldset class="choice-group telemetry-choices">
+          <legend>Choose a telemetry setting</legend>
+          <label class="choice-card">
+            <input id="telemetryOff" type="radio" name="telemetryMode" value="off" checked>
+            <span class="choice-indicator" aria-hidden="true"></span>
+            <span class="choice-copy"><strong>Keep automatic telemetry off</strong><small>Use Veilance locally. You can still save snapshots manually and change this later.</small></span>
+          </label>
+          <label class="choice-card telemetry-on-card">
+            <input id="telemetryOn" type="radio" name="telemetryMode" value="on">
+            <span class="choice-indicator" aria-hidden="true"></span>
+            <span class="choice-copy"><strong>Enable automatic telemetry</strong><small>Automatically save eligible snapshots and upload them after a randomized 5–15 minute delay.</small></span>
+          </label>
+        </fieldset>
+
+        <div class="reward-panel">
+          <div class="reward-heading"><span>VLNC</span><div><strong>How telemetry rewards work</strong><p>Accepted contributions may receive VLNC.</p></div></div>
+          <p>Rewards are sent to the public Solana wallet generated in this browser. Eligibility and payout amount depend on review; an upload does not guarantee payment. Back up the wallet in Settings before relying on it.</p>
+        </div>
+
+        <p class="performance-note"><strong>Performance note:</strong> automatic snapshots inspect page structure after an eligible visit. Complex pages or several tabs loading together may experience added latency. Turn the setting off if browsing feels slower.</p>
+
+        <details class="data-details">
+          <summary>Exactly what an upload includes</summary>
+          <div class="data-grid">
+            <div><strong>Sent</strong><p>Exact website hostname, pseudonymous contributor ID, public wallet address, public IP address, timestamps, request and signal counts, tracker matches, page-structure evidence, and redacted HTML.</p></div>
+            <div><strong>Never sent in a snapshot</strong><p>Page text, URL paths or searches, form values, cookies, storage contents, authorization data, raw fingerprint values, private or internal hosts, and the wallet private key.</p></div>
+          </div>
+        </details>
+      </section>
+
+      <section id="successStep" class="setup-step success-step" aria-labelledby="successTitle" hidden>
+        <div class="success-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 3 6.5 7v8c0 6.1 4 11.1 9.5 14 5.5-2.9 9.5-7.9 9.5-14V7L16 3Z"></path><path d="m11.5 16 3 3 6-7"></path></svg></div>
+        <span class="eyebrow">Setup complete</span>
+        <h1 id="successTitle">Veilance is ready.</h1>
+        <p class="lead">Open the extension on any regular website to see its privacy activity. You can revise every setup choice in Settings.</p>
+
+        <div class="setup-summary" aria-label="Setup choices">
+          <div><span>Access</span><strong>Without an account</strong></div>
+          <div><span>Privacy policy</span><strong>Accepted</strong></div>
+          <div><span>Automatic telemetry</span><strong id="telemetrySummary">Off</strong></div>
+          <div><span>Veilance Shield</span><strong>On</strong></div>
+        </div>
+
+        <div class="success-actions">
+          <button id="openSettingsButton" class="secondary-button" type="button">Review settings</button>
+          <button id="closeSetupButton" class="primary-button" type="button">Start using Veilance</button>
+        </div>
+        <p class="close-hint">If this tab does not close automatically, you can close it safely.</p>
+      </section>
+
+      <p id="formError" class="form-error" role="alert" aria-live="assertive"></p>
+
+      <footer id="actionBar" class="action-bar">
+        <button id="backButton" class="text-button" type="button" hidden>Back</button>
+        <div class="action-spacer"></div>
+        <button id="nextButton" class="primary-button" type="button">Continue</button>
+      </footer>
+    </main>
+  </div>
+
+  <p class="page-footnote">Veilance observes supported <code>http://</code> and <code>https://</code> pages. Browser-internal pages remain outside the observation boundary.</p>
+  <script type="module" src="onboarding.js"></script>
+</body>
+</html>

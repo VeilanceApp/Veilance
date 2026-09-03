@@ -71,6 +71,8 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   const localBacking = {};
   const sessionBacking = {};
   const onMessage = eventSlot();
+  const onInstalled = eventSlot();
+  const createdTabs = [];
   const alarms = new Map();
   globalThis.chrome = {
     storage: {
@@ -96,6 +98,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
       onRemoved: eventSlot(),
       onActivated: eventSlot(),
       query: async () => [],
+      create: async (options) => { createdTabs.push(options); return { id: createdTabs.length, ...options }; },
       sendMessage: async (_tabId, message) => message?.type === "VEILANCE_CAPTURE_REDACTED_DOCUMENT"
         ? {
             ok: true,
@@ -123,7 +126,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
     },
     runtime: {
       onMessage,
-      onInstalled: eventSlot(),
+      onInstalled,
       getManifest: () => ({ version: "0.6.0" }),
       getPlatformInfo: async () => ({ os: "linux", arch: "x86-64", nacl_arch: "x86-64" }),
       getURL: (path) => `chrome-extension://veilance-test/${path}`
@@ -282,6 +285,32 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   );
   assert.equal(geolocationEvent.ok, true);
 
+  const shieldEvent = await dispatch(
+    {
+      type: "VEILANCE_PROTECTION_EVENT",
+      pageSessionId: "page-session-1",
+      event: {
+        ruleId: "canvas-readback-test",
+        indicatorId: "canvas",
+        api: "CanvasRenderingContext2D",
+        matchedActions: ["readback"],
+        surface: "Canvas 2D",
+        action: "Pixel readback",
+        technique: "Canvas pixel protection",
+        explanation: "Adjusted a small number of pixels.",
+        changedUnits: 4,
+        returnedValue: { kind: "array", type: "Uint8ClampedArray", length: 16, sample: [1, 2, 3, 4], truncated: true },
+        timestamp: Date.now()
+      }
+    },
+    {
+      tab: { id: 7, url: "https://example.com/private?q=secret" },
+      url: "https://example.com/private?q=secret",
+      documentId: "document-1"
+    }
+  );
+  assert.equal(shieldEvent.ok, true);
+
   const captured = await dispatch(
     { type: "VEILANCE_CREATE_TELEMETRY_SNAPSHOT", tabId: 7 },
     { url: "chrome-extension://veilance-test/popup.html" }
@@ -306,6 +335,34 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(snapshotText.includes("/private"), false);
   assert.equal(snapshotText.includes("q=secret"), false);
   assert.equal(snapshotText.includes("wallet"), false);
+
+  const reportBeforeUpload = await dispatch(
+    { type: "VEILANCE_GET_PRIVACY_REPORT", tabId: 7 },
+    { url: "chrome-extension://veilance-test/report.html?tabId=7" }
+  );
+  assert.equal(reportBeforeUpload.ok, true);
+  assert.equal(reportBeforeUpload.snapshot.upload.status, "local");
+  assert.equal(reportBeforeUpload.snapshot.visitId, reportBeforeUpload.state.visitId);
+  assert.equal(reportBeforeUpload.telemetry.consent, false);
+  assert.equal(reportBeforeUpload.payloadPreview.eventId, snapshot.snapshot.payload.eventId);
+  assert.equal(reportBeforeUpload.protections.fingerprintEnabled, true);
+  assert.equal(reportBeforeUpload.state.protections.events[0].indicatorId, "canvas");
+  assert.equal(reportBeforeUpload.state.protections.events[0].api, "CanvasRenderingContext2D");
+  assert.deepEqual(reportBeforeUpload.state.protections.events[0].matchedActions, ["readback"]);
+  assert.equal(reportBeforeUpload.state.protections.events[0].changedUnits, 4);
+  assert.ok(reportBeforeUpload.state.activityTimeline.events.some((event) => event.category === "fingerprinting"));
+  assert.ok(reportBeforeUpload.state.activityTimeline.events.some((event) => event.category === "permission"));
+  assert.ok(reportBeforeUpload.state.activityTimeline.events.some((event) => event.category === "shield"));
+  assert.equal(JSON.stringify(reportBeforeUpload.payloadPreview).includes("activityTimeline"), false);
+
+  const consoleErrorBeforeReportPermissionCheck = console.error;
+  console.error = () => {};
+  const rejectedReport = await dispatch(
+    { type: "VEILANCE_GET_PRIVACY_REPORT", tabId: 7 },
+    { url: "https://example.com/" }
+  ).finally(() => { console.error = consoleErrorBeforeReportPermissionCheck; });
+  assert.equal(rejectedReport.ok, false);
+  assert.match(rejectedReport.error, /report page/i);
 
   const consent = await dispatch(
     { type: "VEILANCE_SET_SNAPSHOT_UPLOAD_CONSENT", enabled: true },
@@ -355,6 +412,11 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   );
   assert.equal(uploadedList.snapshots.length, 2);
   assert.ok(uploadedList.snapshots.every((item) => item.upload.status === "uploaded"));
+  assert.ok(uploadedList.snapshots.every((item) => item.upload.receipt?.outcome === "accepted"));
+  assert.ok(uploadedList.snapshots.every((item) => item.upload.receipt?.ipAddress === "203.0.113.42"));
+  assert.ok(uploadedList.snapshots.every((item) => item.upload.receipt?.clientId === localBacking[TELEMETRY_CLIENT_ID_STORAGE_KEY].clientId));
+  assert.ok(uploadedList.snapshots.every((item) => item.upload.receipt?.walletAddress === settings.wallet.publicKey));
+  assert.ok(uploadedList.snapshots.every((item) => item.upload.receipt?.apiRequestId === "req-test"));
 
   const automaticCaptureSetting = await dispatch(
     { type: "VEILANCE_SET_AUTOMATIC_SNAPSHOT_CAPTURE", enabled: true },
@@ -446,6 +508,72 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   );
   assert.equal(automaticCaptureDisabled.snapshotCapture.automatic, false);
   assert.equal(localBacking.veilanceTelemetryAutomaticCaptureV1, false);
+
+  const onboardingSender = { url: "chrome-extension://veilance-test/onboarding.html" };
+  const initialOnboarding = await dispatch(
+    { type: "VEILANCE_GET_ONBOARDING_STATE" },
+    onboardingSender
+  );
+  assert.equal(initialOnboarding.ok, true);
+  assert.equal(initialOnboarding.onboarding.completed, false);
+
+  onInstalled.listeners[0]({ reason: "install" });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.deepEqual(createdTabs, [{ url: "chrome-extension://veilance-test/onboarding.html" }]);
+
+  const consoleErrorBeforePrivacyCheck = console.error;
+  console.error = () => {};
+  const rejectedOnboarding = await dispatch(
+    {
+      type: "VEILANCE_COMPLETE_ONBOARDING",
+      accountMode: "guest",
+      privacyAccepted: false,
+      telemetryEnabled: false
+    },
+    onboardingSender
+  ).finally(() => { console.error = consoleErrorBeforePrivacyCheck; });
+  assert.equal(rejectedOnboarding.ok, false);
+  assert.match(rejectedOnboarding.error, /Privacy Policy/);
+
+  const localOnlyOnboarding = await dispatch(
+    {
+      type: "VEILANCE_COMPLETE_ONBOARDING",
+      accountMode: "guest",
+      privacyAccepted: true,
+      telemetryEnabled: false
+    },
+    onboardingSender
+  );
+  assert.equal(localOnlyOnboarding.ok, true);
+  assert.equal(localOnlyOnboarding.onboarding.completed, true);
+  assert.equal(localOnlyOnboarding.onboarding.privacyPolicyVersion, "2026-09-03");
+  assert.equal(localOnlyOnboarding.snapshotUpload.consent, false);
+  assert.equal(localOnlyOnboarding.snapshotUpload.automatic, false);
+  assert.equal(localOnlyOnboarding.snapshotCapture.automatic, false);
+  assert.equal(localBacking.veilanceTelemetrySnapshotConsentV1, false);
+  assert.equal(localBacking.veilanceTelemetryAutomaticUploadV1, false);
+
+  const automaticTelemetryOnboarding = await dispatch(
+    {
+      type: "VEILANCE_COMPLETE_ONBOARDING",
+      accountMode: "guest",
+      privacyAccepted: true,
+      telemetryEnabled: true
+    },
+    onboardingSender
+  );
+  assert.equal(automaticTelemetryOnboarding.ok, true);
+  assert.equal(automaticTelemetryOnboarding.onboarding.telemetryEnabled, true);
+  assert.equal(automaticTelemetryOnboarding.snapshotUpload.consent, true);
+  assert.equal(automaticTelemetryOnboarding.snapshotUpload.automatic, true);
+  assert.equal(automaticTelemetryOnboarding.snapshotCapture.automatic, true);
+  assert.equal(localBacking.veilanceTelemetrySnapshotConsentV1, true);
+  assert.equal(localBacking.veilanceTelemetryAutomaticUploadV1, true);
+  assert.equal(localBacking.veilanceTelemetryAutomaticCaptureV1, true);
+
+  onInstalled.listeners[0]({ reason: "update" });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(createdTabs.length, 1);
 
   await new Promise((resolve) => setTimeout(resolve, 250));
   globalThis.fetch = originalFetch;
