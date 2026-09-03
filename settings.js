@@ -7,6 +7,7 @@ import {
 
 const elements = {
   version: document.querySelector("#version"),
+  reviewSetupButton: document.querySelector("#reviewSetupButton"),
   enabledCount: document.querySelector("#enabledCount"),
   builtInIndicators: document.querySelector("#builtInIndicators"),
   customIndicators: document.querySelector("#customIndicators"),
@@ -1417,6 +1418,10 @@ elements.clearHistoryButton.addEventListener("click", async () => {
 });
 
 elements.settingsPayoutButton.disabled = !PAYOUTS_ENABLED;
+elements.reviewSetupButton.addEventListener("click", async () => {
+  const url = chrome.runtime.getURL("onboarding.html");
+  if (typeof chrome.tabs?.create === "function") await chrome.tabs.create({ url });
+});
 elements.version.textContent = `v${chrome.runtime.getManifest().version}`;
 void loadSettings().catch((error) => {
   const message = error?.message || "Veilance settings could not be loaded.";

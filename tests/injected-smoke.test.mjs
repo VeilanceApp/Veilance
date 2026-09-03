@@ -114,6 +114,46 @@ test("main-world instrumentation records new indicator operations without values
   assert.equal(serialized.includes("do-not-store"), false);
 });
 
+test("native API failures keep their behavior without an injected Veilance stack frame", async () => {
+  class ThrowingStorage {
+    setItem() {
+      throw new TypeError("Native storage failure");
+    }
+  }
+
+  const document = new FakeDocument();
+  const pageEvents = new TinyEventTarget();
+  const sandbox = {
+    console,
+    crypto: { randomUUID: () => "error-session" },
+    URL,
+    location: { href: "https://mail.example/", origin: "https://mail.example" },
+    CustomEvent: TinyCustomEvent,
+    EventTarget: TinyEventTarget,
+    Document: FakeDocument,
+    document,
+    Navigator: FakeNavigator,
+    navigator: new FakeNavigator(),
+    Storage: ThrowingStorage,
+    addEventListener: pageEvents.addEventListener.bind(pageEvents),
+    window: null
+  };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+
+  const source = await readFile(new URL("../injected.js", import.meta.url), "utf8");
+  vm.runInContext(source, sandbox, { filename: "injected.js" });
+  let failure;
+  try {
+    new sandbox.Storage().setItem("key", "value");
+  } catch (error) {
+    failure = error;
+  }
+
+  assert.equal(failure?.message, "Native storage failure");
+  assert.doesNotMatch(String(failure?.stack), /injected\.js|veilanceWrappedMethod/);
+});
+
 test("canvas readback observation leaves Veilance off the native call stack", async () => {
   class DiagnosticCanvasContext {
     getImageData() {
@@ -447,6 +487,9 @@ test("downloaded Shield rules drive packaged Canvas, WebGL, audio, Navigator, an
   assert.notEqual(textMetrics.width, 42.5);
   assert.ok(protectedEvents.length >= 16);
   assert.ok(protectedEvents.every((event) => event.ruleId && event.technique && event.explanation));
+  assert.ok(protectedEvents.every((event) => event.indicatorId && event.api));
+  assert.ok(protectedEvents.every((event) => Array.isArray(event.matchedActions) && event.matchedActions.length));
+  assert.ok(protectedEvents.every((event) => event.changedUnits > 0));
   assert.ok(protectedEvents.every((event) => event.returnedValue));
   const textureCap = protectedEvents.find((event) => event.ruleId === "webgl-max-texture-size");
   assert.equal(textureCap.returnedValue.value, 4096);

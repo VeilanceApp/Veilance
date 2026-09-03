@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Privacy report · Veilance</title>
+  <link rel="stylesheet" href="report.css">
+</head>
+<body>
+  <header class="report-topbar">
+    <a class="report-brand" href="settings.html" aria-label="Open Veilance settings">
+      <img src="assets/icon-48.png" alt="">
+      <span><strong>Veilance</strong><small>Privacy report</small></span>
+    </a>
+    <div class="report-actions">
+      <button id="refreshButton" class="quiet-button" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"></path></svg>
+        Refresh
+      </button>
+      <button id="printButton" class="quiet-button" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7z"></path></svg>
+        Print
+      </button>
+      <button id="settingsButton" class="quiet-button" type="button">Settings</button>
+      <button id="themeToggle" class="icon-button" type="button" title="Switch appearance" aria-label="Switch appearance">
+        <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path></svg>
+        <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 15.2A8.5 8.5 0 0 1 8.8 3.8a8.5 8.5 0 1 0 11.4 11.4Z"></path></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="report-shell">
+    <section id="loadingState" class="state-card">
+      <span class="loading-spinner" aria-hidden="true"></span>
+      <div><strong>Preparing this privacy report</strong><p>Reading the local visit record and telemetry status…</p></div>
+    </section>
+
+    <section id="errorState" class="state-card error-state" hidden>
+      <div><strong>This report could not be opened</strong><p id="errorMessage">The local visit record is unavailable.</p></div>
+      <button id="retryButton" type="button">Try again</button>
+    </section>
+
+    <div id="reportContent" hidden>
+      <section class="report-hero">
+        <div class="report-hero-copy">
+          <span class="eyebrow">Website privacy report</span>
+          <h1 id="hostname">Website</h1>
+          <div class="hero-meta">
+            <span id="visitState">Active visit</span>
+            <span id="visitStarted">Started now</span>
+            <span id="visitDuration">0 seconds</span>
+          </div>
+        </div>
+        <div id="assessment" class="assessment quiet">
+          <span>Assessment</span>
+          <strong id="assessmentLabel">No notable signals</strong>
+          <small id="assessmentNote">Based on locally observed activity</small>
+        </div>
+      </section>
+
+      <section class="plain-summary" aria-labelledby="plainSummaryTitle">
+        <span>In plain English</span>
+        <div><strong id="plainSummaryTitle">Veilance is reading this visit</strong><p id="plainSummaryText">The report separates normal page activity, things worth reviewing, and anything Shield actually changed.</p></div>
+      </section>
+
+      <section class="summary-grid" aria-label="Visit summary">
+        <article><span>Page requests</span><strong id="totalRequests">0</strong><small id="requestSplit">0 from this site · 0 from elsewhere</small><p>Each request loads a file or asks another service for data.</p></article>
+        <article><span>Outside services</span><strong id="thirdPartyHosts">0</strong><small>Different domains outside this website</small><p>Often used for images, sign-in, payments, analytics, or ads.</p></article>
+        <article><span>Known trackers</span><strong id="trackerCount">0</strong><small id="trackerRequestCount">0 matched requests</small><p>A match is a reason to look closer, not proof of bad intent.</p></article>
+        <article><span>Browser actions</span><strong id="browserActivityCount">0</strong><small id="storageActivityCount">0 storage actions</small><p>Veilance records the action and count, never the private result.</p></article>
+      </section>
+
+      <section class="report-card chart-card" aria-labelledby="activityTimelineTitle">
+        <div class="card-heading chart-heading">
+          <div>
+            <span class="eyebrow">Activity over time</span>
+            <h2 id="activityTimelineTitle">Website activity timeline</h2>
+            <p id="chartSummary">See when this website loaded resources, contacted outside services, accessed browser features, or triggered Shield.</p>
+          </div>
+        </div>
+        <div class="chart-controls activity-controls">
+          <div class="control-group range-group">
+            <span>Time shown</span>
+            <div class="range-control" role="group" aria-label="Activity timeline timeframe">
+              <button type="button" data-range="60">1 min</button>
+              <button type="button" data-range="300">5 min</button>
+              <button type="button" data-range="900">15 min</button>
+              <button class="active" type="button" data-range="all">Full visit</button>
+            </div>
+          </div>
+          <label class="live-toggle" for="liveUpdatesToggle">
+            <input id="liveUpdatesToggle" type="checkbox" role="switch">
+            <span class="live-toggle-control" aria-hidden="true"><i></i></span>
+            <span><strong>Live updates</strong><small id="liveUpdatesStatus">Off</small></span>
+          </label>
+        </div>
+        <div id="chartHowToRead" class="chart-guide">
+          <strong>How to read this timeline</strong>
+          <p>Each row is a type of website activity. A dot shows when it happened; a larger dot means the same action happened several times. Hover, tap, or focus a dot for the exact evidence and a plain-language explanation.</p>
+        </div>
+        <div class="chart-legend activity-legend" aria-label="Activity timeline legend">
+          <span><i class="activity-swatch same-site"></i>Site request</span>
+          <span><i class="activity-swatch third-party"></i>Outside service</span>
+          <span><i class="activity-swatch tracker"></i>Known tracker</span>
+          <span><i class="activity-swatch browser"></i>Browser feature</span>
+          <span><i class="activity-swatch storage"></i>Storage or permission</span>
+          <span><i class="activity-swatch shield"></i>Shield changed it</span>
+        </div>
+        <div class="chart-visual">
+          <div id="activityTimeline" class="request-chart activity-timeline"></div>
+          <div id="chartTooltip" class="chart-tooltip" role="status" aria-live="polite" hidden></div>
+        </div>
+        <p id="chartCoverageNote" class="coverage-note"></p>
+        <details class="timeframe-details">
+          <summary>View this activity as a list</summary>
+          <div class="timeframe-table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Activity</th><th>What happened</th><th>Count</th></tr></thead>
+              <tbody id="activityRows"></tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+
+      <section class="report-card shield-card" aria-labelledby="shieldTitle">
+        <div class="card-heading">
+          <div><span class="eyebrow">Protection</span><h2 id="shieldTitle">What Veilance Shield changed</h2><p>Observation means Veilance noticed an action. Protection means Shield altered a supported fingerprint answer before the website received it.</p></div>
+          <span id="shieldStateBadge" class="shield-state off">Off</span>
+        </div>
+        <div id="shieldSummary" class="shield-summary">Shield status is loading…</div>
+        <div class="shield-meaning" aria-label="How Shield works">
+          <div><span>1</span><strong>Website asks</strong><small>A page requests a fingerprint-related browser value.</small></div>
+          <div><span>2</span><strong>Shield changes it</strong><small>Only a supported value is adjusted using an active rule.</small></div>
+          <div><span>3</span><strong>Website receives it</strong><small>The page continues with the protected answer.</small></div>
+        </div>
+        <div id="shieldRows" class="shield-rows"></div>
+      </section>
+
+      <section class="report-card basics-card" aria-labelledby="basicsTitle">
+        <div class="card-heading">
+          <div><span class="eyebrow">Privacy basics</span><h2 id="basicsTitle">A quick guide to this report</h2><p>You do not need to be a privacy expert. These four ideas explain most of what you see here.</p></div>
+        </div>
+        <div class="basics-grid">
+          <article><strong>Request</strong><p>A small job the browser performs to load a file or exchange data. Many requests are normal.</p></article>
+          <article><strong>Outside service</strong><p>A domain different from the website you opened. It may provide a useful feature or track activity.</p></article>
+          <article><strong>Known tracker</strong><p>A service associated with analytics or advertising. A match is evidence to inspect, not proof of wrongdoing.</p></article>
+          <article><strong>Fingerprinting</strong><p>Combining browser traits to recognize a device. Shield can change supported traits; it does not block every request.</p></article>
+        </div>
+      </section>
+
+      <section class="report-card" aria-labelledby="evidenceTitle">
+        <div class="card-heading">
+          <div><span class="eyebrow">Evidence</span><h2 id="evidenceTitle">Study what happened</h2><p>Choose a topic. It opens in a focused window with definitions, why it matters, what you can do, and the visit evidence.</p></div>
+        </div>
+        <div class="evidence-launchers">
+          <button type="button" data-evidence-topic="trackers"><span><strong>Known trackers</strong><small>Matched analytics or advertising services</small></span><b id="trackerEvidenceCount">0</b></button>
+          <button type="button" data-evidence-topic="connections"><span><strong>Outside services</strong><small>Domains beyond the website you opened</small></span><b id="connectionEvidenceCount">0</b></button>
+          <button type="button" data-evidence-topic="browser"><span><strong>Browser features</strong><small>Monitored capabilities the page used</small></span><b id="browserEvidenceCount">0</b></button>
+          <button type="button" data-evidence-topic="storage"><span><strong>Site storage</strong><small>Cookies and local storage counts</small></span><b id="storageEvidenceCount">0</b></button>
+          <button type="button" data-evidence-topic="findings"><span><strong>Things to review</strong><small>Plain-language findings and advice</small></span><b id="findingEvidenceCount">0</b></button>
+        </div>
+      </section>
+
+      <section class="report-card telemetry-card" aria-labelledby="telemetryTitle">
+        <div class="card-heading telemetry-heading">
+          <div><span class="eyebrow">Data sharing</span><h2 id="telemetryTitle">Did Veilance send anything?</h2><p>This is separate from website activity. Veilance only uploads a redacted research snapshot when your settings allow it.</p></div>
+          <span id="uploadStateBadge" class="upload-badge local">Not sent</span>
+        </div>
+
+        <div id="uploadStatusCard" class="upload-status-card local">
+          <span id="uploadStatusLabel">LOCAL ONLY</span>
+          <div><strong id="uploadStatusTitle">No telemetry was sent</strong><p id="uploadStatusDescription">This visit currently exists only in local history.</p><small id="uploadStatusTime"></small></div>
+        </div>
+
+        <div class="telemetry-settings-strip">
+          <div><span>Upload permission</span><strong id="consentValue">Off</strong></div>
+          <div><span>Automatic capture</span><strong id="automaticCaptureValue">Off</strong></div>
+          <div><span>Automatic upload</span><strong id="automaticUploadValue">Off</strong></div>
+          <a href="https://veilance.org/privacy" target="_blank" rel="noreferrer">Privacy policy ↗</a>
+        </div>
+
+        <div class="telemetry-explanation-grid">
+          <article>
+            <h3>A shared snapshot can include</h3>
+            <ul id="whatSentList"></ul>
+          </article>
+          <article>
+            <h3>It never includes</h3>
+            <ul id="neverSentList"></ul>
+          </article>
+        </div>
+
+        <details class="sharing-details">
+          <summary>Why this visit may qualify for research</summary>
+          <div class="sharing-details-body"><div id="interestSummary" class="interest-summary"></div><ul id="whySentList"></ul></div>
+        </details>
+
+        <details class="sharing-details">
+          <summary>How a permitted upload works</summary>
+          <div class="sharing-details-body"><span id="transportOutcome" class="transport-outcome">No upload attempted</span><dl id="transportDetails"></dl></div>
+        </details>
+
+        <div class="local-only-note">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5.5 5.7v5.5c0 4.2 2.7 7.7 6.5 9.8 3.8-2.1 6.5-5.6 6.5-9.8V5.7L12 3Z"></path><path d="m9 12 2 2 4-4"></path></svg>
+          <div><strong>The detailed report stays on this device</strong><p>Charts, findings, exact times, and Shield explanations are not part of a research snapshot.</p></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="evidenceDialog" class="evidence-dialog" aria-labelledby="evidenceDialogTitle">
+    <div class="evidence-dialog-shell">
+      <header>
+        <div><span id="evidenceDialogEyebrow" class="eyebrow">Evidence</span><h2 id="evidenceDialogTitle">Visit evidence</h2><p id="evidenceDialogIntro"></p></div>
+        <button id="evidenceCloseButton" type="button" aria-label="Close evidence window">×</button>
+      </header>
+      <div class="evidence-learning">
+        <article><span>What it means</span><p id="evidenceMeaning"></p></article>
+        <article><span>Why it matters</span><p id="evidenceImportance"></p></article>
+        <article><span>What you can do</span><p id="evidenceAction"></p></article>
+      </div>
+      <div class="evidence-dialog-results">
+        <div class="evidence-results-heading"><strong>Evidence from this visit</strong><span id="evidenceDialogCount">0 items</span></div>
+        <div id="evidenceDialogRows" class="report-list"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <footer class="report-footer"><span>Generated from data stored by Veilance in this browser.</span><span id="version"></span></footer>
+  <script type="module" src="report.js"></script>
+</body>
+</html>

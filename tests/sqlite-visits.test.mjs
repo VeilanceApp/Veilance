@@ -105,6 +105,7 @@ test("SQLite snapshot vault stores payloads separately, prunes old rows, and per
   for (let number = 1; number <= 4; number += 1) {
     await store.upsertSnapshot({
       snapshotId: `snapshot-${number}`,
+      visitId: `visit-${number}`,
       hostname: `site-${number}.example`,
       createdAt: 1000 + number,
       payload: {
@@ -132,14 +133,21 @@ test("SQLite snapshot vault stores payloads separately, prunes old rows, and per
   assert.equal(summaries[0].interest.eligible, true);
   assert.equal(await store.getSnapshot("snapshot-1"), null);
   assert.equal((await store.getSnapshot("snapshot-4")).payload.eventId, "event-4");
+  assert.equal((await store.getSnapshotForVisit("visit-4")).snapshotId, "snapshot-4");
 
   await store.updateSnapshotUpload("snapshot-4", {
     status: "queued",
-    nextAttemptAt: 2000
+    nextAttemptAt: 2000,
+    receipt: {
+      batchId: "batch-1",
+      transport: "HTTPS multipart/form-data",
+      telemetryEncoding: "gzip"
+    }
   });
   const due = await store.listDueSnapshotUploads(2000, 20);
   assert.equal(due.length, 1);
   assert.equal(due[0].snapshotId, "snapshot-4");
+  assert.equal(due[0].upload.receipt.batchId, "batch-1");
 
   await store.upsertSnapshot({
     snapshotId: "legacy-snapshot",

@@ -1,4 +1,4 @@
-# Veilance Browser Extension v0.6.19
+# Veilance Browser Extension v0.7
 
 Veilance is a local-first browser privacy observability extension. It shows what
 a website requests from browser APIs and which network hosts it contacts while
@@ -11,8 +11,11 @@ capture once observed behavior reaches the 25/100 interest threshold. The
 resulting evidence and inert redacted HTML can be reviewed, downloaded, or
 deleted in Settings. Snapshot uploads require their own explicit consent and
 can run immediately, through the privacy-delayed queue, or automatically. They
-send raw gzip files through the configured multipart API. Payouts remain
-disabled.
+send raw gzip files through the configured multipart API. Accepted contributions
+may receive VLNC at the browser's locally generated public Solana address;
+eligibility and payout amount are determined by the service and an upload does
+not guarantee payment. The separate payout dashboard remains disabled in this
+release.
 
 ## Existing local-first capabilities
 
@@ -86,23 +89,58 @@ Brave.
    * Brave: `brave://extensions`
 3. Enable **Developer mode**.
 4. Select **Load unpacked**.
-5. Choose the extracted `Veilance-main` directory containing `manifest.json`.
+5. Choose the extracted `Veilance-dev` directory containing `manifest.json`.
 6. Pin Veilance to the toolbar.
 7. Reload any sites that were already open so document-start indicators can
    initialize.
 
 Do not select the ZIP itself. Chromium needs the extracted directory.
 
+## First-run setup
+
+On a fresh installation, Veilance opens a four-step onboarding page. It:
+
+* Explains the local privacy monitor and Fingerprint Shield
+* Offers the working no-account path and identifies account sign-in as coming
+  later
+* Requires acceptance of the linked Veilance Privacy Policy
+* Leaves automatic telemetry off unless the user explicitly enables it
+* Explains the redacted upload contents, exclusions, randomized 5–15 minute
+  delay, local payout wallet, and non-guaranteed VLNC reward review
+
+Selecting **Enable automatic telemetry** turns on automatic local capture,
+upload consent, and automatic queueing together. Selecting the local-only path
+leaves those settings off on first run. The completed choice is stored locally,
+and **Review setup** in Settings can reopen the flow. An incomplete setup also
+appears as a reminder in the popup.
+
 ## Use the popup
 
 ### Overview
 
-The Overview tab shows the active website, current status, request and browser
-API call counts, findings, and the live snapshot interest score. Each activity
-counter is labeled **Typical** or **High**. Counts accumulate throughout a
-visit, and high volume alone does not mean harmful behavior. Select a finding
-status to jump directly to its explanation, or open **Technical details** to
-see the full local record.
+The Overview tab shows the active website, a plain-language assessment, and three
+short explanations: website connections, browser and storage access, and what
+Fingerprint Shield actually changed. Observed activity is explicitly separated
+from blocked or changed activity. Research snapshots, payouts, and reset controls
+remain available under **More options** without crowding the everyday view.
+
+Select **Open the privacy report** for one unified website activity timeline.
+It places site requests, outside services, tracker matches, browser features,
+storage and permission access, and Shield changes on the same visit clock.
+One-, five-, and fifteen-minute timeframes and the full visit are available, and
+an optional live-update switch refreshes an active visit every 1.5 seconds. Every
+timeline mark exposes the exact evidence and plain-language context on hover,
+focus, or tap; the same activity is also available as a list. Network entries
+show the destination, request method, and resource category without inspecting
+request bodies, response bodies, URL paths, or query strings.
+
+Evidence topics open in focused modal windows with a definition, an explanation
+of why the category matters, practical next steps, and the exact local records.
+The Shield section connects supported browser observations to the protection
+rule, what was changed, and the protected answer returned to the website. The
+Data sharing section distinguishes local, queued, failed, and accepted snapshots
+without exposing a raw telemetry dump. Request timing, findings, and Shield
+explanations are never added to the telemetry snapshot.
 
 The compact **Wallet & payouts** button opens the dedicated Settings
 tab containing the Solana address, backup controls, and payout status.
@@ -134,7 +172,7 @@ to 100. **Save snapshot** becomes available at 25/100. Visits below that
 threshold are treated as routine and cannot be snapshotted. The capture is
 manual unless **Save eligible snapshots automatically** is enabled in Settings.
 Automatic capture remains off by default and saves at most one local snapshot
-per eligible visit. Open **Settings → Snapshots** to:
+per eligible visit. Open **Settings → Telemetry** to:
 
 * Review the raw telemetry fields and the redacted HTML as inert text
 * Inspect third-party resource origins, inline-script capability hints, and
@@ -533,7 +571,8 @@ Keeps active visit state, indicator settings, the serialized SQLite database,
 custom indicator definitions, managed tracker and Shield definitions, their
 update logs, the automatic-capture preference, local snapshot upload consent, the
 automatic-upload preference, the stable pseudonymous telemetry client identity,
-the shared appearance preference, and local wallet material.
+the shared appearance preference, onboarding completion and privacy-policy
+acceptance metadata, and local wallet material.
 
 ### `unlimitedStorage`
 

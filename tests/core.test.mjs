@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  ACTIVITY_TIMELINE_MAX_EVENTS,
   addNetworkRequest,
   addPageSignal,
   addProtectionEvent,
@@ -17,6 +18,7 @@ import {
   isPublicTelemetryHostname,
   isRedactedHtmlSafe,
   registrableDomain,
+  REQUEST_TIMELINE_BUCKET_MS,
   safePageIdentity,
   sanitizeEventDetail,
   scoreTelemetryInterest,
@@ -57,6 +59,76 @@ test("network aggregation counts third-party requests and known services", () =>
   assert.equal(state.network.firstPartyRequests, 1);
   assert.equal(state.network.thirdPartyRequests, 1);
   assert.equal(state.network.trackers["google-analytics.com"].count, 1);
+  assert.deepEqual(state.network.requestTimeline.buckets["0"], {
+    offsetMs: 0,
+    total: 2,
+    firstParty: 1,
+    thirdParty: 1
+  });
+});
+
+test("request timeline keeps bounded five-second first and third-party buckets", () => {
+  const state = createEmptyState(13, "https://example.com", 1_000);
+  addNetworkRequest(state, { url: "https://example.com/app.js", type: "script" }, 2_000);
+  addNetworkRequest(state, { url: "https://analytics.example.net/a", type: "fetch" }, 7_200);
+  assert.equal(state.network.requestTimeline.bucketMs, REQUEST_TIMELINE_BUCKET_MS);
+  assert.equal(state.network.requestTimeline.buckets["0"].firstParty, 1);
+  assert.deepEqual(state.network.requestTimeline.buckets["1"], {
+    offsetMs: 5_000,
+    total: 1,
+    firstParty: 0,
+    thirdParty: 1
+  });
+  assert.equal("requestTimeline" in buildSanitizedPayload(state, "0.7", 8_000), false);
+  assert.equal("requestTimeline" in buildSanitizedPayload(state, "0.7", 8_000).observation, false);
+  assert.equal("activityTimeline" in buildSanitizedPayload(state, "0.7", 8_000), false);
+  assert.equal("activityTimeline" in buildSanitizedPayload(state, "0.7", 8_000).observation, false);
+});
+
+test("local activity timeline keeps event timing and categories without URL paths or private values", () => {
+  const state = createEmptyState(14, "https://example.com/private?account=secret", 1_000);
+  addNetworkRequest(state, {
+    url: "https://www.google-analytics.com/collect?account=secret",
+    type: "xmlhttprequest",
+    method: "POST"
+  }, 1_150);
+  addPageSignal(state, {
+    indicatorId: "geolocation",
+    kind: "sensitive-api",
+    api: "Geolocation",
+    action: "get-position",
+    detail: { latitude: 35.4, longitude: -97.5, permission: "geolocation" }
+  }, 1_300);
+  addProtectionEvent(state, {
+    ruleId: "canvas-test",
+    indicatorId: "canvas",
+    api: "Canvas",
+    surface: "Canvas export",
+    action: "export",
+    technique: "Canvas farbling",
+    changedUnits: 4,
+    timestamp: 1_450
+  }, 1_450);
+
+  assert.deepEqual(state.activityTimeline.events.map((event) => event.category), ["tracker", "permission", "shield"]);
+  assert.equal(state.activityTimeline.events[0].host, "www.google-analytics.com");
+  assert.equal(state.activityTimeline.events[0].resourceType, "xmlhttprequest");
+  assert.equal(state.activityTimeline.events[0].method, "POST");
+  assert.equal(state.activityTimeline.events[1].detail.permission, "geolocation");
+  assert.equal("latitude" in state.activityTimeline.events[1].detail, false);
+  assert.equal("longitude" in state.activityTimeline.events[1].detail, false);
+  const serialized = JSON.stringify(state.activityTimeline);
+  assert.equal(serialized.includes("/collect"), false);
+  assert.equal(serialized.includes("secret"), false);
+});
+
+test("local activity timeline is bounded", () => {
+  const state = createEmptyState(15, "https://example.com", 1_000);
+  for (let index = 0; index < ACTIVITY_TIMELINE_MAX_EVENTS + 5; index += 1) {
+    addNetworkRequest(state, { url: `https://host-${index}.outside.test/file`, type: "script" }, 1_100);
+  }
+  assert.equal(state.activityTimeline.events.length, ACTIVITY_TIMELINE_MAX_EVENTS);
+  assert.equal(state.activityTimeline.droppedEvents, 5);
 });
 
 test("a visit keeps one identity across redirects and records a definite end", () => {
@@ -91,14 +163,22 @@ test("known tracker matching can be disabled without disabling request counts", 
 test("duplicate protection events are stacked by fingerprint surface", () => {
   const state = createEmptyState(11, "https://example.com", 1000);
   addProtectionEvent(state, {
+    indicatorId: "canvas",
+    api: "CanvasRenderingContext2D",
+    matchedActions: ["readback"],
     surface: "Canvas 2D",
     action: "Canvas export",
+    changedUnits: 4,
     returnedValue: { kind: "array", type: "Uint8ClampedArray", length: 8, sample: [1, 2, 3, 4], truncated: true },
     timestamp: 1100
   }, 1100);
   addProtectionEvent(state, {
+    indicatorId: "canvas",
+    api: "CanvasRenderingContext2D",
+    matchedActions: ["readback"],
     surface: "Canvas 2D",
     action: "Pixel readback",
+    changedUnits: 1,
     returnedValue: { kind: "scalar", type: "number", value: 24 },
     timestamp: 1200
   }, 1200);
@@ -114,6 +194,11 @@ test("duplicate protection events are stacked by fingerprint surface", () => {
   assert.equal(canvas.count, 2);
   assert.equal(canvas.firstProtectedAt, 1100);
   assert.equal(canvas.lastProtectedAt, 1200);
+  assert.equal(canvas.indicatorId, "canvas");
+  assert.equal(canvas.api, "CanvasRenderingContext2D");
+  assert.deepEqual(canvas.matchedActions, ["readback"]);
+  assert.equal(canvas.changedUnits, 1);
+  assert.equal(canvas.totalChangedUnits, 5);
   assert.deepEqual(canvas.returnedValue, { kind: "scalar", type: "number", value: 24 });
 });
 

@@ -205,6 +205,9 @@
     if (!rule || Object.is(originalValue, protectedValue) || changedUnits <= 0) return;
     dispatchProtection({
       ruleId: rule.id,
+      indicatorId: rule.match.indicatorId,
+      api: rule.match.api,
+      matchedActions: rule.match.actions,
       surface: rule.surface,
       action,
       technique: rule.name,
@@ -282,6 +285,9 @@
     if (!rule || changedUnits <= 0) return;
     dispatchProtection({
       ruleId: rule.id,
+      indicatorId: rule.match.indicatorId,
+      api: rule.match.api,
+      matchedActions: rule.match.actions,
       surface: rule.surface,
       action,
       technique: rule.name,
@@ -522,6 +528,9 @@
     if (!metadata || metadata.changedPixels <= 0 || metadata.beforeSignature === metadata.afterSignature) return;
     dispatchProtection({
       ruleId: rule.id,
+      indicatorId: rule.match.indicatorId,
+      api: rule.match.api,
+      matchedActions: rule.match.actions,
       surface: rule.surface,
       action,
       technique: rule.name,
@@ -554,6 +563,29 @@
     if (configured && enabledIndicatorIds.has(indicatorId)) dispatch(event);
   }
 
+  function removeInstrumentationFrames(error) {
+    try {
+      if (!error || typeof error.stack !== "string") return error;
+      const cleaned = error.stack
+        .split("\n")
+        .filter((line, index) => index === 0 || !(
+          /\bveilance(?:WrappedMethod|WrappedGetter|WrappedSetter)\b/.test(line) ||
+          /(?:chrome-extension:\/\/[^/]+\/)?injected\.js:\d+(?::\d+)?/.test(line)
+        ))
+        .join("\n");
+      if (cleaned && cleaned !== error.stack) {
+        Object.defineProperty(error, "stack", {
+          value: cleaned,
+          configurable: true,
+          writable: true
+        });
+      }
+    } catch {
+      // Stack cleanup is compatibility-only and must not alter the exception.
+    }
+    return error;
+  }
+
   function wrapMethod(target, method, beforeCall, afterCall) {
     if (!target) return;
     let descriptor;
@@ -572,7 +604,14 @@
       } catch {
         // Instrumentation must never break the host page.
       }
-      const result = Reflect.apply(original, this, args);
+      let result;
+      try {
+        result = Reflect.apply(original, this, args);
+      } catch (error) {
+        // Preserve the native exception while keeping a page's expected API
+        // failures from being attributed to Veilance in chrome://extensions.
+        throw removeInstrumentationFrames(error);
+      }
       if (typeof afterCall !== "function") return result;
       try {
         return afterCall.call(this, result, args);
@@ -690,7 +729,12 @@
         } catch {
           // Instrumentation must never break the host page.
         }
-        const value = Reflect.apply(originalGet, this, []);
+        let value;
+        try {
+          value = Reflect.apply(originalGet, this, []);
+        } catch (error) {
+          throw removeInstrumentationFrames(error);
+        }
         if (typeof afterGet !== "function") return value;
         try {
           return afterGet.call(this, value);
@@ -715,7 +759,11 @@
         } catch {
           // Instrumentation must never break the host page.
         }
-        return Reflect.apply(originalSet, this, [value]);
+        try {
+          return Reflect.apply(originalSet, this, [value]);
+        } catch (error) {
+          throw removeInstrumentationFrames(error);
+        }
       };
       try {
         Object.defineProperty(wrappedSet, WRAPPED_FLAG, { value: true });

@@ -3,36 +3,20 @@ import {
   subscribeToTheme,
   toggleResolvedTheme
 } from "./lib/theme.js";
-import {
-  OVERVIEW_ACTIVITY_BASELINE,
-  classifyOverviewActivity
-} from "./lib/overview-baselines.js";
 
 const elements = {
+  setupNotice: document.querySelector("#setupNotice"),
+  finishSetupButton: document.querySelector("#finishSetupButton"),
   themeToggle: document.querySelector("#themeToggle"),
   liveState: document.querySelector("#liveState"),
   hostname: document.querySelector("#hostname"),
   statusPill: document.querySelector("#statusPill"),
   statusPillText: document.querySelector("#statusPillText"),
+  statusExplanation: document.querySelector("#statusExplanation"),
   visitTiming: document.querySelector("#visitTiming"),
   liveMessage: document.querySelector("#liveMessage"),
-  thirdPartyHosts: document.querySelector("#thirdPartyHosts"),
-  thirdPartyHostsCard: document.querySelector("#thirdPartyHostsCard"),
-  thirdPartyHostsLevel: document.querySelector("#thirdPartyHostsLevel"),
-  requestCount: document.querySelector("#requestCount"),
-  requestCountCard: document.querySelector("#requestCountCard"),
-  requestCountLevel: document.querySelector("#requestCountLevel"),
-  signalCount: document.querySelector("#signalCount"),
-  signalCountCard: document.querySelector("#signalCountCard"),
-  signalCountLevel: document.querySelector("#signalCountLevel"),
-  storageCount: document.querySelector("#storageCount"),
-  storageCountCard: document.querySelector("#storageCountCard"),
-  storageCountLevel: document.querySelector("#storageCountLevel"),
-  findingsPanel: document.querySelector("#findingsPanel"),
-  findingCount: document.querySelector("#findingCount"),
-  findings: document.querySelector("#findings"),
-  liveDetailPanel: document.querySelector("#liveDetailPanel"),
-  liveDetails: document.querySelector("#liveDetails"),
+  activityBreakdown: document.querySelector("#activityBreakdown"),
+  openReportButton: document.querySelector("#openReportButton"),
   snapshotButton: document.querySelector("#snapshotButton"),
   snapshotStatus: document.querySelector("#snapshotStatus"),
   snapshotInterest: document.querySelector("#snapshotInterest"),
@@ -71,34 +55,11 @@ const elements = {
 let activeTabId = null;
 let activeView = "live";
 let currentLiveState = null;
-let currentLiveFindings = [];
 let currentLiveInterest = { score: 0, level: "routine", minimumScore: 25, eligible: false, reasons: [] };
 let snapshotCaptureBusy = false;
 let automaticSnapshotCaptureEnabled = false;
 let currentProtectionSettings = { fingerprintEnabled: true, trackerEnabled: false, trackerAvailable: false };
-
-const overviewMetricElements = Object.freeze({
-  thirdPartyHosts: {
-    value: elements.thirdPartyHosts,
-    card: elements.thirdPartyHostsCard,
-    level: elements.thirdPartyHostsLevel
-  },
-  requests: {
-    value: elements.requestCount,
-    card: elements.requestCountCard,
-    level: elements.requestCountLevel
-  },
-  apiSignals: {
-    value: elements.signalCount,
-    card: elements.signalCountCard,
-    level: elements.signalCountLevel
-  },
-  storageEvents: {
-    value: elements.storageCount,
-    card: elements.storageCountCard,
-    level: elements.storageCountLevel
-  }
-});
+const ONBOARDING_STATE_KEY = "veilanceOnboardingStateV1";
 
 async function send(message) {
   const response = await chrome.runtime.sendMessage(message);
@@ -115,36 +76,98 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function totalStorageEvents(state) {
-  return Object.values(state?.signals || {})
-    .filter((signal) => signal.indicatorId === "browser-storage" || signal.kind === "storage")
-    .reduce((sum, signal) => sum + Number(signal.count || 0), 0);
+function plural(count, singular, pluralForm = `${singular}s`) {
+  return `${count.toLocaleString()} ${count === 1 ? singular : pluralForm}`;
 }
 
-function renderOverviewMetrics(values = {}, availability = "available") {
-  for (const [metricName, metricElements] of Object.entries(overviewMetricElements)) {
-    metricElements.card.classList.remove("metric-high");
+function overviewIcon(kind) {
+  const paths = {
+    connections: '<circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><path d="m8.6 10.5 6.8-3M8.6 13.5l6.8 3"></path>',
+    browser: '<rect x="3" y="4" width="18" height="16" rx="3"></rect><path d="M3 9h18M7 6.5h.01M10 6.5h.01M8 14h3M14 14h2M8 17h8"></path>',
+    shield: '<path d="M12 3 5.5 5.7v5.5c0 4.2 2.7 7.7 6.5 9.8 3.8-2.1 6.5-5.6 6.5-9.8V5.7L12 3Z"></path><path d="m9 12 2 2 4-4"></path>'
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[kind]}</svg>`;
+}
 
-    if (availability !== "available") {
-      metricElements.value.textContent = "0";
-      metricElements.level.className = `metric-level ${availability}`;
-      metricElements.level.textContent = availability === "pending" ? "Checking" : "Unavailable";
-      metricElements.level.setAttribute(
-        "aria-label",
-        availability === "pending" ? "Activity comparison is loading" : "Activity comparison is unavailable"
-      );
-      metricElements.card.title = "Activity volume comparison is unavailable.";
-      continue;
-    }
+function overviewRowMarkup(category) {
+  return `
+    <div class="overview-row ${category.tone || ""}" data-overview-row="${category.id}">
+      <span class="overview-icon">${overviewIcon(category.icon)}</span>
+      <span class="overview-copy"><strong>${escapeHtml(category.title)}</strong><small>${escapeHtml(category.summary)}</small></span>
+      <span class="overview-value"><b>${escapeHtml(category.value)}</b><small>${escapeHtml(category.unit)}</small></span>
+    </div>`;
+}
 
-    const result = classifyOverviewActivity(metricName, values[metricName]);
-    metricElements.value.textContent = String(result.count);
-    metricElements.level.className = `metric-level ${result.level}`;
-    metricElements.level.textContent = result.label;
-    metricElements.level.setAttribute("aria-label", result.description);
-    metricElements.card.classList.toggle("metric-high", result.isHigh);
-    metricElements.card.title = `${result.description} Longer visits can accumulate more activity.`;
+function renderPrivacyBreakdown(state, trackerObservations = [], availability = "available") {
+  const available = availability === "available" && state;
+  const totalRequests = available ? Math.max(0, Number(state.network?.totalRequests) || 0) : 0;
+  const firstPartyRequests = available ? Math.max(0, Number(state.network?.firstPartyRequests) || 0) : 0;
+  const thirdPartyRequests = available ? Math.max(0, Number(state.network?.thirdPartyRequests) || 0) : 0;
+  elements.openReportButton.disabled = !available;
+
+  if (!available) {
+    elements.activityBreakdown.innerHTML = `<div class="activity-loading">${availability === "pending" ? "Checking page activity…" : "Activity is unavailable for this page."}</div>`;
+    return;
   }
+
+  const trackers = (Array.isArray(trackerObservations) ? trackerObservations : [])
+    .filter((entry) => entry && typeof entry === "object")
+    .sort((a, b) => Number(b.requests || 0) - Number(a.requests || 0) || String(a.id).localeCompare(String(b.id)));
+  const trackerRequests = trackers.reduce((sum, entry) => sum + Math.max(0, Number(entry.requests) || 0), 0);
+  const thirdPartyHosts = Object.values(state.network?.hosts || {})
+    .filter((entry) => entry.thirdParty)
+    .sort((a, b) => Number(b.count || 0) - Number(a.count || 0) || String(a.host).localeCompare(String(b.host)));
+  const allSignals = Object.values(state.signals || {});
+  const storageSignals = allSignals
+    .filter((signal) => signal.indicatorId === "browser-storage" || signal.kind === "storage")
+    .sort((a, b) => Number(b.count || 0) - Number(a.count || 0));
+  const browserSignals = allSignals
+    .filter((signal) => signal.indicatorId !== "browser-storage" && signal.kind !== "storage")
+    .sort((a, b) => Number(b.count || 0) - Number(a.count || 0));
+  const storageEvents = storageSignals.reduce((sum, signal) => sum + Math.max(0, Number(signal.count) || 0), 0);
+  const browserEvents = browserSignals.reduce((sum, signal) => sum + Math.max(0, Number(signal.count) || 0), 0);
+  const protectionEnabled = currentProtectionSettings?.fingerprintEnabled === true;
+  const protectionCount = Math.max(0, Number(state.protections?.total) || 0);
+
+  const categories = [
+    {
+      id: "connections",
+      icon: "connections",
+      title: "Website connections",
+      value: totalRequests.toLocaleString(),
+      unit: totalRequests === 1 ? "request" : "requests",
+      tone: trackers.length ? "attention" : "clear",
+      summary: totalRequests
+        ? `${firstPartyRequests.toLocaleString()} stayed with this site; ${thirdPartyRequests.toLocaleString()} went to ${plural(thirdPartyHosts.length, "outside service")}. ${trackers.length ? `${plural(trackerRequests, "request")} matched ${plural(trackers.length, "known tracker service")}.` : "None matched a known tracker service."}`
+        : "No network requests have been observed yet. Requests are how a page loads images, sign-in, payments, analytics, and other features."
+    },
+    {
+      id: "browser",
+      icon: "browser",
+      title: "Browser and storage access",
+      value: (browserEvents + storageEvents).toLocaleString(),
+      unit: browserEvents + storageEvents === 1 ? "action" : "actions",
+      tone: browserEvents + storageEvents ? "neutral" : "clear",
+      summary: browserEvents + storageEvents
+        ? `${plural(browserEvents, "browser action")} and ${plural(storageEvents, "storage action")} were observed. Veilance records counts—not passwords, messages, locations, or stored values.`
+        : "No monitored browser or storage action has been observed. Veilance never reads passwords, messages, or saved values."
+    },
+    {
+      id: "shield",
+      icon: "shield",
+      title: "Veilance Shield",
+      value: protectionEnabled ? (protectionCount ? protectionCount.toLocaleString() : "On") : "Off",
+      unit: protectionEnabled && protectionCount ? (protectionCount === 1 ? "change" : "changes") : "",
+      tone: protectionEnabled ? "protected" : "neutral",
+      summary: protectionEnabled
+        ? protectionCount
+          ? `Shield changed supported fingerprinting answers ${plural(protectionCount, "time")} before this site received them. The report shows exactly what and how.`
+          : "Shield is on. Nothing supported has needed changing yet; observation and protection are shown separately."
+        : "Shield is off, so Veilance is observing this page without changing what the website receives."
+    }
+  ];
+
+  elements.activityBreakdown.innerHTML = categories.map(overviewRowMarkup).join("");
 }
 
 function findingCountLabel(count) {
@@ -152,41 +175,25 @@ function findingCountLabel(count) {
   return `${normalizedCount} ${normalizedCount === 1 ? "finding" : "findings"}`;
 }
 
-function renderFindingCount(count) {
-  const label = findingCountLabel(count);
-  elements.findingCount.textContent = label;
-  elements.findingCount.setAttribute("aria-label", label);
-}
-
 function renderStatus(summary, findings = []) {
   const highFindings = findings.filter((finding) => finding.severity === "high");
-  let label = summary?.label || "Observing locally";
-  if (highFindings.length === 1) {
-    label = `Sensitive: ${highFindings[0].title}`;
-  } else if (highFindings.length > 1) {
-    label = `${highFindings.length} sensitive findings · ${highFindings[0].title}`;
-  }
+  const label = highFindings.length
+    ? "Sensitive access needs attention"
+    : findings.length
+      ? "Privacy activity worth reviewing"
+      : "No concerns found so far";
 
   elements.statusPill.className = `status ${summary?.status || "quiet"}`;
-  elements.statusPill.classList.toggle("has-findings", findings.length > 0);
+  elements.statusPill.classList.add("opens-report");
   elements.statusPillText.textContent = label;
-  elements.statusPill.disabled = findings.length === 0;
-  const findingPreview = findings.slice(0, 3).map((finding) => finding.title).join(", ");
-  const remainingFindingCount = Math.max(0, findings.length - 3);
-  elements.statusPill.title = findings.length
-    ? `View ${findingCountLabel(findings.length)}: ${findingPreview}${remainingFindingCount ? `, and ${remainingFindingCount} more` : ""}`
-    : label;
-  elements.statusPill.setAttribute(
-    "aria-label",
-    findings.length ? `${label}. View ${findingCountLabel(findings.length)}.` : label
-  );
-}
-
-function showCurrentFindings() {
-  if (!currentLiveFindings.length) return;
-  const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-  elements.findingsPanel.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
-  requestAnimationFrame(() => elements.findings.querySelector(".finding")?.focus({ preventScroll: true }));
+  elements.statusPill.disabled = false;
+  elements.statusPill.title = "Open the privacy report";
+  elements.statusPill.setAttribute("aria-label", `${label}. Open the privacy report.`);
+  elements.statusExplanation.textContent = highFindings.length
+    ? `Veilance noticed ${plural(highFindings.length, "sensitive action")} such as permission or device access. This does not automatically mean the site is unsafe.`
+    : findings.length
+      ? `Veilance found ${plural(findings.length, "item")} worth explaining. Open the report to see what happened, why it matters, and what you can do.`
+      : "Nothing concerning has been noticed so far. Veilance is still watching this visit.";
 }
 
 function formatDateTime(value) {
@@ -402,23 +409,22 @@ function telemetryDetailsMarkup(state) {
 
 function renderUnsupported(tab) {
   currentLiveState = null;
-  currentLiveFindings = [];
   renderSnapshotInterest(null);
   elements.liveDashboard.hidden = true;
   elements.unsupportedPage.hidden = false;
   const url = String(tab?.url || "");
   if (/^(?:chrome|edge|brave|about):/i.test(url)) {
-    elements.unsupportedKind.textContent = "Browser backstage";
-    elements.unsupportedDescription.textContent = "The browser keeps its internal pages behind the velvet rope, so the privacy detective is waiting outside.";
+    elements.unsupportedKind.textContent = "Protected browser page";
+    elements.unsupportedDescription.textContent = "Browsers do not allow extensions to inspect internal pages. Veilance will resume automatically on a regular website.";
   } else if (/^(?:chrome|moz)-extension:/i.test(url)) {
-    elements.unsupportedKind.textContent = "Friendly territory";
-    elements.unsupportedDescription.textContent = "Extension pages are fellow staff, not part of the audience. Veilance leaves its neighbors alone.";
+    elements.unsupportedKind.textContent = "Extension page";
+    elements.unsupportedDescription.textContent = "Veilance does not inspect other extension pages. Open a regular website to resume monitoring.";
   } else if (/^file:/i.test(url)) {
-    elements.unsupportedKind.textContent = "Local files stay local";
-    elements.unsupportedDescription.textContent = "Veilance won’t rummage through files on your computer. Some boundaries deserve to stay delightfully boring.";
+    elements.unsupportedKind.textContent = "Local file";
+    elements.unsupportedDescription.textContent = "Local computer files are outside Veilance’s observation boundary and remain untouched.";
   } else {
-    elements.unsupportedKind.textContent = "Outside the observation zone";
-    elements.unsupportedDescription.textContent = "This tab doesn’t use a standard web address, so Veilance has nowhere safe to begin its investigation.";
+    elements.unsupportedKind.textContent = "Unsupported address";
+    elements.unsupportedDescription.textContent = "This tab does not use a supported web address. Veilance works on standard HTTP and HTTPS websites.";
   }
   elements.hostname.textContent = tab?.url?.startsWith("chrome://") ? "Chrome internal page" : "Unsupported page";
   elements.statusPill.className = "status unsupported";
@@ -426,14 +432,12 @@ function renderUnsupported(tab) {
   elements.statusPill.disabled = true;
   elements.statusPill.title = "Veilance cannot inspect this page";
   elements.statusPill.setAttribute("aria-label", "Veilance cannot inspect this page");
+  elements.statusExplanation.textContent = "Browser and extension pages are private boundaries. Veilance resumes automatically on a normal website.";
   elements.visitTiming.textContent = "Browser-internal and extension pages are outside the observation boundary.";
   elements.liveMessage.textContent = "";
   elements.liveState.classList.add("unavailable");
-  elements.liveState.innerHTML = "<i></i><span>Off duty</span>";
-  renderOverviewMetrics({}, "unavailable");
-  renderFindingCount(0);
-  renderFindings(elements.findings, [], "Nothing is collected from this type of page.");
-  elements.liveDetails.innerHTML = '<div class="empty">Complete details are unavailable for this page.</div>';
+  elements.liveState.innerHTML = "<i></i><span>Paused</span>";
+  renderPrivacyBreakdown(null, [], "unavailable");
   elements.clearButton.disabled = true;
   elements.snapshotButton.disabled = true;
   elements.snapshotStatus.textContent = "Snapshots are unavailable for browser-internal pages.";
@@ -612,7 +616,6 @@ async function loadState() {
   const summary = response.summary;
   const findings = response.findings || [];
   currentLiveState = state;
-  currentLiveFindings = findings;
   automaticSnapshotCaptureEnabled = response.snapshotCapture?.automatic === true;
   currentProtectionSettings = response.protections || currentProtectionSettings;
   renderProtections(state, currentProtectionSettings);
@@ -625,29 +628,16 @@ async function loadState() {
   renderStatus(summary, findings);
   elements.liveState.classList.remove("unavailable");
   elements.liveState.innerHTML = "<i></i><span>Monitoring</span>";
-  renderOverviewMetrics({
-    thirdPartyHosts: summary?.thirdPartyHostCount,
-    requests: state?.network?.totalRequests,
-    apiSignals: summary?.signalCount,
-    storageEvents: totalStorageEvents(state)
-  });
-  renderFindingCount(findings.length);
+  renderPrivacyBreakdown(state, response.trackers);
   elements.visitTiming.textContent = state
     ? `${state.active === false ? "Completed" : "Active"} · started ${formatDateTime(state.startedAt)} · ${formatDuration(state.startedAt, state.endedAt)}`
     : "Waiting for this page to begin reporting.";
   elements.clearButton.disabled = !state;
   renderSnapshotButtonState();
-  renderFindings(
-    elements.findings,
-    findings,
-    "No privacy-relevant activity has been observed yet. Enabled indicators continue watching this visit."
-  );
-  if (elements.liveDetailPanel.open) elements.liveDetails.innerHTML = telemetryDetailsMarkup(state);
 }
 
 function renderLiveError(error) {
   currentLiveState = null;
-  currentLiveFindings = [];
   renderSnapshotInterest(null);
   elements.unsupportedPage.hidden = true;
   elements.liveDashboard.hidden = false;
@@ -657,14 +647,12 @@ function renderLiveError(error) {
   elements.statusPill.disabled = true;
   elements.statusPill.title = "Veilance did not respond";
   elements.statusPill.setAttribute("aria-label", "Veilance did not respond");
+  elements.statusExplanation.textContent = "The page was not changed. Reload the extension or try again.";
   elements.visitTiming.textContent = "Monitoring has not changed the page. Try refreshing this view or reloading the extension.";
   elements.liveMessage.textContent = error?.message || "An unexpected extension error occurred.";
   elements.liveState.classList.add("unavailable");
   elements.liveState.innerHTML = "<i></i><span>Unavailable</span>";
-  renderOverviewMetrics({}, "unavailable");
-  renderFindingCount(0);
-  renderFindings(elements.findings, [], "Visit findings are unavailable until Veilance reconnects.");
-  elements.liveDetails.innerHTML = '<div class="empty">Technical details are unavailable.</div>';
+  renderPrivacyBreakdown(null, [], "unavailable");
   elements.clearButton.disabled = true;
   elements.snapshotButton.disabled = true;
 }
@@ -766,6 +754,9 @@ async function openHistoryVisit(visitId) {
       <section class="details-panel" open>
         <div class="telemetry-details">${telemetryDetailsMarkup(state)}</div>
       </section>
+      <button class="history-report-button" type="button" data-open-report="${escapeHtml(state.visitId)}">
+        View graphs and full privacy report <span aria-hidden="true">→</span>
+      </button>
       <button class="delete-visit" type="button" data-delete-visit="${escapeHtml(state.visitId)}">Delete this visit</button>
     `;
     renderFindings(
@@ -773,6 +764,9 @@ async function openHistoryVisit(visitId) {
       findings,
       "No enabled indicator produced a finding during this visit."
     );
+    elements.historyDetail.querySelector("[data-open-report]").addEventListener("click", () => {
+      void openPrivacyReport({ visitId: state.visitId, tabId: null });
+    });
     elements.historyDetail.querySelector("[data-delete-visit]").addEventListener("click", async () => {
       if (!confirm("Delete this visit from local history?")) return;
       await send({ type: "VEILANCE_DELETE_VISIT", visitId: state.visitId });
@@ -856,10 +850,33 @@ async function openSettingsSection(section) {
   await chrome.runtime.openOptionsPage();
 }
 
+async function openPrivacyReport({ visitId = currentLiveState?.visitId, tabId = activeTabId } = {}) {
+  const parameters = new URLSearchParams();
+  if (visitId) parameters.set("visitId", visitId);
+  if (Number.isInteger(tabId)) parameters.set("tabId", String(tabId));
+  const url = chrome.runtime.getURL(`report.html${parameters.size ? `?${parameters}` : ""}`);
+  if (typeof chrome.tabs?.create === "function") await chrome.tabs.create({ url });
+}
+
+async function updateOnboardingNotice() {
+  try {
+    const stored = await chrome.storage.local.get(ONBOARDING_STATE_KEY);
+    elements.setupNotice.hidden = stored?.[ONBOARDING_STATE_KEY]?.completed === true;
+  } catch {
+    elements.setupNotice.hidden = false;
+  }
+}
+
+async function openOnboarding() {
+  const url = chrome.runtime.getURL("onboarding.html");
+  if (typeof chrome.tabs?.create === "function") await chrome.tabs.create({ url });
+}
+
 for (const button of document.querySelectorAll(".nav-button[data-view]")) {
   button.addEventListener("click", () => void switchView(button.dataset.view));
 }
 elements.settingsButton.addEventListener("click", () => void chrome.runtime.openOptionsPage());
+elements.finishSetupButton.addEventListener("click", () => void openOnboarding());
 elements.unsupportedSettingsButton.addEventListener("click", () => void chrome.runtime.openOptionsPage());
 elements.unsupportedRetryButton.addEventListener("click", () => {
   elements.unsupportedRetryButton.disabled = true;
@@ -869,21 +886,25 @@ elements.themeToggle.addEventListener("click", () => void toggleResolvedTheme().
   console.error("Veilance could not save the theme preference", error);
 }));
 elements.refreshButton.addEventListener("click", () => void refreshLive());
-elements.statusPill.addEventListener("click", showCurrentFindings);
+elements.statusPill.addEventListener("click", () => void openPrivacyReport({
+  visitId: currentLiveState?.visitId,
+  tabId: activeTabId
+}));
 elements.historyRefreshButton.addEventListener("click", () => void refreshHistory());
 elements.historyBackButton.addEventListener("click", showHistoryList);
 elements.clearButton.addEventListener("click", () => void clearCurrentVisit().catch((error) => {
   elements.liveMessage.textContent = error?.message || "The current visit could not be reset.";
 }));
 elements.snapshotButton.addEventListener("click", () => void takeTelemetrySnapshot());
+elements.openReportButton.addEventListener("click", () => void openPrivacyReport({
+  visitId: currentLiveState?.visitId,
+  tabId: activeTabId
+}));
 elements.payoutSettingsButton.addEventListener("click", () => void openSettingsSection("wallet"));
 elements.openProtectionSettings.addEventListener("click", () => void openSettingsSection("protections"));
-elements.liveDetailPanel.addEventListener("toggle", () => {
-  if (elements.liveDetailPanel.open) elements.liveDetails.innerHTML = telemetryDetailsMarkup(currentLiveState);
-});
 
 elements.version.textContent = `v${chrome.runtime.getManifest().version}`;
-renderOverviewMetrics({}, "pending");
+renderPrivacyBreakdown(null, [], "pending");
 
 subscribeToTheme(({ resolved }) => {
   const nextTheme = resolved === "dark" ? "light" : "dark";
@@ -891,6 +912,11 @@ subscribeToTheme(({ resolved }) => {
   elements.themeToggle.setAttribute("aria-label", `Use ${nextTheme} mode`);
 });
 void initializeTheme();
+void updateOnboardingNotice();
+
+chrome.storage.onChanged?.addListener?.((changes, areaName) => {
+  if (areaName === "local" && changes[ONBOARDING_STATE_KEY]) void updateOnboardingNotice();
+});
 
 void loadState().catch(renderLiveError);
 void loadHistory().catch(renderHistoryError);

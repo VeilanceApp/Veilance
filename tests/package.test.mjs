@@ -61,31 +61,40 @@ test("popup keeps snapshots local and links to compact payout settings", async (
   assert.match(html, /Last 20 visits/);
   assert.match(html, /id="snapshotButton"/);
   assert.match(html, /id="snapshotButton"[^>]*aria-describedby="snapshotStatus"/);
-  assert.match(html, /redacted HTML/i);
+  assert.match(html, /redacted snapshot/i);
   assert.match(html, /Veilance doesn’t support this page/i);
   assert.match(html, /Nothing was collected from this page/i);
   assert.doesNotMatch(html, /baseline/i);
   assert.doesNotMatch(html, /60 seconds|60-second|reference sites/i);
-  assert.match(html, /browser API calls/i);
+  assert.match(html, /What happened here/i);
+  assert.match(html, /These are observations, not accusations/i);
   assert.doesNotMatch(html, /High range:/i);
   assert.doesNotMatch(html, /metric-threshold/i);
-  assert.match(html, /id="statusPill"[^>]*aria-controls="findingsPanel"/i);
-  assert.match(html, /id="findingCount"[^>]*>0 findings</i);
-  assert.match(source, /Sensitive: \$\{highFindings\[0\]\.title\}/);
-  assert.match(source, /statusPill\.addEventListener\("click", showCurrentFindings\)/);
+  assert.match(html, /id="statusPill"[^>]*aria-describedby="statusExplanation"/i);
+  assert.match(html, /id="statusExplanation"/i);
+  assert.match(source, /Sensitive access needs attention/);
+  assert.match(source, /statusPill\.addEventListener\("click"/);
   assert.match(source, /automaticSnapshotCaptureEnabled/);
   assert.match(source, /Automatic snapshots are enabled\. Disable them in Settings/i);
-  assert.match(html, /id="thirdPartyHostsLevel"/);
-  assert.match(html, /id="requestCountLevel"/);
-  assert.match(html, /id="signalCountLevel"/);
-  assert.match(html, /id="storageCountLevel"/);
-  assert.match(html, /High volume alone does not mean harmful behavior/i);
+  assert.match(html, /id="activityBreakdown"/);
+  assert.match(html, /id="openReportButton"/);
+  assert.match(html, /Charts, plain-English explanations, and Shield details/i);
+  assert.match(html, /More options/i);
+  assert.match(source, /Website connections/);
+  assert.match(source, /Browser and storage access/);
+  assert.match(source, /Veilance Shield/);
+  assert.doesNotMatch(html, /class="activity-category/);
+  assert.doesNotMatch(html, /donut|trackers blocked|pause on this site/i);
+  assert.match(html, /id="setupNotice"/);
+  assert.match(html, /id="finishSetupButton"/);
+  assert.doesNotMatch(html, /privacy detective|velvet rope|tiny trench coat/i);
 });
 
 test("popup groups protection activity and keeps the explanation simple", async () => {
-  const [html, source] = await Promise.all([
+  const [html, source, contentSource] = await Promise.all([
     readFile(new URL("../popup.html", import.meta.url), "utf8"),
-    readFile(new URL("../popup.js", import.meta.url), "utf8")
+    readFile(new URL("../popup.js", import.meta.url), "utf8"),
+    readFile(new URL("../content.js", import.meta.url), "utf8")
   ]);
   assert.match(html, /data-view="protections"[^>]*>[\s\S]*?Shielded/i);
   assert.match(html, /Veilance Shield/i);
@@ -98,6 +107,9 @@ test("popup groups protection activity and keeps the explanation simple", async 
   assert.match(source, /Returned to website/);
   assert.match(source, /Canvas fingerprint shielded/);
   assert.match(source, /activeRuleCount/);
+  assert.match(contentSource, /indicatorId: String\(detail\.indicatorId/);
+  assert.match(contentSource, /matchedActions:/);
+  assert.match(contentSource, /changedUnits:/);
   assert.doesNotMatch(html, /Original local signature|protected signature/i);
   assert.doesNotMatch(html, /protection-flow|signature-difference|fingerprintProtectionStatus|protection-feature-card/i);
 });
@@ -131,7 +143,7 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /id="snapshotList"/);
   assert.match(html, /id="snapshotHtmlPreview"/);
   assert.match(html, /private\/internal hosts/i);
-  assert.match(html, /data-settings-tab="protections"[^>]*>Veilance Shield<\/button>/i);
+  assert.match(html, /data-settings-tab="protections"[^>]*>Shield<\/button>/i);
   assert.match(html, /Fingerprint Shield/i);
   assert.match(html, /On by default/i);
   assert.match(html, /Tracker Shield/i);
@@ -145,8 +157,8 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /https:\/\/veilance\.org\/leaderboard/i);
 });
 
-test("popup and Settings scripts reference elements that exist in their pages", async () => {
-  for (const name of ["popup", "settings"]) {
+test("extension UI scripts reference elements that exist in their pages", async () => {
+  for (const name of ["onboarding", "popup", "report", "settings"]) {
     const [html, source] = await Promise.all([
       readFile(new URL(`../${name}.html`, import.meta.url), "utf8"),
       readFile(new URL(`../${name}.js`, import.meta.url), "utf8")
@@ -154,6 +166,66 @@ test("popup and Settings scripts reference elements that exist in their pages", 
     const ids = [...source.matchAll(/querySelector\("#([a-zA-Z0-9_-]+)"\)/g)].map((match) => match[1]);
     for (const id of ids) assert.match(html, new RegExp(`id=["']${id}["']`), `${name}.html should contain #${id}`);
   }
+});
+
+test("full privacy report teaches the evidence with an accessible activity timeline and no raw dump", async () => {
+  const [html, source] = await Promise.all([
+    readFile(new URL("../report.html", import.meta.url), "utf8"),
+    readFile(new URL("../report.js", import.meta.url), "utf8")
+  ]);
+  assert.match(html, /Website activity timeline/i);
+  assert.match(html, /View this activity as a list/i);
+  assert.match(html, /Site request/i);
+  assert.match(html, /Outside service/i);
+  assert.match(html, /Known tracker/i);
+  assert.match(html, /Browser feature/i);
+  assert.match(html, /Storage or permission/i);
+  assert.match(html, /Shield changed it/i);
+  assert.doesNotMatch(html, /data-chart-type|Bar graph|Line chart|Pie chart/i);
+  assert.match(html, /id="chartTooltip"[^>]*role="status"/i);
+  assert.match(html, /id="liveUpdatesToggle"[^>]*role="switch"/i);
+  assert.match(html, /How to read this timeline/i);
+  assert.match(html, /What Veilance Shield changed/i);
+  assert.match(html, /A quick guide to this report/i);
+  assert.match(html, /data-evidence-topic="trackers"/i);
+  assert.match(html, /id="evidenceDialog"[^>]*aria-labelledby="evidenceDialogTitle"/i);
+  assert.match(html, /Did Veilance send anything/i);
+  assert.doesNotMatch(html, /Raw data|Copy JSON|Download JSON|<pre/i);
+  assert.match(source, /VEILANCE_GET_PRIVACY_REPORT/);
+  assert.match(source, /No research snapshot has been created/);
+  assert.match(source, /Snapshot saved locally — not sent/);
+  assert.match(source, /Telemetry was uploaded and accepted/);
+  assert.match(source, /The upload was not confirmed/);
+  assert.match(source, /function renderActivityTimeline/);
+  assert.match(source, /function browserInformationDescription/);
+  assert.match(source, /It does not inspect the request body, response body/i);
+  assert.match(source, /function showChartTooltip/);
+  assert.match(source, /Updating every 1\.5 seconds/);
+  assert.match(source, /function renderShield/);
+  assert.match(source, /function openEvidenceDialog/);
+  assert.match(source, /destination and action-level timing/i);
+  assert.match(source, /random device identifier/i);
+  assert.doesNotMatch(source, /rawValues|copyRaw|downloadRaw/);
+});
+
+test("first-run onboarding is explicit, local-first, and telemetry remains optional", async () => {
+  const [html, source] = await Promise.all([
+    readFile(new URL("../onboarding.html", import.meta.url), "utf8"),
+    readFile(new URL("../onboarding.js", import.meta.url), "utf8")
+  ]);
+  assert.match(html, /Continue without an account/i);
+  assert.match(html, /Sign in to Veilance/i);
+  assert.match(html, /Account services are not active in this release/i);
+  assert.match(html, /https:\/\/veilance\.org\/privacy/i);
+  assert.match(html, /I have read and accept/i);
+  assert.match(html, /Keep automatic telemetry off/i);
+  assert.match(html, /Enable automatic telemetry/i);
+  assert.match(html, /randomized 5–15 minute delay/i);
+  assert.match(html, /public IP address/i);
+  assert.match(html, /upload does not guarantee payment/i);
+  assert.match(source, /VEILANCE_COMPLETE_ONBOARDING/);
+  assert.match(source, /privacyAccepted: elements\.privacyAcceptance\.checked/);
+  assert.match(source, /telemetryEnabled/);
 });
 
 test("popup and Settings expose one persistent light and dark appearance preference", async () => {
@@ -201,7 +273,7 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.6.19");
+  assert.equal(manifest.version, "0.7");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));
