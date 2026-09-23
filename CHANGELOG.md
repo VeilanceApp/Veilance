@@ -1,3 +1,9 @@
+## 0.9 - Updated visual theme
+
+- Applied the new Veilance theme to the popup, onboarding, settings, and visit report.
+- Replaced toolbar and interface logos with the supplied fingerprint artwork.
+- Kept existing extension behavior and privacy choices.
+
 ## 0.8 - First-run setup and privacy-focused interface
 
 - Added a four-step onboarding page that opens once on a fresh installation.

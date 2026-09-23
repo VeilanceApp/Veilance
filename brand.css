@@ -1,0 +1,934 @@
+/*
+ * Veilance interface language
+ * Quiet forensic surfaces, hard edges, and a single live-signal color.
+ * This layer intentionally sits after every page stylesheet so the product
+ * reads as one system without coupling page behavior to its visual identity.
+ */
+
+:root {
+  --page: #edf1f0;
+  --surface: #fbfcfb;
+  --surface-soft: #e7edec;
+  --surface-hover: #dfe8e7;
+  --border: #bdc9c9;
+  --border-strong: #879b9e;
+  --text: #0b171b;
+  --text-soft: #304247;
+  --muted: #65777a;
+  --muted-2: #8b9b9e;
+  --accent: #08798a;
+  --accent-hover: #055d6b;
+  --accent-soft: #d9ecee;
+  --success: #08798a;
+  --success-soft: #d9ecee;
+  --info: #405f9e;
+  --info-soft: #e2e7f1;
+  --warning: #98641a;
+  --warning-soft: #f5ead2;
+  --danger: #a84350;
+  --danger-hover: #87313d;
+  --danger-soft: #f5e1e4;
+  --shadow: none;
+  --backdrop: rgba(3, 10, 13, .66);
+  --brand-ink: #071116;
+  --brand-panel: #0b1a20;
+  --brand-line: #20373e;
+  --brand-copy: #edf6f5;
+  --brand-muted: #87a0a5;
+  --signal: #35bdcb;
+  --signal-soft: #0c3037;
+  --mark-filter: brightness(0) saturate(100%);
+  --mark-opacity: .035;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+:root[data-theme="dark"] {
+  --page: #070c0f;
+  --surface: #0b1317;
+  --surface-soft: #101d22;
+  --surface-hover: #15272d;
+  --border: #243b42;
+  --border-strong: #3b5961;
+  --text: #e9f1f1;
+  --text-soft: #b9cacd;
+  --muted: #82999e;
+  --muted-2: #5c7379;
+  --accent: #4bc5d1;
+  --accent-hover: #75d7df;
+  --accent-soft: #0b2d34;
+  --success: #4bc5d1;
+  --success-soft: #0b2d34;
+  --info: #8ba6d9;
+  --info-soft: #17243b;
+  --warning: #d4a753;
+  --warning-soft: #2b2415;
+  --danger: #e27d89;
+  --danger-hover: #ef9aa4;
+  --danger-soft: #321b22;
+  --shadow: none;
+  --backdrop: rgba(0, 0, 0, .78);
+  --brand-ink: #050b0e;
+  --brand-panel: #09161b;
+  --brand-line: #1e353c;
+  --brand-copy: #edf6f5;
+  --brand-muted: #829ba0;
+  --signal: #4bc5d1;
+  --signal-soft: #0b2d34;
+  --mark-filter: brightness(0) invert(1);
+  --mark-opacity: .045;
+}
+
+/* Foundation */
+
+body.veilance-app {
+  color: var(--text);
+  background-color: var(--page);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "tnum" 1, "ss01" 1;
+}
+
+.veilance-app :is(button, input, select, textarea, .button-link) {
+  border-radius: 2px;
+}
+
+.veilance-app :is(.eyebrow, .label, .section-label, .feature-kicker, .unsupported-kicker) {
+  font-family: var(--mono);
+  font-weight: 650;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.veilance-app :is(.eyebrow, .label, .section-label, .feature-kicker, .unsupported-kicker)::before {
+  margin-right: .45em;
+  color: var(--accent);
+  content: "//";
+  letter-spacing: -.08em;
+}
+
+.veilance-app :is(
+  .live,
+  .status,
+  .nav-count,
+  .count,
+  .count-badge,
+  .network-badge,
+  .feature-badge,
+  .capacity-pill,
+  .batch-progress,
+  .policy-count,
+  .readiness-chip,
+  .job-state,
+  .badge,
+  .hero-meta,
+  .version
+) {
+  font-family: var(--mono);
+  letter-spacing: .015em;
+}
+
+.veilance-app :is(
+  .site-card,
+  .activity-panel,
+  .panel,
+  .details-panel,
+  .snapshot-card,
+  .history-heading,
+  .visit-card,
+  .detail-section,
+  .detail-hero,
+  .protection-hero,
+  .protection-log-panel,
+  .future-protection-card,
+  .setup-shell,
+  .choice-card,
+  .policy-link,
+  .accept-row,
+  .data-details,
+  .setup-summary,
+  .settings-tabs,
+  .settings-card,
+  .local-note,
+  .indicator-list,
+  .custom-row,
+  .how-to-step,
+  .schema-help,
+  .tracker-control-row,
+  .state-card,
+  .report-hero,
+  .plain-summary,
+  .report-card,
+  .summary-grid article,
+  .assessment,
+  .analyst-card,
+  .verity-hero,
+  .workflow,
+  .policy-row,
+  .recent-empty,
+  .counts .count
+) {
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+.veilance-app :is(
+  .status,
+  .nav-count,
+  .count,
+  .count-badge,
+  .network-badge,
+  .feature-badge,
+  .capacity-pill,
+  .batch-progress,
+  .policy-count,
+  .readiness-chip,
+  .job-state,
+  .badge,
+  .hero-meta span,
+  .choice-tag,
+  .protection-state,
+  .future-lock,
+  .severity
+) {
+  border-radius: 1px;
+}
+
+/* Permanent product chrome */
+
+.popup-app .topbar,
+.popup-app .navigation,
+.settings-app .page-header,
+.report-app .report-topbar,
+.analyst-app .analyst-bar,
+.analyst-report-app .analyst-bar,
+.onboarding-app .setup-rail {
+  color: var(--brand-copy);
+  border-color: var(--brand-line);
+  background: var(--brand-ink);
+}
+
+.veilance-app :is(.brand, .report-brand, .verity-brand) img {
+  border: 1px solid var(--brand-line);
+  border-radius: 2px;
+  background: var(--brand-panel);
+}
+
+.popup-app .brand strong,
+.settings-app .brand strong,
+.report-app .report-brand strong,
+.analyst-app .verity-brand strong,
+.analyst-report-app .verity-brand strong,
+.onboarding-app .brand strong {
+  color: var(--brand-copy);
+  font-weight: 680;
+  letter-spacing: .02em;
+}
+
+.popup-app .brand span,
+.settings-app .brand span,
+.report-app .report-brand small,
+.analyst-app .verity-brand small,
+.analyst-report-app .verity-brand small,
+.onboarding-app .brand span {
+  color: var(--brand-muted);
+  font-family: var(--mono);
+  letter-spacing: .045em;
+}
+
+.popup-app .topbar,
+.settings-app .page-header,
+.report-app .report-topbar,
+.analyst-app .analyst-bar,
+.analyst-report-app .analyst-bar {
+  box-shadow: inset 0 -2px 0 rgba(53, 189, 203, .11);
+}
+
+.popup-app .header-icon-button,
+.settings-app .header-setup-button,
+.settings-app .theme-control,
+.report-app :is(.quiet-button, .icon-button),
+.analyst-app .analyst-bar :is(button, .button-link),
+.analyst-report-app .analyst-bar button {
+  color: var(--brand-muted);
+  border-color: var(--brand-line);
+  background: var(--brand-panel);
+}
+
+.popup-app .header-icon-button:hover,
+.settings-app .header-setup-button:hover,
+.report-app :is(.quiet-button, .icon-button):hover,
+.analyst-app .analyst-bar :is(button, .button-link):hover,
+.analyst-report-app .analyst-bar button:hover {
+  color: var(--brand-copy);
+  border-color: var(--signal);
+  background: #0d252c;
+}
+
+.settings-app .theme-control button {
+  color: var(--brand-muted);
+}
+
+.settings-app .theme-control button.active {
+  color: var(--brand-copy);
+  background: var(--brand-line);
+  box-shadow: inset 0 -2px 0 var(--signal);
+}
+
+/* The fingerprint is treated as a trace watermark, never decoration for its own sake. */
+
+.popup-app .site-card,
+.settings-app .intro,
+.report-app .report-hero,
+.analyst-app .verity-hero,
+.analyst-report-app .result-heading,
+.onboarding-app .setup-step {
+  position: relative;
+  isolation: isolate;
+}
+
+.popup-app .site-card::before,
+.settings-app .intro::before,
+.report-app .report-hero::before,
+.analyst-app .verity-hero::before,
+.onboarding-app .setup-step[data-step="0"]::before,
+.onboarding-app .success-step::before {
+  position: absolute;
+  z-index: 0;
+  width: 150px;
+  height: 150px;
+  background: url("assets/veilance-symbol.png") center / contain no-repeat;
+  content: "";
+  filter: var(--mark-filter);
+  opacity: var(--mark-opacity);
+  pointer-events: none;
+}
+
+.popup-app .site-card > *,
+.settings-app .intro > *,
+.report-app .report-hero > *,
+.analyst-app .verity-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.popup-app .site-card::before {
+  top: -29px;
+  right: 25px;
+  width: 105px;
+  height: 105px;
+}
+
+.settings-app .intro::before {
+  top: -47px;
+  right: 45px;
+}
+
+.report-app .report-hero::before,
+.analyst-app .verity-hero::before {
+  top: -48px;
+  right: 92px;
+}
+
+.onboarding-app .setup-step[data-step="0"]::before,
+.onboarding-app .success-step::before {
+  top: 18px;
+  right: 34px;
+  width: 190px;
+  height: 190px;
+}
+
+/* A short corner bracket marks primary evidence surfaces. */
+
+.popup-app :is(.site-card, .activity-panel, .protection-hero),
+.settings-app .settings-card,
+.report-app :is(.report-hero, .report-card),
+.analyst-app :is(.verity-hero, .request-card, .progress-card, .recent-card),
+.analyst-report-app .analyst-card {
+  position: relative;
+}
+
+.popup-app :is(.site-card, .activity-panel, .protection-hero)::after,
+.settings-app .settings-card::after,
+.report-app :is(.report-hero, .report-card)::after,
+.analyst-app :is(.verity-hero, .request-card, .progress-card, .recent-card)::after,
+.analyst-report-app .analyst-card::after {
+  position: absolute;
+  z-index: 2;
+  top: -1px;
+  right: -1px;
+  width: 18px;
+  height: 18px;
+  border-top: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  content: "";
+  pointer-events: none;
+}
+
+/* Popup */
+
+.popup-app .topbar {
+  height: 58px;
+}
+
+.popup-app .navigation {
+  height: 42px;
+  background: var(--brand-panel);
+}
+
+.popup-app .nav-button {
+  color: var(--brand-muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 620;
+  letter-spacing: .025em;
+}
+
+.popup-app .nav-button:hover {
+  color: var(--brand-copy);
+}
+
+.popup-app .nav-button.active {
+  color: var(--signal);
+}
+
+.popup-app .nav-button.active::after {
+  height: 2px;
+  background: var(--signal);
+}
+
+.popup-app .nav-count {
+  color: var(--brand-muted);
+  background: var(--brand-line);
+}
+
+.popup-app .nav-button.active .nav-count {
+  color: var(--signal);
+  background: var(--signal-soft);
+}
+
+.popup-app .live {
+  color: #6fdae2;
+  border: 1px solid #21434b;
+  border-radius: 1px;
+  background: #0b272e;
+}
+
+.popup-app .live i {
+  border-radius: 1px;
+  box-shadow: 0 0 0 2px rgba(53, 189, 203, .12);
+}
+
+.popup-app main {
+  background: var(--page);
+}
+
+.popup-app :is(.site-card, .activity-panel, .more-options, .history-heading, .protection-hero, .protection-log-panel, .future-protection-card) {
+  border-color: var(--border);
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+.popup-app .site-card {
+  border-left: 3px solid var(--accent);
+}
+
+.popup-app :is(.status, .count, .nav-count, .metric-level, .severity, .future-lock, .protection-state) {
+  border-radius: 1px;
+}
+
+.popup-app .status::before {
+  border-radius: 1px;
+}
+
+.popup-app .overview-icon,
+.popup-app .unsupported-symbol,
+.popup-app .setup-notice-mark {
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 2px;
+  background: transparent;
+}
+
+.popup-app .overview-row {
+  position: relative;
+}
+
+.popup-app .overview-row::before {
+  position: absolute;
+  top: 11px;
+  bottom: 11px;
+  left: 0;
+  width: 2px;
+  background: transparent;
+  content: "";
+}
+
+.popup-app .overview-row.attention::before {
+  background: var(--warning);
+}
+
+.popup-app .overview-row.clear::before,
+.popup-app .overview-row.protected::before {
+  background: var(--accent);
+}
+
+.popup-app .report-button {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.popup-app .report-button strong,
+.popup-app .payout-settings-action {
+  font-family: var(--mono);
+  letter-spacing: .02em;
+}
+
+.popup-app .more-options > summary {
+  border-radius: 0;
+}
+
+.popup-app .metrics {
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+.popup-app :is(.metrics strong, .overview-value b, .protection-total strong) {
+  font-family: var(--mono);
+  letter-spacing: -.04em;
+}
+
+.popup-app #analystFrame {
+  border: 0;
+  background: var(--page);
+}
+
+/* Onboarding */
+
+.onboarding-app .setup-shell {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+.onboarding-app .setup-rail {
+  box-shadow: inset -2px 0 0 rgba(53, 189, 203, .1);
+}
+
+.onboarding-app .rail-copy > span,
+.onboarding-app .utility-bar > span {
+  font-family: var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.onboarding-app .rail-copy > span {
+  color: var(--signal);
+}
+
+.onboarding-app .rail-copy p,
+.onboarding-app .progress-list li,
+.onboarding-app .progress-list small,
+.onboarding-app .rail-assurance span {
+  color: var(--brand-muted);
+}
+
+.onboarding-app .progress-list li > span {
+  border-color: var(--brand-line);
+  border-radius: 1px;
+  color: var(--brand-muted);
+  background: var(--brand-panel);
+  font-family: var(--mono);
+}
+
+.onboarding-app .progress-list li:not(:last-child)::after {
+  background: var(--brand-line);
+}
+
+.onboarding-app .progress-list li.active,
+.onboarding-app .progress-list li.complete {
+  color: var(--brand-copy);
+}
+
+.onboarding-app .progress-list li.active > span {
+  color: var(--brand-ink);
+  border-color: var(--signal);
+  background: var(--signal);
+}
+
+.onboarding-app .progress-list li.complete > span {
+  color: var(--signal);
+  border-color: var(--signal);
+  background: var(--signal-soft);
+}
+
+.onboarding-app .rail-assurance {
+  border-color: var(--brand-line);
+  border-radius: 2px;
+  background: var(--brand-panel);
+}
+
+.onboarding-app .rail-assurance strong {
+  color: var(--brand-copy);
+}
+
+.onboarding-app .utility-bar {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.onboarding-app .setup-step > * {
+  position: relative;
+  z-index: 1;
+}
+
+.onboarding-app .feature-icon {
+  border-left: 2px solid var(--accent);
+}
+
+.onboarding-app .choice-card {
+  position: relative;
+  border-left: 3px solid transparent;
+}
+
+.onboarding-app .choice-card:has(input:checked) {
+  border-color: var(--accent);
+  border-left-width: 3px;
+  background: var(--accent-soft);
+}
+
+.onboarding-app .choice-indicator {
+  box-shadow: inset 0 0 0 2px var(--surface);
+}
+
+.onboarding-app .choice-card input:checked + .choice-indicator {
+  border-width: 5px;
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.onboarding-app :is(.plain-notice, .reward-panel) {
+  border-radius: 2px;
+}
+
+.onboarding-app .action-bar {
+  background: color-mix(in srgb, var(--surface) 92%, var(--page));
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.onboarding-app :is(.primary-button, .secondary-button, .text-button) {
+  font-family: var(--mono);
+  letter-spacing: .015em;
+}
+
+.onboarding-app .primary-button {
+  box-shadow: inset 3px 0 0 rgba(255, 255, 255, .28);
+}
+
+/* Settings */
+
+.settings-app main {
+  position: relative;
+}
+
+.settings-app .intro {
+  overflow: hidden;
+}
+
+.settings-app .settings-tabs {
+  padding: 3px;
+  background: var(--surface-soft);
+}
+
+.settings-app .settings-tab {
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .015em;
+}
+
+.settings-app .settings-tab.active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.settings-app .settings-card {
+  border-top-color: var(--border-strong);
+}
+
+.settings-app .card-header {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 78%, transparent);
+}
+
+.settings-app :is(.count-badge, .network-badge, .feature-badge, .tracker-log-status, .snapshot-interest-badge, .snapshot-upload-status) {
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  font-family: var(--mono);
+  letter-spacing: .015em;
+}
+
+.settings-app :is(.indicator-list, .custom-row, .how-to-step, .schema-help, .tracker-control-row, .tracker-stats div, .database-grid div, .local-note, .notice, .empty-state, .protection-detail) {
+  border-radius: 2px;
+}
+
+.settings-app :is(.tracker-stats strong, .database-grid strong) {
+  font-family: var(--mono);
+}
+
+.settings-app .tracker-control-row,
+.settings-app .how-to-step,
+.settings-app .custom-row {
+  border-left: 2px solid var(--border-strong);
+}
+
+.settings-app .tracker-control-row:has(input:checked) {
+  border-left-color: var(--accent);
+}
+
+.settings-app .switch span {
+  border-radius: 2px;
+}
+
+.settings-app .switch span::after {
+  border-radius: 1px;
+}
+
+.settings-app .account-ui :is(input, select, button) {
+  border-radius: 2px;
+}
+
+/* Visit report */
+
+.report-app .report-shell {
+  position: relative;
+}
+
+.report-app .report-hero {
+  overflow: hidden;
+  border-left: 3px solid var(--accent);
+}
+
+.report-app .assessment {
+  border-left: 2px solid var(--border-strong);
+}
+
+.report-app .assessment.observed {
+  border-left-color: var(--accent);
+}
+
+.report-app .assessment.active {
+  border-left-color: var(--warning);
+}
+
+.report-app .assessment.elevated {
+  border-left-color: var(--danger);
+}
+
+.report-app .plain-summary {
+  grid-template-columns: 132px 1fr;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 76%, var(--surface));
+}
+
+.report-app .plain-summary > span,
+.report-app .summary-grid span,
+.report-app .assessment > span,
+.report-app .control-group > span {
+  font-family: var(--mono);
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+.report-app .summary-grid article {
+  position: relative;
+  overflow: hidden;
+}
+
+.report-app .summary-grid article::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 30px;
+  height: 2px;
+  background: var(--accent);
+  content: "";
+}
+
+.report-app .summary-grid strong {
+  font-family: var(--mono);
+  letter-spacing: -.055em;
+}
+
+.report-app .card-heading {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 72%, transparent);
+}
+
+.report-app :is(.segmented-control, .range-control, .chart-guide, .sharing-details, .timeframe-details, .telemetry-settings-strip, .upload-status-card, .basics-grid article) {
+  border-radius: 2px;
+}
+
+.report-app :is(.segmented-control, .range-control) button.active {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.report-app .chart-guide {
+  border-left-width: 3px;
+}
+
+.report-app .live-toggle-control {
+  border-radius: 2px;
+}
+
+.report-app .live-toggle-control i {
+  border-radius: 1px;
+}
+
+/* Verity */
+
+.analyst-app .analyst-main,
+.analyst-report-app .analyst-main {
+  position: relative;
+}
+
+.analyst-app .verity-hero {
+  overflow: hidden;
+  border-left: 3px solid var(--accent);
+}
+
+.analyst-app .verity-hero h1 {
+  font-size: 21px;
+  letter-spacing: -.03em;
+}
+
+.analyst-app .capacity-pill {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface));
+}
+
+.analyst-app .workflow li > span,
+.analyst-app .policy-number,
+.analyst-app .job-index {
+  border-radius: 1px;
+  font-family: var(--mono);
+}
+
+.analyst-app .workflow li > span {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: transparent;
+}
+
+.analyst-app .workflow strong {
+  font-family: var(--mono);
+  font-weight: 650;
+}
+
+.analyst-app .request-card {
+  border-left: 3px solid var(--border-strong);
+}
+
+.analyst-app .request-card:focus-within {
+  border-left-color: var(--accent);
+}
+
+.analyst-app .readiness-chip::before {
+  border-radius: 1px;
+}
+
+.analyst-app progress {
+  height: 3px;
+  border-radius: 0;
+}
+
+.analyst-app .policy-row {
+  border-left: 2px solid var(--border-strong);
+}
+
+.analyst-app .policy-row:focus-within {
+  border-left-color: var(--accent);
+  box-shadow: none;
+}
+
+.analyst-app .policy-number {
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+}
+
+.analyst-app .privacy-note {
+  border-left: 3px solid var(--accent);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--surface));
+}
+
+.analyst-app .primary-action,
+.analyst-app .button-link.primary {
+  box-shadow: inset 3px 0 0 rgba(255, 255, 255, .28);
+  font-family: var(--mono);
+  letter-spacing: .015em;
+}
+
+.analyst-app .job-row,
+.analyst-app #recentJobs button {
+  border-radius: 1px;
+  border-left: 2px solid var(--border-strong);
+}
+
+.analyst-app .job-row.selected,
+.analyst-app #recentJobs button:hover {
+  border-left-color: var(--accent);
+}
+
+.analyst-app .result-summary,
+.analyst-report-app .analyst-card {
+  border-left: 3px solid var(--accent);
+}
+
+.analyst-app #recentJobs button {
+  overflow: hidden;
+}
+
+.analyst-app .recent-copy strong,
+.analyst-app .recent-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analyst-report-app .counts .count strong {
+  font-family: var(--mono);
+}
+
+@media (max-width: 760px) {
+  .onboarding-app .setup-rail {
+    box-shadow: inset 0 -2px 0 rgba(53, 189, 203, .1);
+  }
+
+  .settings-app .intro::before,
+  .report-app .report-hero::before,
+  .analyst-app .verity-hero::before,
+  .onboarding-app .setup-step[data-step="0"]::before,
+  .onboarding-app .success-step::before {
+    right: -34px;
+    opacity: .028;
+  }
+}
+
+@media (max-width: 560px) {
+  .report-app .plain-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  .veilance-app {
+    --page: #fff;
+    --surface: #fff;
+    --surface-soft: #f4f4f4;
+    --border: #bbb;
+    --border-strong: #888;
+    --text: #000;
+    --text-soft: #222;
+    --muted: #555;
+    --accent: #176b75;
+    --accent-soft: #eef5f5;
+  }
+
+  .veilance-app :is(.report-hero, .verity-hero, .site-card)::before,
+  .veilance-app :is(.report-card, .analyst-card)::after {
+    display: none;
+  }
+}
