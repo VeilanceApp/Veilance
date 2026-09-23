@@ -6,8 +6,9 @@
   <meta name="color-scheme" content="light dark">
   <title>Set up Veilance</title>
   <link rel="stylesheet" href="onboarding.css">
+  <link rel="stylesheet" href="brand.css">
 </head>
-<body>
+<body class="veilance-app onboarding-app">
   <div class="setup-shell">
     <aside class="setup-rail" aria-label="Setup progress">
       <div class="brand">
@@ -122,12 +123,12 @@
         <fieldset class="choice-group telemetry-choices">
           <legend>Choose a telemetry setting</legend>
           <label class="choice-card">
-            <input id="telemetryOff" type="radio" name="telemetryMode" value="off" checked>
+            <input id="telemetryOff" type="radio" name="telemetryMode" value="off">
             <span class="choice-indicator" aria-hidden="true"></span>
             <span class="choice-copy"><strong>Keep automatic telemetry off</strong><small>Use Veilance locally. You can still save snapshots manually and change this later.</small></span>
           </label>
           <label class="choice-card telemetry-on-card">
-            <input id="telemetryOn" type="radio" name="telemetryMode" value="on">
+            <input id="telemetryOn" type="radio" name="telemetryMode" value="on" checked>
             <span class="choice-indicator" aria-hidden="true"></span>
             <span class="choice-copy"><strong>Enable automatic telemetry</strong><small>Automatically save eligible snapshots and upload them after a randomized 5–15 minute delay.</small></span>
           </label>

@@ -1,6 +1,6 @@
 {
   "name": "veilance-browser-extension",
-  "version": "0.8",
+  "version": "0.9",
   "private": true,
   "type": "module",
   "scripts": {

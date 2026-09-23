@@ -24,6 +24,7 @@ const elements = {
 
 let currentStep = 0;
 let completionBusy = false;
+let telemetryChoiceTouched = false;
 
 async function send(message) {
   const response = await chrome.runtime.sendMessage(message);
@@ -33,11 +34,13 @@ async function send(message) {
 
 function showStep(index) {
   currentStep = Math.max(0, Math.min(steps.length - 1, Number(index) || 0));
+
   for (const step of steps) {
     const active = Number(step.dataset.step) === currentStep;
     step.hidden = !active;
     step.classList.toggle("active", active);
   }
+
   for (const item of progressSteps) {
     const itemStep = Number(item.dataset.progressStep);
     item.classList.toggle("active", itemStep === currentStep);
@@ -45,6 +48,7 @@ function showStep(index) {
     if (itemStep === currentStep) item.setAttribute("aria-current", "step");
     else item.removeAttribute("aria-current");
   }
+
   elements.stepCounter.textContent = `Step ${currentStep + 1} of ${steps.length}`;
   elements.backButton.hidden = currentStep === 0;
   elements.nextButton.textContent = currentStep === steps.length - 1 ? "Finish setup" : "Continue";
@@ -64,10 +68,12 @@ function validateStep() {
 
 async function completeSetup() {
   if (completionBusy || !validateStep()) return;
+
   completionBusy = true;
   elements.nextButton.disabled = true;
   elements.nextButton.textContent = "Saving…";
   elements.formError.textContent = "";
+
   try {
     const telemetryEnabled = elements.telemetryOn.checked;
     const response = await send({
@@ -76,11 +82,13 @@ async function completeSetup() {
       privacyAccepted: elements.privacyAcceptance.checked,
       telemetryEnabled
     });
+
     for (const step of steps) step.hidden = true;
     for (const item of progressSteps) {
       item.classList.remove("active");
       item.classList.add("complete");
     }
+
     elements.stepCounter.textContent = "Setup complete";
     elements.actionBar.hidden = true;
     elements.successStep.hidden = false;
@@ -99,14 +107,21 @@ async function loadExistingState() {
   try {
     const response = await send({ type: "VEILANCE_GET_ONBOARDING_STATE" });
     const onboarding = response.onboarding || {};
+
     elements.privacyAcceptance.checked = onboarding.privacyPolicyAccepted === true;
-    const telemetryEnabled = Boolean(
-      response.snapshotUpload?.consent &&
-      response.snapshotUpload?.automatic &&
-      response.snapshotCapture?.automatic
-    );
-    elements.telemetryOn.checked = telemetryEnabled;
-    elements.telemetryOff.checked = !telemetryEnabled;
+
+    const telemetryEnabled = onboarding.completed === true
+      ? Boolean(
+          response.snapshotUpload?.consent &&
+          response.snapshotUpload?.automatic &&
+          response.snapshotCapture?.automatic
+        )
+      : response.snapshotUpload?.available !== false;
+
+    if (!telemetryChoiceTouched) {
+      elements.telemetryOn.checked = telemetryEnabled;
+      elements.telemetryOff.checked = !telemetryEnabled;
+    }
   } catch (error) {
     elements.formError.textContent = error?.message || "Existing settings could not be loaded. You can still continue setup.";
   }
@@ -119,11 +134,19 @@ elements.nextButton.addEventListener("click", () => {
 });
 
 elements.backButton.addEventListener("click", () => showStep(currentStep - 1));
+
 elements.privacyAcceptance.addEventListener("change", () => {
   if (elements.privacyAcceptance.checked) elements.formError.textContent = "";
 });
 
+for (const input of [elements.telemetryOff, elements.telemetryOn]) {
+  input.addEventListener("change", () => {
+    telemetryChoiceTouched = true;
+  });
+}
+
 elements.themeToggle.addEventListener("click", () => void toggleResolvedTheme().catch(() => {}));
+
 subscribeToTheme(({ resolved }) => {
   const nextTheme = resolved === "dark" ? "light" : "dark";
   elements.themeToggle.title = `Use ${nextTheme} mode`;
