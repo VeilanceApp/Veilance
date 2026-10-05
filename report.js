@@ -1029,7 +1029,7 @@ function renderTelemetry(data) {
   ]);
 
   const score = count(interest.score);
-  const minimumScore = count(interest.minimumScore) || 25;
+  const minimumScore = count(interest.minimumScore) || 5;
   elements.interestSummary.innerHTML = `<span>${interest.eligible ? "Eligible for a redacted snapshot" : "Below the snapshot threshold"}</span><strong>${score}/100</strong>`;
   const reasons = (Array.isArray(interest.reasons) ? interest.reasons : []).map((reason) => `${humanize(reason.id || "Observed activity")}: +${count(reason.points)} points`);
   if (!reasons.length) reasons.push("No notable activity has contributed to the research score yet");

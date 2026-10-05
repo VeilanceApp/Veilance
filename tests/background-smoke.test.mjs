@@ -13,6 +13,9 @@ function storageArea(backing) {
       const names = Array.isArray(keys) ? keys : [keys];
       return Object.fromEntries(names.filter((name) => name in backing).map((name) => [name, backing[name]]));
     },
+    async remove(keys) {
+      for (const key of Array.isArray(keys) ? keys : [keys]) delete backing[key];
+    },
     async set(values) {
       Object.assign(backing, values);
     }
@@ -29,9 +32,20 @@ function eventSlot() {
 test("background starts SQLite, creates a wallet, and restricts private export to Settings", async () => {
   const originalFetch = globalThis.fetch;
   let telemetryUploadRequest = null;
+  let comparisonRequest = null;
   let telemetryIpLookupRequest = null;
   globalThis.fetch = async (value, options) => {
     const url = typeof value === "string" ? value : value.url;
+    if (url.startsWith("https://api.veilance.org/api/users/v1/")) {
+      let output;
+      if (url.endsWith('/login')) output = {access_token:'test-token'};
+      else if (url.endsWith('/whoami')) output = {user_id:'test-user',plan:'premium',enabled_account:true,verified:true};
+      else if (url.endsWith('/intel/policy/compare')) {
+        comparisonRequest = {body:JSON.parse(options.body),headers:options.headers};
+        output = {uuid:'test-job',status:'PENDING'};
+      } else throw new Error('Unexpected user API route: '+url);
+      return new Response(JSON.stringify({output,error:{}}));
+    }
     if (url === "https://api.veilance.org/api/v1/telemetry/ip") {
       telemetryIpLookupRequest = { url, options };
       return new Response(JSON.stringify({
@@ -115,7 +129,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
               domMarkers: {}
             }
           }
-        : undefined,
+        : message?.type === "VEILANCE_FLUSH_OBSERVATIONS" ? {ok:true} : undefined,
       get: async () => ({ id: 7, url: "https://example.com/private?q=secret", incognito: false })
     },
     alarms: {
@@ -125,6 +139,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
       async clear(name) { return alarms.delete(name); }
     },
     runtime: {
+      id: "veilance-test",
       onMessage,
       onInstalled,
       getManifest: () => ({ version: "0.6.0" }),
@@ -163,7 +178,7 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(settings.snapshotUpload.available, true);
   assert.equal(settings.snapshotUpload.automatic, false);
   assert.equal(settings.snapshotCapture.automatic, false);
-  assert.equal(settings.snapshotCapture.minimumScore, 25);
+  assert.equal(settings.snapshotCapture.minimumScore, 5);
   assert.equal(settings.snapshotUpload.endpointHost, "api.veilance.org");
   assert.equal(settings.snapshotUpload.clientIdPresent, true);
   assert.match(localBacking[TELEMETRY_CLIENT_ID_STORAGE_KEY].clientId, /^[a-f0-9]{64}$/);
@@ -469,7 +484,14 @@ test("background starts SQLite, creates a wallet, and restricts private export t
     }
   );
   assert.equal(automaticInterestEvent.ok, true);
-  await new Promise((resolve) => setTimeout(resolve, 450));
+  const veritySender = {id:'veilance-test',url:'chrome-extension://veilance-test/popup.html'};
+  assert.equal((await dispatch({type:'VERITY_LOGIN',email:'test@example.com',password:'test'},veritySender)).ok,true);
+  chrome.webNavigation.onCompleted.listeners[0]({tabId:7,frameId:0,url:'https://example.com/automatic-capture',timeStamp:Date.now()});
+  const early = await dispatch({type:'VERITY_START',tabId:7,expectedOrigin:'https://example.com',consent:true,policies:['https://example.com/privacy']},veritySender);
+  assert.equal(early.ok,false);
+  assert.match(early.error,/15 seconds/);
+  assert.equal(comparisonRequest,null);
+  await new Promise((resolve) => setTimeout(resolve, 15500));
 
   const automaticallyCapturedList = await dispatch(
     { type: "VEILANCE_LIST_TELEMETRY_SNAPSHOTS" },
@@ -478,6 +500,17 @@ test("background starts SQLite, creates a wallet, and restricts private export t
   assert.equal(automaticallyCapturedList.snapshots.length, 3);
   assert.equal(automaticallyCapturedList.snapshots[0].interest.score, 25);
   assert.equal(automaticallyCapturedList.snapshots[0].upload.status, "queued");
+  const stored = await dispatch({type:'VEILANCE_GET_TELEMETRY_SNAPSHOT',snapshotId:automaticallyCapturedList.snapshots[0].snapshotId},{url:'chrome-extension://veilance-test/settings.html'});
+  const started = await dispatch({type:'VERITY_START',tabId:7,expectedOrigin:'https://example.com',consent:true,policies:['https://example.com/privacy']},veritySender);
+  assert.equal(started.ok,true);
+  assert.equal(started.jobs[0].state,'queued');
+  assert.deepEqual(comparisonRequest.body.telemetry_data.observations,[stored.snapshot.payload]);
+  assert.equal(comparisonRequest.body.current_url,'https://example.com/private?q=secret');
+  assert.equal(comparisonRequest.body.privacy_policy_url,'https://example.com/privacy');
+  assert.equal(comparisonRequest.headers.Authorization,'Bearer test-token');
+  assert.equal(comparisonRequest.headers['Content-Type'],'application/json');
+  assert.equal(started.jobs[0].site,'https://example.com');
+
 
   await dispatch(
     {

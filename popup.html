@@ -36,12 +36,14 @@
     <button class="nav-button" type="button" data-view="protections">
       Shielded <span id="protectionBadge" class="nav-count">0</span>
     </button>
+    <button class="nav-button" type="button" data-view="verity">Verity</button>
     <button id="settingsButton" class="nav-button settings-button" type="button" title="Open settings">
       Settings
     </button>
   </nav>
 
   <main>
+    <section id="verityView" class="view" hidden><div class="verity-panel"><span class="label">POLICY COMPARISON</span><h1>Beyond the fine print.</h1><p>Compare this website’s privacy policy with what Veilance observed during your visit.</p><p id="verityAccountStatus" role="status">Checking your account…</p><div id="verityVerify" hidden><a href="https://veilance.org/dashboard/index.html#verify" target="_blank" rel="noopener noreferrer">Verify email on website ↗</a><button id="verityRecheck" type="button">I’ve verified — check again</button></div><button id="verityManage" type="button" hidden>Manage account</button><section id="verityOverview" hidden><h2>Latest policy analysis</h2><strong id="verityScore"></strong><p id="verityScoreNote" class="verity-hint"></p><p id="verityOverviewSummary"></p><button id="verityDetails" type="button">View more details</button></section><form id="verityScan" hidden><h2 id="veritySite">Current website</h2><p id="verityWait" role="status"></p><label>Privacy policy<select id="verityPolicyChoice" required><option value="">Choose a privacy policy</option></select></label><label id="verityCustomPolicy" hidden>Policy URL<input id="verityPolicyUrl" type="url" placeholder="https://example.com/privacy"></label><label class="verity-consent"><input id="verityConsent" type="checkbox" required><span>Send a redacted snapshot of this visit for analysis. Includes your contributor ID and current page URL. Page text and form values are removed.</span></label><button id="verityStart" type="submit" disabled>Analyze policy</button></form><section id="verityHistory" hidden><h2>Recent policy reviews</h2><p>Your last five analyses, including those still processing.</p><div id="verityHistoryItems"></div></section><p id="verityProgress" role="status" aria-live="polite"></p><p class="verity-hint">Analysis needs a verified account and Premium or holder access. Veilance observes the loaded page for at least 15 seconds before analysis.</p></div></section>
     <section id="setupNotice" class="setup-notice" aria-labelledby="setupNoticeTitle" hidden>
       <span class="setup-notice-mark" aria-hidden="true">!</span>
       <div><strong id="setupNoticeTitle">Finish setting up Veilance</strong><p>Review the privacy policy and choose whether to enable automatic telemetry.</p></div>
@@ -118,7 +120,7 @@
               <div class="interest-meter-head">
                 <div class="interest-meter-copy">
                   <span>Snapshot eligibility</span>
-                  <small id="snapshotInterestLabel">25 points until ready</small>
+                  <small id="snapshotInterestLabel">5 points until ready</small>
                 </div>
                 <strong><b id="snapshotInterestScore">0</b><span>/100</span></strong>
               </div>
@@ -202,6 +204,7 @@
     </section>
   </main>
 
+  
   <footer><span>Activity stays on this device unless you choose to share a redacted snapshot.</span><span id="version"></span></footer>
   <script type="module" src="popup.js"></script>
 </body>

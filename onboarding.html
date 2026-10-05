@@ -7,6 +7,7 @@
   <title>Set up Veilance</title>
   <link rel="stylesheet" href="onboarding.css">
   <link rel="stylesheet" href="brand.css">
+  <link rel="stylesheet" href="verity/onboarding.css">
 </head>
 <body class="veilance-app onboarding-app">
   <div class="setup-shell">
@@ -59,33 +60,31 @@
           </div>
           <div class="feature-row">
             <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"></path><path d="M8 8h8M8 12h8M8 16h5"></path></svg></span>
-            <div><strong>Inspect the evidence</strong><p>Open technical details, redacted snapshots, rules, and local history when you need them.</p></div>
+            <div><strong>Inspect the evidence</strong><p>Review clear explanations, privacy findings, and your saved visit history.</p></div>
           </div>
         </div>
       </section>
 
       <section class="setup-step" data-step="1" aria-labelledby="accessTitle" hidden>
         <span class="eyebrow">Access</span>
-        <h1 id="accessTitle">Choose how to continue.</h1>
-        <p class="lead">Veilance works without an account. Account services are not active in this release.</p>
+        <h1 id="accessTitle">Your Veilance account.</h1>
+        <p class="lead">Sign in or create an account for Verity and Premium. Local monitoring and Shield work without an account.</p>
+        <div id="setupSignedIn" class="account-card" hidden><p id="setupAccountIdentity"></p><div id="setupVerification" hidden><strong>Email not verified</strong><p>Open your account settings and enter the code from your email. Then return here to continue.</p><a class="primary-button" href="https://veilance.org/dashboard/index.html#verify" target="_blank" rel="noopener noreferrer">Verify email on website ↗</a><button id="setupRecheck" class="secondary-button" type="button">I’ve verified — check again</button></div><p id="setupVerified" hidden>Email verified. Your account is ready.</p><button id="setupSignOut" type="button" class="text-button">Sign out</button><p>Verity requires a non-free plan. <a href="plans.html" target="_blank">View account and plans</a></p></div>
+        <div id="setupAuth">
+          <div class="setup-auth-actions"><button id="setupLoginTab" type="button" class="secondary-button" aria-pressed="true">Sign in</button><button id="setupRegisterTab" type="button" class="secondary-button" aria-pressed="false">Create account</button></div>
+          <form id="setupAuthForm">
+            <label for="setupEmail">Email address</label><input id="setupEmail" type="email" autocomplete="username" required>
+            <div class="password-field"><label for="setupPassword">Password</label><input id="setupPassword" type="password" autocomplete="current-password" required></div>
+            <div id="setupConfirmWrap" hidden><label for="setupConfirm">Confirm password</label><input id="setupConfirm" type="password" autocomplete="new-password"></div>
+            <button id="setupAuthSubmit" type="submit" class="primary-button">Sign in</button>
+          </form>
+          <button id="setupWebsite" type="button" class="text-button">Use my website sign-in</button>
+          <p id="setupRegistrationNote" hidden>We’ll email you a verification code. You can verify your email in your <a href="https://veilance.org/dashboard/index.html#verify" target="_blank" rel="noopener noreferrer">website account settings</a> before continuing.</p>
+        </div>
+        <p id="setupAuthMessage" role="status" aria-live="polite"></p>
+        
 
-        <fieldset class="choice-group">
-          <legend>Choose how to continue</legend>
-          <label class="choice-card">
-            <input type="radio" name="accountMode" value="guest" checked>
-            <span class="choice-indicator" aria-hidden="true"></span>
-            <span class="choice-copy"><strong>Continue without an account</strong><small>Use every currently available feature. No email address or profile is collected.</small></span>
-            <span class="choice-tag">Available</span>
-          </label>
-          <label class="choice-card unavailable" aria-disabled="true">
-            <input type="radio" name="accountMode" value="account" disabled>
-            <span class="choice-indicator" aria-hidden="true"></span>
-            <span class="choice-copy"><strong>Sign in to Veilance</strong><small>Account-based sync and recovery will be added in a future release.</small></span>
-            <span class="choice-tag muted">Coming soon</span>
-          </label>
-        </fieldset>
-
-        <div class="plain-notice">
+        <div class="plain-notice account-footnote">
           <strong>Your browser still receives a contributor ID.</strong>
           <p>Veilance creates a pseudonymous ID and a Solana wallet locally. Neither requires an account, and the wallet private key is never uploaded.</p>
         </div>
@@ -157,7 +156,7 @@
         <p class="lead">Open the extension on any regular website to see its privacy activity. You can revise every setup choice in Settings.</p>
 
         <div class="setup-summary" aria-label="Setup choices">
-          <div><span>Access</span><strong>Without an account</strong></div>
+          <div><span>Access</span><strong id="accessSummary">Without an account</strong></div>
           <div><span>Privacy policy</span><strong>Accepted</strong></div>
           <div><span>Automatic telemetry</span><strong id="telemetrySummary">Off</strong></div>
           <div><span>Veilance Shield</span><strong>On</strong></div>

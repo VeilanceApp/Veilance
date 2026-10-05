@@ -28,6 +28,7 @@
   </header>
 
   <main>
+
     <section class="intro">
       <div class="intro-copy">
         <span class="eyebrow">Privacy settings</span>
@@ -47,7 +48,17 @@
       <button id="settingsTabSnapshots" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelSnapshots" data-settings-tab="snapshots" tabindex="-1">Telemetry</button>
       <button id="settingsTabWallet" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelWallet" data-settings-tab="wallet" tabindex="-1">Wallet</button>
       <button id="settingsTabData" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelData" data-settings-tab="data" tabindex="-1">Local data</button>
+    <button id="settingsTabAccount" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelAccount" data-settings-tab="account" tabindex="-1">Account</button>
     </nav>
+
+    <div id="settingsPanelAccount" class="settings-tab-panel" role="tabpanel" aria-labelledby="settingsTabAccount" data-settings-panel="account" hidden>
+      <section class="settings-card account-settings"><header class="card-header"><div><span class="eyebrow">Veilance account</span><h2>Your account</h2><p>Your current account details and access.</p></div><div class="header-actions"><button id="accountRefresh" class="primary-button" type="button">Refresh account</button><button id="accountSignOut" class="secondary-button" type="button" hidden>Sign out</button></div></header>
+      <p id="accountMessage" role="status" aria-live="polite">Checking account…</p>
+      <div id="accountDetails" hidden><dl class="account-grid"><div><dt>Email address</dt><dd id="accountEmail"></dd></div><div><dt>Plan</dt><dd id="accountPlan"></dd></div><div><dt>Email verification</dt><dd id="accountVerified"></dd></div><div><dt>Account status</dt><dd id="accountEnabled"></dd></div><div><dt>Account ID</dt><dd id="accountId"></dd></div></dl></div>
+      <div id="accountVerify" class="account-notice" hidden><strong>Email not verified</strong><p>Use the code sent to your email to verify your account on the website. Return here and select Refresh account.</p><a href="https://veilance.org/dashboard/index.html#verify" target="_blank" rel="noopener noreferrer">Verify email on website ↗</a></div>
+      <div id="accountPlans" class="account-notice" hidden><strong>You’re on the free plan</strong><p>Premium and eligible holder access include Verity policy comparisons.</p><a href="plans.html">View plans</a></div>
+      <div id="accountSignIn" hidden><form id="accountLoginForm"><label>Email address<input id="accountEmailInput" type="email" autocomplete="username" required></label><label>Password<input id="accountPassword" type="password" autocomplete="current-password" required></label><button class="primary-button" type="submit">Sign in</button><button id="accountWebsiteLogin" class="secondary-button" type="button">Use website sign-in</button></form><p>New to Veilance? <a href="onboarding.html">Create an account</a></p></div>
+      </section></div>
 
     <div id="settingsPanelTrackers" class="settings-tab-panel" role="tabpanel" aria-labelledby="settingsTabTrackers" data-settings-panel="trackers">
       <section class="settings-card">
@@ -215,18 +226,8 @@
       </div>
       <details class="schema-help">
         <summary>Indicator file format and matching guide</summary>
-        <p>A file may contain one indicator, an array, or an object with an <code>indicators</code> array. The easiest rule matches a built-in source with <code>indicatorId</code>. For a narrower rule, copy the exact <code>API</code> and <code>action</code> shown in Technical details. Keep the matching built-in indicator enabled so its signals are available.</p>
-        <pre>{
-  "id": "repeated-font-probing",
-  "name": "Repeated font probing",
-  "category": "Fingerprinting",
-  "description": "A page used font-probing signals at least ten times.",
-  "severity": "medium",
-  "match": {
-    "indicatorId": "font-probing",
-    "minCount": 10
-  }
-}</pre>
+        <p>A file may contain one indicator, an array, or an object with an <code>indicators</code> array. The easiest rule matches a built-in source with <code>indicatorId</code>. For a narrower rule, use the <code>API</code> and <code>action</code> names from the indicator documentation. Keep the matching built-in indicator enabled so its signals are available.</p>
+        <p>Use the downloadable starter file or copy an example above to create a rule.</p>
         <div class="schema-notes">
           <p><code>signals</code> accepts up to 20 matchers. <code>hosts</code> accepts domain suffixes such as <code>metrics.example</code>. Set <code>mode</code> to <code>any</code> or <code>all</code>. Severity may be <code>low</code>, <code>medium</code>, or <code>high</code>.</p>
           <p>Custom indicators are matching rules only. They never execute code, read page contents, or add new browser instrumentation.</p>
@@ -235,21 +236,7 @@
       <details class="schema-help">
         <summary>Veilance JSON tracker format</summary>
         <p>Veilance tracker files store domains and filters as JSON arrays. Veilance supports host-anchored network filters such as <code>||tracker.example^$3p</code>. <code>$3p</code>, first-party forms, common resource types, and <code>domain=</code> constraints are honored. Path, cosmetic, regular-expression, redirect, and exception filters are skipped with a visible warning because Veilance history intentionally does not retain URL paths.</p>
-        <pre>{
-  "format": "veilance-json",
-  "name": "Platform161",
-  "category": "advertising",
-  "website_url": "https://platform161.com/",
-  "organization": "platform161",
-  "domains": [
-    "creative-serving.com",
-    "p161.net"
-  ],
-  "filters": [
-    "||ads.creative-serving.com^$3p",
-    "||p161.net^$3p"
-  ]
-}</pre>
+        <p>Use the downloadable starter file or copy an example above to create a rule.</p>
         <div class="schema-notes">
           <p>The <code>format</code> field is recommended but optional when <code>domains</code> or <code>filters</code> is present. The rule name is required. <code>organization</code> becomes the default rule id, and <code>description</code>, <code>severity</code>, and <code>defaultEnabled</code> remain optional. Keep the built-in <code>network-requests</code> indicator enabled so tracker rules have request hosts to evaluate.</p>
         </div>
@@ -364,8 +351,8 @@
       </header>
 
       <div class="snapshot-interest-policy">
-        <div><span>Capture threshold</span><strong>25 / 100</strong></div>
-        <p>High-risk actions add 25 points, medium findings add 10, and low findings add 2. Repeated allowed API activity can add 5–10 points. Routine visits below 25 are never snapshotted.</p>
+        <div><span>Capture threshold</span><strong id="captureThreshold">5 / 100</strong></div>
+        <p>High-risk actions add 25 points, medium findings add 10, and low findings add 2. Repeated allowed API activity can add 5–10 points. Automatic capture and telemetry uploads require at least <span id="captureThresholdInline">5</span>/100. Explicit Verity comparisons can include low-activity visits.</p>
       </div>
 
       <div class="snapshot-privacy-grid">
@@ -383,7 +370,7 @@
         <div>
           <strong>Save eligible snapshots automatically</strong>
           <p id="snapshotAutomaticCaptureDescription">Automatic capture is off. Eligible snapshots are saved only when you press Save snapshot.</p>
-          <small>When enabled, Veilance saves one local snapshot per public-site visit after it reaches 25/100 interest. Manual capture in the popup is disabled until you turn this off. This does not enable uploading.</small>
+          <small>When enabled, Veilance saves one local snapshot per public-site visit after it reaches 5/100 interest. Manual capture in the popup is disabled until you turn this off. This does not enable uploading.</small>
         </div>
         <label class="switch" title="Automatically save interest-qualified snapshots">
           <input id="snapshotAutomaticCapture" type="checkbox" aria-label="Save eligible snapshots automatically" disabled>
@@ -422,7 +409,7 @@
         <button id="clearSnapshotsButton" class="danger-outline-button" type="button" disabled>Clear snapshots</button>
       </div>
       <div id="snapshotList" class="snapshot-list">
-        <div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 25/100 interest.</div>
+        <div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 5/100 interest.</div>
       </div>
       </section>
     </div>
@@ -529,12 +516,8 @@
       <span class="eyebrow">Redacted snapshot review</span>
       <h2 id="snapshotDialogTitle">Telemetry snapshot</h2>
       <p>HTML is shown only as inert text. The snapshot contains evidence for review, not a final determination that a service is a fingerprinter, ad tracker, or anti-blocking system.</p>
-      <pre id="snapshotPreviewMetadata" class="snapshot-preview-metadata"></pre>
-      <label for="snapshotHtmlPreview">Redacted HTML</label>
-      <textarea id="snapshotHtmlPreview" rows="18" readonly spellcheck="false"></textarea>
+      <div id="snapshotPreviewMetadata" class="snapshot-summary"></div>
       <div class="dialog-actions snapshot-dialog-actions">
-        <button id="downloadSnapshotButton" class="secondary-button" type="button">Download snapshot JSON</button>
-        <button id="downloadSnapshotHtmlButton" class="secondary-button" type="button">Download HTML as text</button>
         <button id="queueSnapshotButton" class="primary-button" type="button" disabled>Queue upload</button>
         <button id="closeSnapshotDialogButton" class="text-button" type="button">Close</button>
       </div>

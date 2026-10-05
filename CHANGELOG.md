@@ -1,3 +1,30 @@
+# 1.0.0
+
+- Persist sign-in with trusted-context storage, refresh two minutes early, and coordinate concurrent refreshes. Network failures preserve the saved session.
+- Flush pending observations before comparisons, validate the uncompressed upload batch, and reject navigation changes or incomplete samples.
+- Persist the five latest review attempts per account and API environment, starting before capture, with background status polling and cached results.
+- Show readable review history in the popup and Verity page. Remove raw snapshot previews/downloads and protected-value JSON displays.
+- Fix Settings capture-toggle recovery and scope insufficient-sample notices to the affected finding.
+
+- Fixed policy telemetry: use exactly the upload JSON envelope through a shared builder, rather than sending a bare snapshot. Added upload-gzip versus policy-body equality regression coverage.
+
+- Moved scan setup, submission, progress, summary and model-confidence score into the popup Verity tab. Only the detailed report opens separately.
+
+- Added a dedicated Settings Account tab backed by whoami, with conditional verification and free-plan actions.
+- Added current-site Verity summaries and report links; preserve nested analyst findings, evidence, limitations and corrected policy URLs.
+- Filtered irrelevant/social policy suggestions and added a policy selector with a manual URL option.
+
+- Reworked onboarding forms, enforced email verification with website/recheck actions, and added a visible Verity navigation tab.
+- Corrected stale 25-point threshold labels in Settings, popup, and report fallback; Settings reads the configured threshold.
+
+- Enabled onboarding sign-in and account creation, password confirmation, website session reuse, account setup completion, and a clear guest path.
+
+- Added Verity policy comparison through authenticated `/intel/policy/compare` and `/status`; no chat API is used.
+- Added extension account/plans page, direct login, trusted website session reuse and refresh-token handling.
+- Enforced non-free enabled accounts in the background service, a 15-second post-load wait, and explicit redacted-snapshot consent.
+- Added policy link suggestions, up to three independent policy jobs sharing one capture, readable findings, and persistent result caching.
+- Lowered new telemetry snapshot/upload eligibility to 5/100, retaining compatibility for eligible older snapshots.
+
 ## 0.9 - Updated visual theme
 
 - Applied the new Veilance theme to the popup, onboarding, settings, and visit report.

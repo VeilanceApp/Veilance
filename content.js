@@ -11,11 +11,16 @@
   let snapshotTimer = null;
   let enabledIndicatorIds = new Set();
   let configured = false;
+  const pendingSends = new Set();
 
   function safeSend(message) {
     try {
       const promise = chrome.runtime.sendMessage({ ...message, pageSessionId });
-      if (promise && typeof promise.catch === "function") promise.catch(() => {});
+      if (promise && typeof promise.catch === "function") {
+        pendingSends.add(promise);
+        void promise.finally(()=>pendingSends.delete(promise)).catch(()=>{});
+      }
+      return promise;
     } catch {
       // The extension may have been reloaded while this page remained open.
     }
@@ -161,10 +166,16 @@
     }
   }
 
+  async function bounded(promise, fallback=null) {
+    let timer;
+    try { return await Promise.race([promise,new Promise(resolve=>{timer=setTimeout(()=>resolve(fallback),2000);})]); }
+    finally { clearTimeout(timer); }
+  }
+
   async function optionalIndexedDbCount() {
     try {
       if (typeof indexedDB?.databases !== "function") return null;
-      const databases = await indexedDB.databases();
+      const databases = await bounded(indexedDB.databases());
       return Array.isArray(databases) ? databases.length : null;
     } catch {
       return null;
@@ -174,7 +185,7 @@
   async function optionalCacheCount() {
     try {
       if (!globalThis.caches?.keys) return null;
-      const cacheNames = await caches.keys();
+      const cacheNames = await bounded(caches.keys());
       return Array.isArray(cacheNames) ? cacheNames.length : null;
     } catch {
       return null;
@@ -286,6 +297,15 @@
       configureMainWorld(message.enabledIndicatorIds, message.shieldRules, false);
       return undefined;
     }
+    if(message?.type === "VEILANCE_FLUSH_OBSERVATIONS") {
+      void (async()=>{
+        if(!configured){sendResponse({ok:false,error:"The page is not ready. Reload it and try again."});return;}
+        document.dispatchEvent(new CustomEvent(CONTROL_NAME,{detail:{action:"drain"}}));
+        const results=await Promise.allSettled([...pendingSends]);
+        sendResponse({ok:results.every(r=>r.status==='fulfilled'&&r.value?.ok!==false),pageSessionId});
+      })().catch(error=>sendResponse({ok:false,error:error.message}));
+      return true;
+    }
     if (message?.type !== "VEILANCE_CAPTURE_REDACTED_DOCUMENT") return undefined;
     void (async () => {
       try {
@@ -295,7 +315,7 @@
           collectPageSnapshot(),
           Promise.resolve().then(() => redactor.captureRedactedDocument(document, location))
         ]);
-        sendResponse({ ok: true, document: captured, pageSnapshot });
+        sendResponse({ ok: true, document: captured, pageSnapshot, pageSessionId });
       } catch (error) {
         sendResponse({ ok: false, error: String(error?.message || error) });
       }

@@ -119,7 +119,8 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /role="tablist"/);
   assert.match(html, /data-settings-tab="snapshots"/);
   assert.match(html, /data-settings-tab="wallet"/);
-  assert.match(html, /Routine visits below 25 are never snapshotted/i);
+  assert.match(html, /id="captureThreshold">5 \/ 100/i);
+  assert.doesNotMatch(html, /Routine visits below 25|>25 \/ 100</i);
   assert.match(html, /webkitdirectory/);
   assert.match(html, /id="downloadStarterButton"/);
   assert.match(html, /id="copySignalTemplateButton"/);
@@ -141,7 +142,7 @@ test("settings exposes indicator folders, wallet export, and disabled payouts", 
   assert.match(html, /id="snapshotAutomaticUpload"[^>]*disabled/);
   assert.match(html, /id="uploadNowButton"[^>]*disabled/);
   assert.match(html, /id="snapshotList"/);
-  assert.match(html, /id="snapshotHtmlPreview"/);
+  assert.doesNotMatch(html, /id="snapshotHtmlPreview"|Download snapshot JSON|Download HTML as text/);
   assert.match(html, /private\/internal hosts/i);
   assert.match(html, /data-settings-tab="protections"[^>]*>Shield<\/button>/i);
   assert.match(html, /Fingerprint Shield/i);
@@ -213,9 +214,11 @@ test("first-run onboarding is explicit, local-first, and telemetry remains optio
     readFile(new URL("../onboarding.html", import.meta.url), "utf8"),
     readFile(new URL("../onboarding.js", import.meta.url), "utf8")
   ]);
-  assert.match(html, /Continue without an account/i);
-  assert.match(html, /Sign in to Veilance/i);
-  assert.match(html, /Account services are not active in this release/i);
+  assert.match(source, /Continue without an account/i);
+  assert.match(html, /id="setupLoginTab"/i);
+  assert.match(html, /id="setupRegisterTab"/i);
+  assert.match(html, /id="setupAuthForm"/i);
+  assert.doesNotMatch(html, /Account services are not active in this release/i);
   assert.match(html, /https:\/\/veilance\.org\/privacy/i);
   assert.match(html, /I have read and accept/i);
   assert.match(html, /Keep automatic telemetry off/i);
@@ -273,7 +276,7 @@ test("manifest enables visit lifecycle observation and local SQLite WASM", async
   const raw = await readFile(new URL("../manifest.json", import.meta.url), "utf8");
   const manifest = JSON.parse(raw);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.9");
+  assert.equal(manifest.version, "1.0.0");
   assert.ok(manifest.permissions.includes("webRequest"));
   assert.ok(manifest.permissions.includes("webNavigation"));
   assert.ok(manifest.permissions.includes("storage"));

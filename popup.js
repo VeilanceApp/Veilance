@@ -1,3 +1,4 @@
+import {refreshVerityAccount} from './verity/popup.js';
 import {
   initializeTheme,
   subscribeToTheme,
@@ -55,7 +56,7 @@ const elements = {
 let activeTabId = null;
 let activeView = "live";
 let currentLiveState = null;
-let currentLiveInterest = { score: 0, level: "routine", minimumScore: 25, eligible: false, reasons: [] };
+let currentLiveInterest = { score: 0, level: "routine", minimumScore: 5, eligible: false, reasons: [] };
 let snapshotCaptureBusy = false;
 let automaticSnapshotCaptureEnabled = false;
 let currentProtectionSettings = { fingerprintEnabled: true, trackerEnabled: false, trackerAvailable: false };
@@ -264,7 +265,7 @@ function renderFindings(container, findings, emptyText) {
 
 function renderSnapshotInterest(value) {
   const score = Math.max(0, Math.min(100, Math.floor(Number(value?.score) || 0)));
-  const minimumScore = Math.max(1, Math.min(100, Math.floor(Number(value?.minimumScore) || 25)));
+  const minimumScore = Math.max(1, Math.min(100, Math.floor(Number(value?.minimumScore) || 5)));
   const level = ["routine", "interesting", "high", "critical"].includes(value?.level)
     ? value.level
     : "routine";
@@ -481,39 +482,7 @@ function returnedValueMarkup(value) {
   if (!value || typeof value !== "object") {
     return '<p class="protection-return-empty">A return-value preview was not recorded for this event.</p>';
   }
-  let display;
-  if (value.kind === "scalar") {
-    display = {
-      type: value.type || typeof value.value,
-      value: value.value
-    };
-  } else if (value.kind === "array") {
-    display = {
-      type: value.type || "Array",
-      length: Math.max(0, Number(value.length) || 0),
-      sample: Array.isArray(value.sample) ? value.sample : [],
-      truncated: value.truncated === true
-    };
-  } else if (value.kind === "object") {
-    display = {
-      type: value.type || "Object",
-      fields: value.fields && typeof value.fields === "object" ? value.fields : {}
-    };
-  } else if (value.kind === "blob") {
-    display = {
-      type: value.type || "application/octet-stream",
-      size: Math.max(0, Number(value.length) || 0)
-    };
-  } else if (value.kind === "encoded-data") {
-    display = {
-      type: value.mimeType || value.type || "encoded data",
-      length: Math.max(0, Number(value.length) || 0),
-      preview: String(value.preview || "")
-    };
-  } else {
-    display = value;
-  }
-  return `<pre class="protection-return-value">${escapeHtml(JSON.stringify(display, null, 2))}</pre>`;
+  return '<p class="protection-return-value">The website received a protected browser value.</p>';
 }
 
 function protectionEventCopy(event) {
@@ -824,6 +793,8 @@ async function takeTelemetrySnapshot() {
 
 async function switchView(view) {
   activeView = view;
+  document.getElementById("verityView").hidden = view !== "verity";
+  if (view === "verity") void refreshVerityAccount();
   elements.liveView.hidden = view !== "live";
   elements.historyView.hidden = view !== "history";
   elements.protectionsView.hidden = view !== "protections";
@@ -924,3 +895,4 @@ const refreshTimer = setInterval(() => {
   if (activeView === "live" || activeView === "protections") void loadState().catch(() => {});
 }, 1500);
 addEventListener("unload", () => clearInterval(refreshTimer));
+

@@ -1,5 +1,5 @@
 export const VEILANCE_USE_PRODUCTION_API = true;
-export const VEILANCE_DEVELOPMENT_API_ORIGIN = "http://10.0.10.211:5132";
+export const VEILANCE_DEVELOPMENT_API_ORIGIN = "http://10.0.10.211:9000";
 export const VEILANCE_PRODUCTION_API_ORIGIN = "https://api.veilance.org";
 
 export function veilanceApiOrigin(useProduction = VEILANCE_USE_PRODUCTION_API) {

@@ -1,3 +1,5 @@
+import { discoverPolicyLinks } from './verity/policy-links.js';
+import { createVerityService, observationWait, VERITY_MAINTENANCE_ALARM } from "./verity/service.js";
 import {
   addNetworkRequest,
   addPageSignal,
@@ -67,6 +69,7 @@ import {
 } from "./lib/telemetry-client-id.js";
 import {
   buildTelemetryMultipartUpload,
+  buildTelemetryEnvelope,
   fetchTelemetryIpAddress,
   requireSuccessfulTelemetryUpload
 } from "./lib/telemetry-upload.js";
@@ -100,7 +103,7 @@ const HISTORY_FLUSH_DELAY_MS = 200;
 const SNAPSHOT_UPLOAD_DELAY_MIN_MS = 5 * 60 * 1000;
 const SNAPSHOT_UPLOAD_DELAY_MAX_MS = 15 * 60 * 1000;
 const SNAPSHOT_RETRY_DELAYS_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000, 4 * 60 * 60 * 1000];
-const AUTOMATIC_SNAPSHOT_CAPTURE_DELAY_MS = 300;
+const AUTOMATIC_SNAPSHOT_CAPTURE_DELAY_MS = 15000;
 const AUTOMATIC_SNAPSHOT_CAPTURE_RETRY_DELAYS_MS = [1500, 5000];
 
 const states = new Map();
@@ -216,7 +219,7 @@ function normalizeOnboardingState(value) {
   return {
     schemaVersion: 1,
     completed,
-    accountMode: "guest",
+    accountMode: value?.accountMode === "account" ? "account" : "guest",
     privacyPolicyAccepted: completed,
     privacyPolicyVersion: completed ? String(value?.privacyPolicyVersion || "") : null,
     privacyPolicyAcceptedAt: completed && Number.isFinite(Number(value?.privacyPolicyAcceptedAt))
@@ -324,6 +327,15 @@ function trackerObservationsFor(state) {
     if (observations.size >= 200) break;
   }
   return [...observations.values()];
+}
+
+function withTimeout(promise, ms, message) {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject) => { timer=setTimeout(()=>reject(new Error(message)),ms); })]).finally(()=>clearTimeout(timer));
+}
+async function flushObservations(tabId) {
+  const result=await withTimeout(chrome.tabs.sendMessage(tabId,{type:"VEILANCE_FLUSH_OBSERVATIONS"},{frameId:0}),8000,"The website did not finish preparing its observations. Reload it and try again.");
+  if(!result?.ok)throw new Error(result?.error||"Reload this website so the updated extension can collect its observations.");
 }
 
 function queueTab(tabId, operation) {
@@ -790,6 +802,7 @@ function maybeScheduleAutomaticSnapshot(tabId, state, delay = AUTOMATIC_SNAPSHOT
     !Number.isInteger(tabId) ||
     !state?.visitId ||
     state.active === false ||
+    !state.loadCompletedAt ||
     !isPublicTelemetryHostname(state.hostname)
   ) return false;
 
@@ -834,7 +847,7 @@ function maybeScheduleAutomaticSnapshot(tabId, state, delay = AUTOMATIC_SNAPSHOT
     })
       .catch((error) => markAutomaticSnapshotFailure(tabId, visitId, error))
       .catch((error) => console.error("Veilance could not update automatic snapshot state", error));
-  }, Math.max(0, Number(delay) || 0));
+  }, Math.max(observationWait(state), Number(delay) || 0));
   automaticSnapshotTimers.set(visitId, timer);
   return true;
 }
@@ -867,6 +880,7 @@ async function markAutomaticSnapshotFailure(tabId, visitId, error) {
 
 async function captureTelemetrySnapshotForTab(tabId, options = {}) {
   const automatic = options.automatic === true;
+  const forComparison = options.forComparison === true;
   const expectedVisitId = typeof options.expectedVisitId === "string" ? options.expectedVisitId : null;
   if (automatic && !snapshotAutomaticCapture) return { ok: true, skipped: true };
 
@@ -912,7 +926,7 @@ async function captureTelemetrySnapshotForTab(tabId, options = {}) {
 
   const initialFindings = findingsFor(state);
   const initialInterest = scoreTelemetryInterest(state, initialFindings);
-  if (!initialInterest.eligible) {
+  if (!initialInterest.eligible && !forComparison) {
     if (automatic) return { ok: true, skipped: true };
     throw new Error(
       `Nothing notable enough to snapshot yet (${initialInterest.score}/100 interest; ` +
@@ -920,9 +934,13 @@ async function captureTelemetrySnapshotForTab(tabId, options = {}) {
     );
   }
 
-  const captured = await chrome.tabs.sendMessage(tabId, {
+  const captured = await withTimeout(chrome.tabs.sendMessage(tabId, {
     type: "VEILANCE_CAPTURE_REDACTED_DOCUMENT"
-  });
+  }, { frameId: 0 }), 8000, "The page snapshot timed out. Reload this website and try again.");
+  const currentTab = await chrome.tabs.get(tabId);
+  if (currentTab.url !== tab.url || states.get(tabId)?.visitId !== state.visitId || (captured?.pageSessionId && state.contentSessionId && captured.pageSessionId !== state.contentSessionId)) {
+    throw new Error("The page changed during capture. Please retry.");
+  }
   if (!captured?.ok || !captured.document) {
     throw new Error(captured?.error || "The page did not return a redacted document");
   }
@@ -946,16 +964,20 @@ async function captureTelemetrySnapshotForTab(tabId, options = {}) {
     {
       eventId: snapshotId,
       trackers: trackerObservationsFor(state),
-      findings: findingsFor(state)
+      findings: findingsFor(state),
+      allowRoutine: forComparison
     }
   );
-  if (!validateTelemetrySnapshot(payload)) {
+  if (!validateTelemetrySnapshot(payload, { allowRoutine: forComparison })) {
     throw new Error("The snapshot failed Veilance's final safety validator");
   }
   if (
     automatic &&
     (!snapshotAutomaticCapture || states.get(tabId)?.visitId !== expectedVisitId)
   ) return { ok: true, skipped: true };
+
+  // Explicit comparisons use the upload capture pipeline without queueing an upload.
+  if (forComparison) return { ok: true, snapshot: { snapshotId, visitId: state.visitId, hostname: page.hostname, createdAt, payload } };
 
   await historyStore.upsertSnapshot({
     snapshotId,
@@ -1873,6 +1895,7 @@ function isSettingsPage(sender) {
 
 if (chrome.alarms?.onAlarm) {
   chrome.alarms.onAlarm.addListener((alarm) => {
+    if(alarm?.name===VERITY_MAINTENANCE_ALARM){void ready.then(()=>verityService.maintenance()).catch(error=>console.warn("Verity will retry maintenance",error.message));return;}
     if (alarm?.name === TRACKER_UPDATE_ALARM) {
       void ready
         .then(() => trackerDatabaseState.autoUpdateEnabled && syncTrackerDatabase("scheduled"))
@@ -1984,7 +2007,61 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
   void ready.then(() => updateBadge(tabId, states.get(tabId) || null)).catch(() => {});
 });
 
+const verityService = createVerityService({
+  pageInfo: async tabId => {
+    await ready;
+    const tab = await chrome.tabs.get(tabId);
+    const page = safePageIdentity(tab.url || "");
+    if (tab.incognito || !page || !isPublicTelemetryHostname(page.hostname)) throw new Error("Open a public website outside Incognito to compare its policy.");
+    await waitForTab(tabId);
+    const state = states.get(tabId);
+    if(!state || state.active===false)throw new Error("Reload this website to start a fresh observation.");
+    const loaded = state?.loadCompletedAt;
+    const waitMs = observationWait(state);
+    let policies = [];
+    try {
+      const results = await chrome.scripting.executeScript({target:{tabId,frameIds:[0]},func:discoverPolicyLinks
+      });
+      policies = [...new Set(results[0]?.result || [])];
+    } catch {}
+    return {origin:page.origin,hostname:page.hostname,visitId:state.visitId,waitMs,loading:!loaded,policies};
+  },
+  capture: async (tabId, expectedOrigin, expectedVisitId) => {
+    await ready;
+    // Drain page messages before taking the tab queue lock; waiting inside it deadlocks.
+    await flushObservations(tabId);
+    return queueTab(tabId, async () => {
+      const tab = await chrome.tabs.get(tabId);
+      const page = safePageIdentity(tab.url || "");
+      const state = states.get(tabId);
+      if (tab.incognito || !page || !isPublicTelemetryHostname(page.hostname)) throw new Error("Only public websites outside Incognito can be analyzed.");
+      if (expectedOrigin !== page.origin || !state || state.active===false || state.origin !== page.origin || (expectedVisitId && expectedVisitId!==state.visitId)) throw new Error("The page changed. Refresh the comparison page and try again.");
+      if (observationWait(state) > 0) throw new Error("Wait at least 15 seconds after the page finishes loading before starting analysis.");
+      const visitId = state.visitId;
+      let record = await snapshotForReportState(state);
+      // Reuse the collected upload snapshot, but never a pre-interval snapshot.
+      if (!record?.payload || record.createdAt < state.loadCompletedAt + 15000 ||
+          !validateTelemetrySnapshot(record.payload, {allowRoutine:true})) {
+        record = (await captureTelemetrySnapshotForTab(tabId, {forComparison:true})).snapshot;
+      }
+      const currentTab = await chrome.tabs.get(tabId);
+      if (currentTab.url !== tab.url || states.get(tabId)?.visitId !== visitId) throw new Error("The page changed during capture. Please retry.");
+      return {
+        current_url: tab.url,
+        payload: buildTelemetryEnvelope({records:[record],clientId:telemetryClientId,batchId:newId()})
+      };
+    });
+  }
+});
+
+void ready.then(()=>verityService.initialize()).catch(error=>console.warn("Verity session setup failed",error.message));
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (String(message?.type || '').startsWith('VERITY_')) {
+    void verityService(message, sender).then(result=>sendResponse({ok:true,...result})).catch(error=>sendResponse({ok:false,error:error.message,code:error.code}));
+    return true;
+  }
+
   void (async () => {
     await ready;
     switch (message?.type) {
@@ -2286,8 +2363,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!isExtensionPage(sender, ["onboarding.html"])) {
           throw new Error("Setup choices can be saved only from Veilance onboarding");
         }
-        if (message.accountMode !== "guest") {
-          throw new Error("Account sign-in is not available in this release");
+        if (!["guest", "account"].includes(message.accountMode)) throw new Error("Choose an account option.");
+        if (message.accountMode === "account") {
+          const account = await verityService({type:"VERITY_ACCOUNT"}, sender);
+          if (account.user && !account.user.verified) throw new Error("Verify your email before finishing account setup.");
+          if (!account.user || !account.user.enabled_account) throw new Error("Sign in or continue without an account.");
         }
         if (message.privacyAccepted !== true) {
           throw new Error("Accept the Veilance Privacy Policy to finish setup");
@@ -2312,7 +2392,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const now = Date.now();
         onboardingState = normalizeOnboardingState({
           completed: true,
-          accountMode: "guest",
+          accountMode: message.accountMode,
           privacyPolicyAccepted: true,
           privacyPolicyVersion: PRIVACY_POLICY_VERSION,
           privacyPolicyAcceptedAt: now,

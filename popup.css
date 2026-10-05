@@ -378,3 +378,15 @@ footer span:last-child { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
   *::before,
   *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+
+.verity-entry {padding:10px 16px}.verity-entry button {width:100%;padding:12px;background:var(--accent, #175c66);color:var(--text,white);border:1px solid currentColor;border-radius:8px;cursor:pointer}
+
+.navigation .nav-button{min-width:0;padding-left:9px;padding-right:9px}.verity-panel{padding:20px}.verity-panel h1{font-size:23px}.verity-panel p{line-height:1.6}.verity-panel button{padding:12px;margin:10px 0;width:100%}.verity-hint{font-size:12px;opacity:.8}
+
+.verity-panel{border:1px solid var(--border);border-radius:8px;background:var(--surface)}.verity-panel h1{white-space:normal}.verity-panel button{border:1px solid var(--border);border-radius:5px;background:var(--surface-soft);color:var(--text);font:inherit;font-weight:600;cursor:pointer}.verity-panel #verityStart{background:var(--accent);color:#fff;border-color:var(--accent)}.verity-panel a{color:var(--accent)}#verityVerify{padding:12px;background:var(--surface-soft);border-radius:6px}#verityAccountStatus{font-weight:600;font-size:13px}
+
+#verityOverview{margin:18px 0;padding:14px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}#verityOverview h2{font-size:15px}#verityOverviewSummary{font-size:13px;overflow-wrap:anywhere}
+
+#verityScan label{display:block;margin:12px 0;font-size:12px}#verityScan select,#verityScan input[type=url]{display:block;width:100%;padding:10px;margin-top:6px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:5px;font:inherit;min-width:0}#verityScan .verity-consent{display:flex;gap:8px;line-height:1.5}#verityConsent{flex:0 0 auto;margin-top:3px}#verityStart:disabled{opacity:.5;cursor:default}#verityWait,#verityProgress{font-size:12px}#verityScore{display:block;font-size:18px;color:var(--accent)}
+
+.review-history-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 12px;border:1px solid #34505b;background:#10212a;border-radius:9px;padding:14px;margin:10px 0;text-decoration:none;color:#deedf1;overflow-wrap:anywhere}.review-history-item:hover,.review-history-item[aria-current=page]{border-color:#70d3da;background:#17313a}.review-history-item small,.review-history-item time{grid-column:1/-1;font-size:12px;color:#a8bfc7}.review-history-item .review-error{color:#ffc2b2}.review-state{font-size:12px;padding:2px 8px;border-radius:12px;background:#303f4c;align-self:start}.review-state.complete{color:#a5eac9;background:#183c32}.review-state.failed{color:#ffd0bd;background:#493028}.review-state.running,.review-state.preparing,.review-state.queued{color:#f6dd9f;background:#433a22}

@@ -314,14 +314,12 @@ main { width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: 36px 0 72
 #privateKeyReveal label,
 .snapshot-dialog label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 9.5px; }
 #privateKeyValue,
-#snapshotHtmlPreview { width: 100%; resize: vertical; padding: 10px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-soft); background: var(--page); font-size: 9px; line-height: 1.55; }
 #privateKeyValue { resize: none; }
 .dialog-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 #privateKeyReveal .dialog-actions { margin-top: 7px; }
 .dialog-footer { margin-top: 17px; justify-content: flex-end; }
 .snapshot-dialog label { margin-top: 14px; }
 .snapshot-preview-metadata { max-height: 215px; margin: 14px 0 0; padding: 11px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; color: var(--info); background: var(--page); font-size: 8.5px; line-height: 1.55; white-space: pre-wrap; }
-#snapshotHtmlPreview { min-height: 300px; }
 .snapshot-dialog-actions { margin-top: 10px; justify-content: flex-end; }
 
 @media (max-width: 860px) {
@@ -383,3 +381,5 @@ main { width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: 36px 0 72
   *::before,
   *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+.account-settings{padding:24px}.account-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:24px 0}.account-grid dt{font-size:12px;color:var(--muted);margin-bottom:6px}.account-grid dd{margin:0;font-size:15px;font-weight:600;overflow-wrap:anywhere}.account-notice{padding:18px;border:1px solid var(--border);border-radius:6px;margin-top:18px}.account-notice p{line-height:1.6}.account-settings a{color:var(--accent)}#accountLoginForm{max-width:420px}#accountLoginForm label{display:block;margin:16px 0}#accountLoginForm input{display:block;width:100%;padding:12px;margin-top:8px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:5px}#accountLoginForm button{padding:12px;margin-right:8px}@media(max-width:600px){.account-grid{grid-template-columns:1fr}}

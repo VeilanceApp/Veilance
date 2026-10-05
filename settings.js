@@ -1,3 +1,4 @@
+import './verity/settings-account.js';
 import { PAYOUTS_ENABLED } from "./config.js";
 import {
   initializeTheme,
@@ -81,9 +82,6 @@ const elements = {
   snapshotDialog: document.querySelector("#snapshotDialog"),
   snapshotDialogTitle: document.querySelector("#snapshotDialogTitle"),
   snapshotPreviewMetadata: document.querySelector("#snapshotPreviewMetadata"),
-  snapshotHtmlPreview: document.querySelector("#snapshotHtmlPreview"),
-  downloadSnapshotButton: document.querySelector("#downloadSnapshotButton"),
-  downloadSnapshotHtmlButton: document.querySelector("#downloadSnapshotHtmlButton"),
   queueSnapshotButton: document.querySelector("#queueSnapshotButton"),
   closeSnapshotDialogButton: document.querySelector("#closeSnapshotDialogButton"),
   saveStatus: document.querySelector("#saveStatus"),
@@ -673,7 +671,7 @@ function renderSnapshotUpload() {
   elements.snapshotAutomaticUpload.checked = Boolean(upload.automatic);
   elements.snapshotAutomaticUpload.disabled = !(upload.available && upload.consent);
   if (!upload.available) {
-    elements.snapshotUploadDescription.textContent = "Uploads are disabled in this build. Interest-qualified local capture, review, download, and deletion remain available.";
+    elements.snapshotUploadDescription.textContent = "Uploads are disabled in this build. Interest-qualified local capture, review and deletion remain available.";
     elements.queueAllSnapshotsButton.title = "Uploads are disabled in this build.";
     elements.uploadNowButton.title = "Uploads are disabled in this build.";
     elements.snapshotAutomaticUploadDescription.textContent = "Automatic uploads are unavailable in this build.";
@@ -694,7 +692,9 @@ function renderSnapshotUpload() {
 
 function renderSnapshotCapture() {
   const capture = settingsData?.snapshotCapture || {};
-  const minimumScore = Math.max(1, Number(capture.minimumScore) || 25);
+  const minimumScore = Math.max(1, Number(capture.minimumScore) || 5);
+  document.getElementById("captureThreshold").textContent = `${minimumScore} / 100`;
+  document.getElementById("captureThresholdInline").textContent = minimumScore;
   elements.snapshotAutomaticCapture.disabled = false;
   elements.snapshotAutomaticCapture.checked = capture.automatic === true;
   elements.snapshotAutomaticCaptureDescription.textContent = capture.automatic
@@ -745,7 +745,7 @@ function snapshotRowMarkup(snapshot) {
       </div>
       <div class="snapshot-row-actions">
         <button class="secondary-button" type="button" data-preview-snapshot="${escapeHtml(snapshot.snapshotId)}">Review</button>
-        <button class="secondary-button" type="button" data-download-snapshot="${escapeHtml(snapshot.snapshotId)}">Download</button>
+
         <button class="primary-button" type="button" data-queue-snapshot="${escapeHtml(snapshot.snapshotId)}" title="${escapeHtml(snapshotQueueTitle(snapshot))}" ${queueDisabled}>Queue</button>
         <button class="danger-outline-button" type="button" data-delete-snapshot="${escapeHtml(snapshot.snapshotId)}">Delete</button>
       </div>
@@ -766,15 +766,12 @@ async function loadSnapshots() {
   );
   elements.uploadNowButton.disabled = !snapshotSummaries.some((snapshot) => canUploadSnapshotNow(snapshot));
   if (!snapshotSummaries.length) {
-    elements.snapshotList.innerHTML = '<div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 25/100 interest.</div>';
+    elements.snapshotList.innerHTML = '<div class="empty-state">No interesting telemetry snapshots stored. Veilance enables capture when a public website reaches 5/100 interest.</div>';
     return;
   }
   elements.snapshotList.innerHTML = snapshotSummaries.map(snapshotRowMarkup).join("");
   for (const button of elements.snapshotList.querySelectorAll("[data-preview-snapshot]")) {
     button.addEventListener("click", () => void openSnapshot(button.dataset.previewSnapshot));
-  }
-  for (const button of elements.snapshotList.querySelectorAll("[data-download-snapshot]")) {
-    button.addEventListener("click", () => void downloadSnapshotById(button.dataset.downloadSnapshot));
   }
   for (const button of elements.snapshotList.querySelectorAll("[data-queue-snapshot]")) {
     button.addEventListener("click", () => void queueSnapshotById(button.dataset.queueSnapshot));
@@ -799,37 +796,13 @@ async function openSnapshot(snapshotId) {
   try {
     selectedSnapshot = await getSnapshot(snapshotId);
     const payload = selectedSnapshot.payload || {};
-    const redactedDocument = payload.redactedDocument || {};
-    const metadata = {
-      local: {
-        snapshotId: selectedSnapshot.snapshotId,
-        createdAt: new Date(selectedSnapshot.createdAt).toISOString(),
-        sizeBytes: selectedSnapshot.sizeBytes,
-        upload: selectedSnapshot.upload
-      },
-      payload: {
-        ...payload,
-        redactedDocument: {
-          ...redactedDocument,
-          html: "[shown in the redacted HTML field below]"
-        }
-      }
-    };
     elements.snapshotDialogTitle.textContent = selectedSnapshot.hostname || "Telemetry snapshot";
-    elements.snapshotPreviewMetadata.textContent = JSON.stringify(metadata, null, 2);
-    elements.snapshotHtmlPreview.value = String(redactedDocument.html || "");
+    elements.snapshotPreviewMetadata.replaceChildren();
+    const observation=payload.observation||{};
+    const values=[['Recorded',new Date(selectedSnapshot.createdAt).toLocaleString()],['Observation length',`${observation.durationSeconds||0} seconds`],['Requests',observation.totalRequests||0],['Outside requests',observation.thirdPartyRequests||0],['Known trackers',(payload.trackers||[]).length],['Interest score',`${payload.interest?.score||0} / 100`],['Sharing status',selectedSnapshot.upload?.status||'Saved locally']];
+    for(const [label,value] of values){const line=document.createElement('p');const strong=document.createElement('strong');strong.textContent=label+': ';line.append(strong,document.createTextNode(String(value)));elements.snapshotPreviewMetadata.append(line);}
     elements.queueSnapshotButton.disabled = !canQueueSnapshot(selectedSnapshot);
     elements.snapshotDialog.showModal();
-  } catch (error) {
-    showSaveStatus(error.message, true);
-  }
-}
-
-async function downloadSnapshotById(snapshotId) {
-  try {
-    const snapshot = await getSnapshot(snapshotId);
-    downloadJson(snapshotFilename(snapshot, "json"), snapshot);
-    showSaveStatus("Telemetry snapshot downloaded as JSON.");
   } catch (error) {
     showSaveStatus(error.message, true);
   }
@@ -1290,6 +1263,7 @@ elements.snapshotAutomaticCapture.addEventListener("change", async () => {
     elements.snapshotAutomaticCapture.checked = previous;
     showSaveStatus(error.message, true);
   } finally {
+    renderSnapshotCapture();
     elements.snapshotAutomaticCapture.disabled = false;
   }
 });
@@ -1380,19 +1354,6 @@ elements.clearSnapshotsButton.addEventListener("click", async () => {
   }
 });
 
-elements.downloadSnapshotButton.addEventListener("click", () => {
-  if (!selectedSnapshot) return;
-  downloadJson(snapshotFilename(selectedSnapshot, "json"), selectedSnapshot);
-  showSaveStatus("Telemetry snapshot downloaded as JSON.");
-});
-elements.downloadSnapshotHtmlButton.addEventListener("click", () => {
-  if (!selectedSnapshot) return;
-  downloadText(
-    snapshotFilename(selectedSnapshot, "redacted-html.txt"),
-    selectedSnapshot.payload?.redactedDocument?.html || ""
-  );
-  showSaveStatus("Redacted HTML downloaded as inert text.");
-});
 elements.queueSnapshotButton.addEventListener("click", () => {
   if (selectedSnapshot) void queueSnapshotById(selectedSnapshot.snapshotId);
 });
@@ -1400,7 +1361,7 @@ elements.closeSnapshotDialogButton.addEventListener("click", () => elements.snap
 elements.snapshotDialog.addEventListener("close", () => {
   selectedSnapshot = null;
   elements.snapshotPreviewMetadata.textContent = "";
-  elements.snapshotHtmlPreview.value = "";
+
 });
 
 elements.clearHistoryButton.addEventListener("click", async () => {

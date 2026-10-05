@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createVerityService} from '../verity/service.js';
+import {getJobs,changeJobs,updateJob} from '../verity/job-store.js';
+import {buildTelemetryEnvelope} from '../lib/telemetry-upload.js';
+import {buildTelemetrySnapshot,createEmptyState} from '../lib/core.js';
+test('history starts before capture, keeps five attempts, isolates accounts and caches one-shot results',async()=>{
+ const local={},session={};const area=s=>({get:async k=>({[k]:structuredClone(s[k])}),set:async v=>Object.assign(s,structuredClone(v)),remove:async k=>{delete s[k];}});
+ globalThis.chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p},storage:{local:area(local),session:area(session)}};
+ let uid='alice',polls=0,submissions=0,statusMode='complete';
+ globalThis.fetch=async(url,opts)=>{let output;if(url.endsWith('/login'))output={access_token:'access',refresh_token:'refresh'};else if(url.endsWith('/whoami'))output={user_id:uid,plan:'premium',enabled_account:true,verified:true};else if(url.endsWith('/compare')){submissions++;output={uuid:'job'+submissions,status:'PENDING'};}else if(url.endsWith('/status')){polls++;if(statusMode==='offline')throw Error('offline');output={analysis:{summary:'Completed review'},findings:[]};}else throw Error('Unexpected '+url);return new Response(JSON.stringify({output,error:{}}));};
+ const state=createEmptyState(1,'https://example.com',1000),doc={format:'veilance.redacted-html.v1',hostname:'example.com',https:true,html:'<!doctype html>\n<html><body>[REDACTED TEXT]</body></html>',truncated:false,originalElementCount:2,redaction:{textNodesRedacted:1},resourceHosts:[],inlineScriptHints:{},domMarkers:{}};
+ const payload=buildTelemetryEnvelope({records:[{payload:buildTelemetrySnapshot(state,doc,'1.0.0',17000,{allowRoutine:true,eventId:'test-event'})}],clientId:'ab'.repeat(32),batchId:'test-batch'});
+ let invalidCapture=false;
+ let unblock,entered;const gate=new Promise(r=>entered=r);let hold=true;
+ const service=createVerityService({capture:async()=>{if(hold){entered();await new Promise(r=>unblock=r);}return {current_url:'https://example.com',payload:invalidCapture?payload.observations[0]:payload};},pageInfo:async()=>({})});
+ const send=(type,data={})=>service({type,...data},{id:'test',url:'chrome-extension://test/popup.html'});
+ await send('VERITY_LOGIN',{email:'test@example.com',password:'test'});
+ const start=()=>send('VERITY_START',{tabId:1,expectedOrigin:'https://example.com',consent:true,policies:['https://example.com/privacy']});
+ const first=start();await gate;assert.equal((await send('VERITY_JOBS')).jobs[0].state,'preparing');unblock();const {jobs}=await first;hold=false;const id=jobs[0].id;
+ const results=await Promise.all([send('VERITY_POLL',{id}),send('VERITY_POLL',{id})]);assert.equal(polls,1);assert(results.every(r=>r.job.state==='complete'));
+ await send('VERITY_SIGNOUT');await send('VERITY_LOGIN',{email:'test@example.com',password:'test'});assert.equal((await send('VERITY_JOBS')).jobs[0].id,id);await send('VERITY_POLL',{id});assert.equal(polls,1);
+ for(let i=0;i<5;i++){const j=(await start()).jobs[0];await send('VERITY_POLL',{id:j.id});}
+ assert.equal((await send('VERITY_JOBS')).jobs.length,5);assert(!(await getJobs('alice')).some(j=>j.id===id));
+ uid='bob';await send('VERITY_LOGIN',{email:'bob@example.com',password:'test'});assert.equal((await send('VERITY_JOBS')).jobs.length,0);
+ invalidCapture=true;const before=submissions;await assert.rejects(start(),/batch is incomplete/);assert.equal(submissions,before);assert.equal((await getJobs('bob'))[0].state,'failed');invalidCapture=false;
+ const inFlight=(await start()).jobs[0];statusMode='offline';const offline=await send('VERITY_POLL',{id:inFlight.id});assert.equal(offline.job.state,'queued');assert(offline.job.uuid);assert(offline.job.error);
+ await Promise.all([updateJob('bob',inFlight.id,{resultNote:'kept'}),updateJob('bob',inFlight.id,{secondNote:'also kept'})]);assert.equal((await getJobs('bob'))[0].resultNote,'kept');
+ const reloaded=await import('../verity/job-store.js?restart');assert.equal((await reloaded.getJobs('bob'))[0].uuid,inFlight.uuid);
+});
