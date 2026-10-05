@@ -266,3 +266,11 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   *::before,
   *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+.setup-auth-actions {display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}
+#setupAuthForm {max-width:460px}
+#setupAuthForm label {display:block;margin:14px 0 6px}
+#setupAuthForm input {box-sizing:border-box;width:100%;padding:12px;border:1px solid var(--border,#687b85);border-radius:7px;background:var(--surface,#fff);color:var(--text,#15262e);font:inherit}
+#setupAuthSubmit {margin:20px 0 12px}
+#setupAuthMessage {overflow-wrap:anywhere}
+#setupSignedIn {padding:16px 0}

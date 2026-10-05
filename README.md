@@ -1,3 +1,17 @@
+## Veilance 1.0: Verity policy comparison
+
+Open a public website, let it finish loading, then choose the **Verity** tab in the popup. Verity waits a full 15 seconds after load completion before capturing evidence. It suggests privacy links from the page; review the URL, approve sending a redacted snapshot, and select **Analyze policy**. Up to three policies can share one snapshot. This does not enable automatic telemetry uploads.
+
+Use your existing email/password account. On first open, the extension attempts to reuse the JWT from an open `https://veilance.org` or `https://www.veilance.org` tab, validates it through `/whoami`, and otherwise shows sign-in. It reads the existing `veilance_user_access_token` / `veilance_user_refresh_token` sessionStorage keys from the trusted tab in an isolated script; it does not intercept unrelated Authorization headers. Tokens and comparison results live in extension session storage, not page-visible local storage. Browser restart requires sign-in or website session reuse again. Extension sign-out does not sign the website out.
+
+Unverified or disabled accounts and free/unknown plans cannot submit or poll comparisons. Unverified users see a website verification link and a recheck button in onboarding, the Verity tab and account pages. Free accounts go to the extension's **Account & plans** page with a link to subscribe on the website. Existing non-free plans, including holder, are validated by the account API. After an upgrade, select **I've updated my account — check again**.
+
+Requests use the existing `config.js` API-origin switch, including the unchanged `10.0.10.211:5132` development origin. Website session reuse is deliberately restricted to the production HTTPS website; development users can sign in directly in the extension. No passwords are saved.
+
+The upload/capture interest threshold is now **5/100**. The server's telemetry validator must accept the same threshold. Explicit Verity comparisons also support low-activity visits, because absence of activity is relevant to comparison; they still pass the redaction safety validator and require explicit consent. Older eligible snapshots with a stored threshold of 25 remain compatible.
+
+See `VERITY_API_NOTES.md` for endpoint details and backend requirements. Results resume polling while a Verity/account page is open; completed results are cached because the supplied status route consumes results. Results and tokens are cleared by extension sign-out. Jobs time out after 15 minutes. A successful submission whose response is lost cannot be automatically recovered without server-side idempotency/job-list support.
+
 # Veilance Browser Extension v0.9
 
 Veilance is a local-first browser privacy observability extension. It shows what
@@ -7,7 +21,7 @@ automatically mean a website is malicious.
 
 Veilance supports explicit local telemetry snapshots. A user can capture the
 current public website from the popup or separately opt into automatic local
-capture once observed behavior reaches the 25/100 interest threshold. The
+capture once observed behavior reaches the 5/100 interest threshold. The
 resulting evidence and inert redacted HTML can be reviewed, downloaded, or
 deleted in Settings. Snapshot uploads require their own explicit consent and
 can run immediately, through the privacy-delayed queue, or automatically. They
@@ -101,10 +115,10 @@ Do not select the ZIP itself. Chromium needs the extracted directory.
 On a fresh installation, Veilance opens a four-step onboarding page. It:
 
 * Explains the local privacy monitor and Fingerprint Shield
-* Offers the working no-account path and identifies account sign-in as coming
-  later
+* Offers email/password sign-in, account creation, website-session reuse, and a no-account path
+* Signs in new accounts and requires website email verification before account setup can finish
 * Requires acceptance of the linked Veilance Privacy Policy
-* Leaves automatic telemetry off unless the user explicitly enables it
+* Lets users choose whether automatic telemetry is enabled before completing setup
 * Explains the redacted upload contents, exclusions, randomized 5–15 minute
   delay, local payout wallet, and non-guaranteed VLNC reward review
 
@@ -168,7 +182,7 @@ sensitive data.
 ### Save a telemetry snapshot
 
 While viewing a public HTTP(S) website, Veilance scores observed actions from 0
-to 100. **Save snapshot** becomes available at 25/100. Visits below that
+to 100. **Save snapshot** becomes available at 5/100. Visits below that
 threshold are treated as routine and cannot be snapshotted. The capture is
 manual unless **Save eligible snapshots automatically** is enabled in Settings.
 Automatic capture remains off by default and saves at most one local snapshot
@@ -408,7 +422,7 @@ disabled automatically. The HTTP exception exists only for the private
 development endpoint. The user must still enable **Allow pseudonymous snapshot
 uploads** in Settings. They can then upload immediately, queue with a randomized
 privacy delay, or opt into automatic queueing. Unscored legacy records and
-visits below 25/100 cannot be queued. Enabling the build gate alone never uploads
+visits below 5/100 cannot be queued. Enabling the build gate alone never uploads
 existing or future snapshots.
 
 Immediately before an upload operation, the extension sends a credential-free
@@ -482,7 +496,7 @@ contains raw gzip bytes. After decompression, its JSON is:
       "interest": {
         "score": 25,
         "level": "interesting",
-        "minimumScore": 25,
+        "minimumScore": 5,
         "eligible": true,
         "reasons": [{ "id": "geolocation", "severity": "high", "points": 25 }]
       },
@@ -651,3 +665,8 @@ controls, and inspect the Live and History tabs.
 SQLite WebAssembly notices and provenance are documented in
 `vendor/sqlite/README.md`. Veilance's own source remains under the repository
 license in `LICENSE`.
+
+### Account and policy reports
+Settings → Account reads `/whoami` to show email, user ID, plan, enabled status and email verification. Free accounts see View plans; unverified accounts see a website verification action. The Verity popup tab shows the latest completed summary for the current website, with View more details opening that report. Policy choices come from narrowly matched HTML links, with an Other URL option. Reports use the analyst’s returned policy URL, preserve findings beside `analysis`, and show policy evidence, observed evidence, and limitations.
+
+Policy scans start directly in the popup Verity tab. Choose a detected policy or Other URL, give redacted-snapshot consent, and select Analyze policy after the 15-second observation wait. Progress and the returned summary appear in the same tab. The displayed percentage is the API model confidence, not a privacy/safety score; missing confidence is shown as unavailable. Only View more details opens the full analysis page. Reopening the popup retrieves cached results and resumes pending status checks.
